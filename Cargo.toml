@@ -1,0 +1,12 @@
+[package]
+name = "semstrait"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Compile semantic models to Substrait compute plans"
+repository = "https://github.com/semstrait/semstrait"
+keywords = ["semantic-layer", "substrait", "metrics", "analytics"]
+categories = ["database", "data-structures"]
+readme = "README.md"
+
+[dependencies]
