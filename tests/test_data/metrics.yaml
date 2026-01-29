@@ -1,0 +1,91 @@
+# Metrics Test Fixture
+# Tests: Derived calculations from measures
+#
+# Expected behavior:
+# - Simple metric (margin) should reference underlying measures
+# - Arithmetic metric (avg_price) should generate divide expression
+# - Metric with multiple measures should include all in aggregation
+
+models:
+  - name: financial
+    tableGroups:
+      - name: transactions
+        dimensions:
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+              - name: year
+                type: i32
+
+          - name: products
+            attributes:
+              - name: product_id
+                type: string
+              - name: category
+                type: string
+
+        measures:
+          - name: revenue
+            aggregation: sum
+            expr: sale_amount
+            type: f64
+
+          - name: cost
+            aggregation: sum
+            expr: cost_amount
+            type: f64
+
+          - name: quantity
+            aggregation: sum
+            expr: qty
+            type: i64
+
+          - name: transaction_count
+            aggregation: count
+            expr: transaction_id
+            type: i64
+
+        tables:
+          - table: finance.transactions
+            source:
+              type: parquet
+              path: /data/finance/transactions.parquet
+            dimensions:
+              dates: [date, year]
+              products: [product_id, category]
+            measures: [revenue, cost, quantity, transaction_count]
+
+    # Metrics at model level - the public query interface
+    metrics:
+      # Pass-through metrics for direct measure access
+      - name: revenue
+        type: f64
+        expr: revenue
+      
+      # Simple: profit = revenue - cost
+      - name: profit
+        type: f64
+        expr:
+          subtract: [revenue, cost]
+
+      # Ratio: margin = profit / revenue (nested)
+      - name: margin
+        type: f64
+        expr:
+          divide:
+            - subtract: [revenue, cost]
+            - revenue
+
+      # Average: avg_unit_price = revenue / quantity
+      - name: avg_unit_price
+        type: f64
+        expr:
+          divide: [revenue, quantity]
+
+      # Simple measure reference
+      - name: total_revenue
+        type: f64
+        expr: revenue
+
+# No shared dimensions (all dimensions are degenerate/inline)

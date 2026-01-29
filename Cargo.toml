@@ -1,6 +1,6 @@
 [package]
 name = "semstrait"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Compile semantic models to Substrait compute plans"
@@ -10,3 +10,11 @@ categories = ["database", "data-structures"]
 readme = "README.md"
 
 [dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Substrait
+substrait = { version = "0.62", features = ["serde"] }
+prost = "0.13"

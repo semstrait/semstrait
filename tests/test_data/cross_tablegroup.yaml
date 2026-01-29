@@ -1,0 +1,113 @@
+# Cross-TableGroup Test Fixture
+# Tests: UNION across multiple tableGroups with different measures
+#
+# Expected behavior:
+# - unified_cost metric should generate a UNION of both tableGroups
+# - Each branch should aggregate its own measure (ad_cost vs media_spend)
+# - Final result should re-aggregate the unioned data
+
+models:
+  - name: marketing
+    tableGroups:
+      # Google Ads data
+      - name: google_ads
+        dimensions:
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+              - name: year
+                type: i32
+
+          - name: campaign
+            attributes:
+              - name: campaign_id
+                type: string
+              - name: campaign_name
+                type: string
+
+        measures:
+          - name: ad_cost
+            aggregation: sum
+            expr: cost
+            type: f64
+
+          - name: clicks
+            aggregation: sum
+            expr: clicks
+            type: i64
+
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+
+        tables:
+          - table: marketing.google_ads_daily
+            source:
+              type: parquet
+              path: /data/marketing/google_ads_daily.parquet
+            dimensions:
+              dates: [date, year]
+              campaign: [campaign_id, campaign_name]
+            measures: [ad_cost, clicks, impressions]
+
+      # Meta (Facebook) Ads data
+      - name: meta_ads
+        dimensions:
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+              - name: year
+                type: i32
+
+          - name: campaign
+            attributes:
+              - name: campaign_id
+                type: string
+              - name: campaign_name
+                type: string
+
+        measures:
+          - name: media_spend
+            aggregation: sum
+            expr: spend
+            type: f64
+
+          - name: clicks
+            aggregation: sum
+            expr: link_clicks
+            type: i64
+
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+
+        tables:
+          - table: marketing.meta_ads_daily
+            source:
+              type: parquet
+              path: /data/marketing/meta_ads_daily.parquet
+            dimensions:
+              dates: [date, year]
+              campaign: [campaign_id, campaign_name]
+            measures: [media_spend, clicks, impressions]
+
+    # Cross-tableGroup metric
+    metrics:
+      - name: unified_cost
+        type: f64
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [tableGroup.name, "google_ads"]
+                then: ad_cost
+              - condition:
+                  eq: [tableGroup.name, "meta_ads"]
+                then: media_spend
+            else: 0
+
+# No shared dimensions (all dimensions are degenerate/inline)

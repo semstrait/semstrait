@@ -1,0 +1,71 @@
+# Multi-Table Selection Test Fixture
+# Tests: Selector choosing between tables at different granularities
+#
+# Expected behavior:
+# - Query for only dates.year + revenue → select yearly_summary (most aggregated)
+# - Query for dates.month + revenue → select monthly_summary
+# - Query for dates.day + revenue → select daily_detail (most granular)
+# - Query for all dimensions → select daily_detail
+
+models:
+  - name: sales_multi
+    tableGroups:
+      - name: sales_agg
+        dimensions:
+          - name: dates
+            attributes:
+              - name: year
+                type: i32
+              - name: month
+                type: i32
+              - name: day
+                type: i32
+
+          - name: region
+            attributes:
+              - name: region_name
+                type: string
+
+        measures:
+          - name: revenue
+            aggregation: sum
+            expr: total_revenue
+            type: f64
+
+          - name: orders
+            aggregation: sum
+            expr: order_count
+            type: i64
+
+        tables:
+          # Most aggregated - yearly
+          - table: agg.yearly_summary
+            source:
+              type: parquet
+              path: /data/agg/yearly_summary.parquet
+            dimensions:
+              dates: [year]
+              region: [region_name]
+            measures: [revenue, orders]
+
+          # Medium aggregation - monthly
+          - table: agg.monthly_summary
+            source:
+              type: parquet
+              path: /data/agg/monthly_summary.parquet
+            dimensions:
+              dates: [year, month]
+              region: [region_name]
+            measures: [revenue, orders]
+
+          # Most granular - daily
+          - table: agg.daily_detail
+            source:
+              type: parquet
+              path: /data/agg/daily_detail.parquet
+            dimensions:
+              dates: [year, month, day]
+              region: [region_name]
+            measures: [revenue, orders]
+
+# No shared dimensions (all dimensions are degenerate/inline)

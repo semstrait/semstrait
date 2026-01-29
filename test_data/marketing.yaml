@@ -1,0 +1,155 @@
+models:
+  - name: "-ObDoDFVQGxxCGa5vw_Z"
+    namespace: 6fc5b53e-cfc9-4c24-86a5-98348d9bcd1f
+    
+    # Note: common-cost metric uses cross-tableGroup logic (CASE WHEN connectorType)
+    # This requires cross-group query support which isn't implemented yet.
+    # For now, query each group separately and union in application layer.
+    
+    tableGroups:
+      # ============================================
+      # ADWORDS
+      # ============================================
+      - name: adwords
+        dimensions:
+          # All degenerate dimensions (columns on fact tables)
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+          
+          - name: account
+            attributes:
+              - name: currency
+                type: string
+              - name: accountName
+                column: adwords-accountName
+                type: string
+              - name: accountId
+                column: adwords-accountId
+                type: string
+          
+          - name: campaign
+            attributes:
+              - name: campaign
+                column: adwords-campaign
+                type: string
+              - name: campaignID
+                column: adwords-campaignID
+                type: string
+          
+          - name: ad_group
+            attributes:
+              - name: ad_group_id
+                column: adwords-ad_group_id
+                type: string
+              - name: ad_group_name
+                column: adwords-ad_group_name
+                type: string
+        
+        measures:
+          - name: cost
+            aggregation: sum
+            expr: adwords-cost
+            type: f64
+          
+          - name: views
+            aggregation: sum
+            expr: adwords-views
+            type: f64
+          
+          - name: clicks
+            aggregation: sum
+            expr: adwords-clicks
+            type: f64
+          
+          - name: impressions
+            aggregation: sum
+            expr: adwords-impressions
+            type: f64
+        
+        tables:
+          - table: "95f9b0c3-b116-46c5-849e-b7e901e5d7c1"  # Geo Performance | Campaign | Postal code
+            source:
+              type: parquet
+              path: /data/adwords/geo_performance.parquet
+            dimensions:
+              dates: [date]
+              account: [currency, accountName, accountId]
+              campaign: [campaign, campaignID]
+            measures: [cost, views, clicks, impressions]
+          
+          - table: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
+            source:
+              type: parquet
+              path: /data/adwords/ad_group_device.parquet
+            dimensions:
+              dates: [date]
+              account: [currency, accountName, accountId]
+              campaign: [campaign, campaignID]
+              ad_group: [ad_group_id, ad_group_name]
+            measures: [cost, views, clicks, impressions]
+
+      # ============================================
+      # FACEBOOK ADS
+      # ============================================
+      - name: facebookads
+        dimensions:
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+          
+          - name: account
+            attributes:
+              - name: currency
+                type: string
+          
+          - name: campaign
+            attributes:
+              - name: campaign
+                column: campaign_name
+                type: string
+        
+        measures:
+          - name: spend
+            aggregation: sum
+            expr: spend
+            type: f64
+          
+          - name: clicks
+            aggregation: sum
+            expr: clicks
+            type: i64
+          
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+        
+        tables:
+          - table: "facebook-campaign-daily"
+            source:
+              type: parquet
+              path: /data/facebookads/campaign_daily.parquet
+            dimensions:
+              dates: [date]
+              account: [currency]
+              campaign: [campaign]
+            measures: [spend, clicks, impressions]
+
+    metrics:
+      - name: fun-cost
+        type: f64
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [tableGroup.name, "adwords"]
+                then: cost
+              - condition:
+                  eq: [tableGroup.name, "facebookads"]
+                then: spend
+            else: 0
+
+# No shared dimension tables (all dimensions are degenerate/inline)

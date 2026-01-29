@@ -1,0 +1,178 @@
+models:
+  - name: steelwheels
+    namespace: "a908ff91-c951-4d65-b054-d246d2e8cae1" # tenant id
+    
+    # Shared dimensions (with physical tables) for this model
+    dimensions:
+      - name: dates
+        source:
+          type: parquet
+          path: /data/steelwheels/dates.parquet
+        label: Time
+        table: steelwheels.dates
+        attributes:
+          - name: date
+            column: time_id
+            label: Date
+            type: string
+          - name: year
+            column: year_id
+            label: Year
+            type: i32
+          - name: quarter
+            column: qtr_id
+            label: Quarter
+            type: i32
+          - name: month
+            column: month_name
+            label: Month
+            type: string
+
+      - name: markets
+        source:
+          type: parquet
+          path: /data/steelwheels/customer_w_ter.parquet
+        label: Geography
+        description: Customer location hierarchy from territory down to city
+        table: steelwheels.customer_w_ter
+        attributes:
+          - name: customer
+            column: customernumber
+            label: Customer Number
+            type: i32
+          - name: territory
+            label: Territory
+            description: Sales region (EMEA, APAC, NA, etc.)
+            examples: ["EMEA", "APAC", "NA", "Japan"]
+            type: string
+          - name: country
+            label: Country
+            examples: ["USA", "France", "UK", "Germany", "Japan"]
+            type: string
+          - name: state
+            label: State Province
+            type: string
+          - name: city
+            label: City
+            type: string
+    
+    # Metrics are model-level (shared across all table groups)
+    # Metrics are the public query API - measures are internal
+    metrics:
+      # Pass-through metrics expose measures as queryable
+      - name: sales
+        label: Sales
+        expr: sales
+        type: f64
+      
+      - name: quantity
+        label: Quantity
+        expr: quantity
+        type: i32
+      
+      - name: revenue
+        label: Revenue
+        expr: revenue
+        type: f64
+      
+      - name: premium_sales
+        label: Premium Sales
+        expr: premium_sales
+        type: f64
+      
+      # Derived metric - calculation from measures
+      - name: avg_unit_price
+        label: Average Unit Price
+        expr:
+          divide: [sales, quantity]
+        type: f64
+    
+    dataFilter:
+      - field: markets.country
+        userAttribute: allowedLocations
+    
+    # Table groups that can serve this model
+    tableGroups:
+      - name: orders
+        # ------------------------------------------
+        # DIMENSIONS available in this group
+        # ------------------------------------------
+        dimensions:
+          # Joined dimension - references model-level dimension
+          - name: dates
+            join:
+              leftKey: time_id
+              rightKey: time_id
+          
+          # Joined dimension
+          - name: markets
+            join:
+              leftKey: customernumber
+              rightKey: customernumber
+          
+          # Degenerate dimension (columns on fact table, no join)
+          - name: flags
+            label: Order Flags
+            attributes:
+              - name: is_premium
+                column: is_premium_order
+                label: Premium Order
+                type: bool
+              - name: status
+                column: order_status
+                label: Order Status
+                type: string
+        
+        # ------------------------------------------
+        # MEASURES shared by all tables in group
+        # ------------------------------------------
+        measures:
+          - name: quantity
+            label: Quantity
+            description: Total number of items ordered
+            aggregation: sum
+            expr: quantityordered
+            type: i32
+          
+          - name: sales
+            label: Sales
+            description: Total revenue from orders, before discounts
+            synonyms: [revenue, total sales, income]
+            aggregation: sum
+            expr: totalprice
+            type: f64
+          
+          - name: revenue
+            label: Revenue (computed)
+            aggregation: sum
+            expr:
+              multiply: [quantityordered, priceeach]
+            type: f64
+          
+          - name: premium_sales
+            label: Premium Sales
+            aggregation: sum
+            expr:
+              case:
+                when:
+                  - condition:
+                      gt: [priceeach, 100]
+                    then: totalprice
+                else: 0
+            type: f64
+        
+        # ------------------------------------------
+        # TABLES: Each declares its field subset
+        # ------------------------------------------
+        tables:
+          - table: steelwheels.orderfact
+            source:
+              type: parquet
+              path: /data/steelwheels/orderfact.parquet
+            uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            properties: {}
+            dimensions:
+              dates: [date, year, quarter, month]
+              markets: [customer, territory, country, state, city]
+              flags: [is_premium, status]
+            measures: [quantity, sales, revenue, premium_sales]
