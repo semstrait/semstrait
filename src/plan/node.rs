@@ -19,6 +19,9 @@ pub enum PlanNode {
     Sort(Sort),
     /// Union multiple relations (UNION ALL)
     Union(Union),
+    /// Virtual table with literal values (like SQL VALUES clause)
+    /// Used for metadata-only queries that don't need table scans
+    VirtualTable(VirtualTable),
 }
 
 /// Scan a table
@@ -166,4 +169,29 @@ pub enum SortDirection {
 pub struct Union {
     /// Input relations to union (must have at least 2)
     pub inputs: Vec<PlanNode>,
+}
+
+/// Virtual table with literal values (like SQL VALUES clause)
+/// 
+/// Used for metadata-only queries (e.g., querying only `_table` attributes)
+/// where no actual table scan is needed. Each row is a set of literal values.
+#[derive(Debug)]
+pub struct VirtualTable {
+    /// Column names
+    pub columns: Vec<String>,
+    /// Column types (e.g., "string", "i32", etc.)
+    pub column_types: Vec<String>,
+    /// Rows of literal values (each inner Vec is one row)
+    pub rows: Vec<Vec<LiteralValue>>,
+}
+
+/// A literal value for VirtualTable rows
+#[derive(Debug, Clone)]
+pub enum LiteralValue {
+    String(String),
+    Int32(i32),
+    Int64(i64),
+    Float64(f64),
+    Bool(bool),
+    Null,
 }

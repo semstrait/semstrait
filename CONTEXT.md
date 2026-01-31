@@ -44,6 +44,7 @@ The semantic model is the single source of truth: define once, use for both UX g
 - **Type-safe enums** - `DataType`, `Aggregation` validate at parse time, not runtime
 - **Enums shared across layers** - e.g., `model::Aggregation` used directly in `plan::AggregateExpr`
 - **Serde with aliases** - YAML strings like "count_distinct" deserialize to enum variants
+- **Virtual dimensions** - Dimensions with `virtual: true` have no physical table and emit constant literal values (e.g., `_table` for metadata)
 
 ## Expressions
 
@@ -75,6 +76,8 @@ To add a new expression type: add variant to `ExprNode` enum, serde handles dese
 | Add aggregation | `model/types.rs` - add to `Aggregation` enum, update `FromStr` |
 | Add input format | Create parser crate that produces `model::Schema` |
 | Add plan node | `plan/node.rs` + update `planner/` and `emitter/` |
+| Add `_table` attribute | 1) Add to model's `_table` dimension attributes, 2) Add to table's `_table` list |
+| Add table property | 1) Add to `table.properties`, 2) Declare in `_table` dimension, 3) Add to table's `_table` list |
 
 ## Testing
 

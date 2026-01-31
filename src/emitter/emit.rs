@@ -26,6 +26,7 @@ use substrait::proto::{
 
 use crate::plan::{
     PlanNode, Scan, Join, JoinType, Filter, Aggregate, Project, Sort, SortDirection, Union,
+    VirtualTable, LiteralValue,
     Expr, Column, Literal, BinaryOperator, AggregateExpr,
 };
 use crate::model::Aggregation;
@@ -216,6 +217,7 @@ fn emit_rel(node: &PlanNode, ctx: &mut SchemaContext) -> Result<proto::Rel, Emit
         PlanNode::Project(proj) => emit_project(proj, ctx),
         PlanNode::Sort(sort) => emit_sort(sort, ctx),
         PlanNode::Union(union) => emit_union(union, ctx),
+        PlanNode::VirtualTable(vt) => emit_virtual_table(vt, ctx),
     }
 }
 
@@ -538,7 +540,7 @@ fn emit_union(union: &Union, ctx: &mut SchemaContext) -> Result<proto::Rel, Emit
         ));
     }
 
-    // Emit all inputs, each with a fresh context
+        // Emit all inputs, each with a fresh context
     // Each branch is independent and should not share column indices
     let mut inputs: Vec<proto::Rel> = Vec::new();
     let mut first_branch_ctx: Option<SchemaContext> = None;
@@ -568,6 +570,77 @@ fn emit_union(union: &Union, ctx: &mut SchemaContext) -> Result<proto::Rel, Emit
             advanced_extension: None,
         })),
     })
+}
+
+/// Emit a virtual table (VALUES clause) for metadata-only queries
+fn emit_virtual_table(vt: &VirtualTable, ctx: &mut SchemaContext) -> Result<proto::Rel, EmitError> {
+    // Update schema context with column info
+    // For virtual tables, we use empty table name since there's no physical table
+    ctx.add_scan("", &vt.columns);
+    
+    // Build the schema (column types)
+    let types: Vec<proto::Type> = vt.column_types.iter()
+        .map(|t| type_to_substrait(t))
+        .collect();
+    
+    // Build expressions for each row
+    // Each row is a struct containing all column values
+    let expressions: Vec<proto::expression::nested::Struct> = vt.rows.iter()
+        .map(|row| {
+            let fields: Vec<proto::Expression> = row.iter()
+                .map(|val| literal_value_to_expression(val))
+                .collect();
+            proto::expression::nested::Struct { fields }
+        })
+        .collect();
+    
+    // Create the VirtualTable read relation
+    Ok(proto::Rel {
+        rel_type: Some(RelType::Read(Box::new(proto::ReadRel {
+            common: None,
+            base_schema: Some(proto::NamedStruct {
+                names: vt.columns.clone(),
+                r#struct: Some(proto::r#type::Struct {
+                    types,
+                    type_variation_reference: 0,
+                    nullability: Nullability::Required as i32,
+                }),
+            }),
+            filter: None,
+            best_effort_filter: None,
+            projection: None,
+            advanced_extension: None,
+            read_type: Some(ReadType::VirtualTable(proto::read_rel::VirtualTable {
+                expressions,
+                ..Default::default()
+            })),
+        }))),
+    })
+}
+
+/// Convert a LiteralValue to a Substrait Expression
+fn literal_value_to_expression(val: &LiteralValue) -> proto::Expression {
+    let literal_type = match val {
+        LiteralValue::String(s) => LiteralType::String(s.clone()),
+        LiteralValue::Int32(i) => LiteralType::I32(*i),
+        LiteralValue::Int64(i) => LiteralType::I64(*i),
+        LiteralValue::Float64(f) => LiteralType::Fp64(*f),
+        LiteralValue::Bool(b) => LiteralType::Boolean(*b),
+        LiteralValue::Null => LiteralType::Null(proto::Type {
+            kind: Some(Kind::Bool(proto::r#type::Boolean {
+                type_variation_reference: 0,
+                nullability: Nullability::Nullable as i32,
+            })),
+        }),
+    };
+    
+    proto::Expression {
+        rex_type: Some(expression::RexType::Literal(proto::expression::Literal {
+            nullable: true,
+            type_variation_reference: 0,
+            literal_type: Some(literal_type),
+        })),
+    }
 }
 
 /// Emit an aggregate measure
@@ -673,13 +746,8 @@ fn emit_field_reference(field: u32) -> Result<proto::Expression, EmitError> {
 /// Emit a literal value
 fn emit_literal(lit: &Literal) -> Result<proto::Expression, EmitError> {
     let literal_type = match lit {
-        Literal::Null => {
-            LiteralType::Null(proto::Type {
-                kind: Some(Kind::Bool(proto::r#type::Boolean {
-                    type_variation_reference: 0,
-                    nullability: Nullability::Nullable as i32,
-                })),
-            })
+        Literal::Null(type_name) => {
+            LiteralType::Null(type_to_substrait(type_name))
         }
         Literal::Bool(b) => LiteralType::Boolean(*b),
         Literal::Int(i) => LiteralType::I64(*i),
@@ -1188,6 +1256,54 @@ mod tests {
 
         let result = emit_plan(&union, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_emit_project_with_literals() {
+        use crate::plan::{Aggregate, AggregateExpr, Project, ProjectExpr, Literal};
+        use crate::model::Aggregation;
+        
+        // Build a plan: Scan -> Aggregate -> Project with a literal
+        // Use alias "fact" so Column references match
+        let scan = Scan::new("test.fact")
+            .with_alias("fact")
+            .with_columns(
+                vec!["year_id".to_string(), "amount".to_string()],
+                vec!["i32".to_string(), "f64".to_string()],
+            );
+        
+        let aggregate = PlanNode::Aggregate(Aggregate {
+            input: Box::new(PlanNode::Scan(scan)),
+            group_by: vec![Column::new("fact", "year_id")],
+            aggregates: vec![AggregateExpr {
+                func: Aggregation::Sum,
+                expr: Expr::Column(Column::new("fact", "amount")),
+                alias: "total".to_string(),
+            }],
+        });
+        
+        // Project includes a literal (simulating meta attribute)
+        let project = PlanNode::Project(Project {
+            input: Box::new(aggregate),
+            expressions: vec![
+                ProjectExpr {
+                    expr: Expr::Column(Column::new("fact", "year_id")),
+                    alias: "dates.year".to_string(),
+                },
+                ProjectExpr {
+                    expr: Expr::Literal(Literal::String("test_group".to_string())),
+                    alias: "_table.tableGroup".to_string(),
+                },
+                ProjectExpr {
+                    expr: Expr::Column(Column::unqualified("total")),
+                    alias: "sales".to_string(),
+                },
+            ],
+        });
+        
+        // This should succeed - literals don't need column lookups
+        let result = emit_plan(&project, None);
+        assert!(result.is_ok(), "Emit with literal should succeed: {:?}", result.err());
     }
 }
 

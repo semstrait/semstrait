@@ -8,6 +8,18 @@
 
 models:
   - name: financial
+    # Virtual _table dimension for metadata
+    dimensions:
+      - name: _table
+        virtual: true
+        attributes:
+          - name: model
+            type: string
+          - name: tableGroup
+            type: string
+          - name: table
+            type: string
+
     tableGroups:
       - name: transactions
         dimensions:
@@ -24,6 +36,9 @@ models:
                 type: string
               - name: category
                 type: string
+          
+          # Virtual dimension for metadata
+          - name: _table
 
         measures:
           - name: revenue
@@ -54,6 +69,7 @@ models:
             dimensions:
               dates: [date, year]
               products: [product_id, category]
+              _table: [model, tableGroup, table]
             measures: [revenue, cost, quantity, transaction_count]
 
     # Metrics at model level - the public query interface

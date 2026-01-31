@@ -85,7 +85,8 @@ pub enum Expr {
 /// Literal values
 #[derive(Debug, Clone)]
 pub enum Literal {
-    Null,
+    /// NULL with a specific data type (e.g., "date", "i64", "string")
+    Null(String),
     Bool(bool),
     Int(i64),
     Float(f64),

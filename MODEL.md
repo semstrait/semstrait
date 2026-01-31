@@ -612,3 +612,144 @@ metrics:
 ```
 
 Supported: `add`, `subtract`, `multiply`, `divide`
+
+## Virtual `_table` Dimension
+
+The `_table` dimension is a virtual dimension that provides access to table and model metadata as queryable attributes. These values are emitted as constant literals in the query output.
+
+Unlike regular dimensions, virtual dimensions have no physical table - they are marked with `virtual: true` and their attribute values come from the model configuration rather than data.
+
+### Declaring the `_table` Dimension
+
+The `_table` dimension must be explicitly declared in the model's `dimensions` list:
+
+```yaml
+models:
+  - name: steelwheels
+    namespace: "tenant-123"
+    
+    dimensions:
+      # Regular dimension (has physical table)
+      - name: dates
+        table: steelwheels.dates
+        source:
+          type: parquet
+          path: /data/dates.parquet
+        attributes:
+          - { name: year, column: year_id, type: i32 }
+      
+      # Virtual dimension (no physical table)
+      - name: _table
+        virtual: true
+        label: Table Metadata
+        description: Metadata about the table and model
+        attributes:
+          - name: model
+            label: Model Name
+            type: string
+          - name: namespace
+            label: Model Namespace
+            type: string
+          - name: tableGroup
+            label: Table Group
+            type: string
+          - name: table
+            label: Physical Table
+            type: string
+          - name: uuid
+            label: Table UUID
+            type: string
+          # Custom properties (synced from Iceberg catalog, etc.)
+          - name: sourceSystem
+            label: Source System
+            type: string
+          - name: dataOwner
+            label: Data Owner
+            type: string
+```
+
+### Referencing in TableGroups and Tables
+
+Like regular dimensions, `_table` must be referenced in the tableGroup and each table must declare which attributes it provides:
+
+```yaml
+tableGroups:
+  - name: orders
+    dimensions:
+      - name: dates
+        join:
+          leftKey: time_id
+          rightKey: time_id
+      # Reference the virtual dimension (no join needed)
+      - name: _table
+    
+    tables:
+      - table: steelwheels.orderfact
+        uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        properties:
+          sourceSystem: "pentaho"
+          dataOwner: "analytics-team"
+        dimensions:
+          dates: [year, quarter, month]
+          # Declare which _table attributes this table provides
+          _table: [model, namespace, tableGroup, table, uuid, sourceSystem, dataOwner]
+        measures: [sales, quantity]
+```
+
+### Usage in Queries
+
+Include `_table.*` attributes in `rows` or `columns` just like regular dimension attributes:
+
+```yaml
+model: "steelwheels"
+rows:
+  - "dates.year"
+  - "_table.tableGroup"
+  - "_table.sourceSystem"
+metrics: ["sales"]
+```
+
+Result:
+```
+| dates.year | _table.tableGroup | _table.sourceSystem | sales    |
+|------------|-------------------|---------------------|----------|
+| 2023       | orders            | pentaho             | 500000   |
+| 2024       | orders            | pentaho             | 650000   |
+```
+
+### Built-in vs Custom Attributes
+
+| Attribute | Value Source | Description |
+|-----------|--------------|-------------|
+| `_table.model` | `model.name` | Model name |
+| `_table.namespace` | `model.namespace` | Model namespace (required if declared) |
+| `_table.tableGroup` | `tableGroup.name` | TableGroup name |
+| `_table.table` | `table.table` | Physical table name |
+| `_table.uuid` | `table.uuid` | Table UUID (required if declared) |
+| `_table.{key}` | `table.properties[key]` | Custom property from `properties` map |
+
+### Cross-TableGroup Queries
+
+When used with cross-tableGroup metrics, each UNION branch gets its own metadata values:
+
+```yaml
+model: "marketing"
+rows:
+  - "dates.date"
+  - "_table.tableGroup"
+metrics: ["unified_cost"]
+
+# Result:
+# | dates.date | _table.tableGroup | unified_cost |
+# |------------|-------------------|--------------|
+# | 2024-01-01 | google_ads        | 1500.00      |
+# | 2024-01-01 | meta_ads          | 2300.00      |
+```
+
+### Behavior
+
+- **Self-documenting schema**: UI/LLM can introspect the model to discover available `_table` attributes
+- **Explicit declaration**: Only declared attributes can be queried - unknown attributes return an error
+- **Not in GROUP BY**: Meta attributes are constant values and are not included in the SQL GROUP BY clause
+- **Projected as literals**: The values are emitted as string literals in the Substrait ProjectRel
+- **Error on missing value**: If an attribute is declared but the source value isn't set (e.g., `uuid` when table has no UUID), an error is returned

@@ -8,7 +8,7 @@
 //! Aggregate awareness is scoped to a single tableGroup. If multiple tableGroups
 //! can serve the query, an error is returned - use a cross-tableGroup metric instead.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::model::{Model, TableGroup, GroupTable, Schema};
 use super::error::SelectError;
 
@@ -49,10 +49,29 @@ pub fn select_tables<'a>(
         });
     }
     
+    // Extract tableGroup qualifiers from three-part dimension paths
+    // e.g., "adwords.dates.year" -> "adwords"
+    let qualified_groups: HashSet<&str> = required_dimensions.iter()
+        .filter_map(|path| {
+            let parts: Vec<&str> = path.split('.').collect();
+            if parts.len() == 3 { Some(parts[0]) } else { None }
+        })
+        .collect();
+    
+    // If there are qualified dimensions, only consider those specific tableGroups
+    // Otherwise, consider all tableGroups
+    let groups_to_check: Vec<&TableGroup> = if qualified_groups.is_empty() {
+        model.table_groups.iter().collect()
+    } else {
+        model.table_groups.iter()
+            .filter(|g| qualified_groups.contains(g.name.as_str()))
+            .collect()
+    };
+    
     // Find all feasible tables, grouped by their tableGroup
     let mut feasible_by_group: HashMap<&str, Vec<SelectedTable>> = HashMap::new();
     
-    for group in &model.table_groups {
+    for group in groups_to_check {
         for table in &group.tables {
             if is_feasible(model, group, table, required_dimensions, required_measures) {
                 feasible_by_group
@@ -103,8 +122,31 @@ fn is_feasible(
 ) -> bool {
     // Check all required dimension.attribute paths exist
     for dim_attr in required_dimensions {
-        if !table_has_attribute(model, group, table, dim_attr) {
-            return false;
+        // Skip virtual _table dimension - it's available on all tables
+        // and shouldn't affect table selection
+        if dim_attr.starts_with("_table.") {
+            continue;
+        }
+        
+        // Handle tableGroup-qualified paths (e.g., "adwords.dates.year")
+        let parts: Vec<&str> = dim_attr.split('.').collect();
+        if parts.len() == 3 {
+            let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
+            // If this dimension is qualified for a DIFFERENT tableGroup, skip it
+            // (it's not required from this group)
+            if tg_qualifier != group.name {
+                continue;
+            }
+            // Check if this table has the dimension.attribute
+            let two_part = format!("{}.{}", dim_name, attr_name);
+            if !table_has_attribute(model, group, table, &two_part) {
+                return false;
+            }
+        } else {
+            // Two-part path: check normally
+            if !table_has_attribute(model, group, table, dim_attr) {
+                return false;
+            }
         }
     }
     
@@ -175,11 +217,33 @@ fn find_missing_requirements(
     let mut missing = Vec::new();
     
     for dim_attr in required_dimensions {
-        let available_in_any = model.table_groups.iter().any(|group| {
-            group.tables.iter().any(|table| {
-                table_has_attribute(model, group, table, dim_attr)
+        // Skip virtual _table dimension - it's always available
+        if dim_attr.starts_with("_table.") {
+            continue;
+        }
+        
+        // Handle tableGroup-qualified paths (e.g., "adwords.dates.year")
+        let parts: Vec<&str> = dim_attr.split('.').collect();
+        let available_in_any = if parts.len() == 3 {
+            let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
+            let two_part = format!("{}.{}", dim_name, attr_name);
+            // Only check the specified tableGroup
+            model.table_groups.iter()
+                .filter(|group| group.name == tg_qualifier)
+                .any(|group| {
+                    group.tables.iter().any(|table| {
+                        table_has_attribute(model, group, table, &two_part)
+                    })
+                })
+        } else {
+            // Two-part path: check all tableGroups
+            model.table_groups.iter().any(|group| {
+                group.tables.iter().any(|table| {
+                    table_has_attribute(model, group, table, dim_attr)
+                })
             })
-        });
+        };
+        
         if !available_in_any {
             missing.push(format!("dimension '{}' not available in any table", dim_attr));
         }

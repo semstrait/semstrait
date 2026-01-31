@@ -107,3 +107,78 @@ fn test_multiple_metrics() {
 // - CASE WHEN expressions in metrics
 // - Metrics that reference other metrics (if supported)
 // - Error handling for undefined measure references
+
+#[test]
+fn test_meta_attributes_with_metrics() {
+    let schema = load_fixture("metrics.yaml");
+
+    // Query with virtual _table attributes alongside regular dimensions and metrics
+    let request = QueryRequest {
+        model: "financial".to_string(),
+        rows: Some(vec![
+            "dates.year".to_string(),
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: Some(vec!["total_revenue".to_string()]),
+        ..Default::default()
+    };
+
+    let plan = run_pipeline(&schema, &request).expect("Meta attributes with metrics should succeed");
+    
+    // Plan should compile successfully
+    assert!(!plan.relations.is_empty());
+}
+
+#[test]
+fn test_meta_attributes_only_with_metrics() {
+    let schema = load_fixture("metrics.yaml");
+
+    // Query with only _table attributes (no physical dimensions) and metrics
+    let request = QueryRequest {
+        model: "financial".to_string(),
+        rows: Some(vec![
+            "_table.model".to_string(),
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: Some(vec!["revenue".to_string()]),
+        ..Default::default()
+    };
+
+    let plan = run_pipeline(&schema, &request).expect("Meta-only with metrics should succeed");
+    
+    // Plan should compile successfully
+    assert!(!plan.relations.is_empty());
+}
+
+#[test]
+fn test_meta_with_metrics_multiple_tablegroups_requires_model_metric() {
+    // Test model with virtual _table dimension at model level
+    // Virtual dimensions are implicitly conformed, so querying _table.tableGroup
+    // triggers the UNION path, which requires model-level metrics
+    let schema = load_fixture("marketing.yaml");
+
+    // Query with _table.tableGroup + clicks metric
+    // "clicks" exists as a measure in tableGroups but NOT as a model-level metric
+    let request = QueryRequest {
+        model: "-ObDoDFVQGxxCGa5vw_Z".to_string(),
+        rows: Some(vec![
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: Some(vec!["clicks".to_string()]),
+        ..Default::default()
+    };
+
+    let result = run_pipeline(&schema, &request);
+    
+    // Should fail because:
+    // 1. Virtual _table is implicitly conformed → takes UNION path
+    // 2. UNION path requires model-level metrics
+    // 3. "clicks" is not a model-level metric (only a tableGroup measure)
+    assert!(result.is_err(), "Expected error when metric not defined at model level");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("MetricNotFound") || err.contains("clicks"),
+        "Expected MetricNotFound error, got: {}", 
+        err
+    );
+}

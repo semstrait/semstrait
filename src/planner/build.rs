@@ -1,10 +1,11 @@
 //! Plan building logic
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupTable, Dimension, TableGroupDimension, TableGroup, Schema, Model, Metric, Aggregation, Measure};
 use crate::plan::{
     Aggregate, AggregateExpr, Column, Expr, Filter, Join, JoinType, 
     Literal, PlanNode, Scan, BinaryOperator, Project, ProjectExpr, Sort, SortKey, SortDirection, Union,
+    VirtualTable, LiteralValue as PlanLiteralValue,
 };
 use crate::resolver::{ResolvedQuery, AttributeRef, ResolvedFilter, ResolvedDimension, resolve_query};
 use crate::selector::select_tables;
@@ -69,8 +70,12 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
                         .cloned()
                         .unwrap_or_default();
 
+                    // Virtual dimensions don't have physical tables
+                    let dim_table = dimension.table.as_ref()
+                        .expect("Non-virtual dimension must have a table");
+                    
                     let dim_scan = PlanNode::Scan(
-                        Scan::new(&dimension.table)
+                        Scan::new(dim_table)
                             .with_alias(dim_alias)
                             .with_columns(dim_cols, dim_types)
                     );
@@ -115,8 +120,10 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     }
 
     // Build GROUP BY columns from row and column attributes
+    // Skip Meta attributes - they're constants, not columns to group by
     let group_by: Vec<Column> = resolved.row_attributes.iter()
         .chain(resolved.column_attributes.iter())
+        .filter(|attr| !attr.is_meta())
         .map(|attr| build_column(attr, resolved.table, fact_alias))
         .collect();
 
@@ -139,17 +146,21 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
         });
     }
 
-    // Add Project node if there are metrics
-    if !resolved.metrics.is_empty() {
+    // Add Project node if there are metrics or meta attributes
+    let has_meta_attrs = resolved.row_attributes.iter()
+        .chain(resolved.column_attributes.iter())
+        .any(|attr| attr.is_meta());
+    
+    if !resolved.metrics.is_empty() || has_meta_attrs {
         let mut projections = Vec::new();
         
-        // Pass through GROUP BY columns with semantic names
+        // Pass through attributes with semantic names
         // Row attributes first, then column attributes
         for attr in resolved.row_attributes.iter().chain(resolved.column_attributes.iter()) {
-            let col = build_column(attr, resolved.table, fact_alias);
-            let semantic_name = format!("{}.{}", attr.dimension_name(), attr.attribute().name);
+            let semantic_name = format!("{}.{}", attr.dimension_name(), attr.attribute_name());
+            let expr = build_attribute_expr(attr, resolved.table, fact_alias);
             projections.push(ProjectExpr {
-                expr: Expr::Column(col),
+                expr,
                 alias: semantic_name,
             });
         }
@@ -199,6 +210,15 @@ pub fn plan_semantic_query(
     model: &Model,
     request: &QueryRequest,
 ) -> Result<PlanNode, PlanError> {
+    // Build dimension list from rows + columns
+    let mut dimension_attrs: Vec<String> = Vec::new();
+    if let Some(ref rows) = request.rows {
+        dimension_attrs.extend(rows.clone());
+    }
+    if let Some(ref cols) = request.columns {
+        dimension_attrs.extend(cols.clone());
+    }
+    
     // Check if any requested metric is cross-tableGroup
     let cross_table_metrics: Vec<&Metric> = request.metrics
         .as_ref()
@@ -210,8 +230,18 @@ pub fn plan_semantic_query(
         })
         .unwrap_or_default();
     
+    // Extract qualified tableGroups from 3-part dimension paths (e.g., "adwords.dates.year")
+    let qualified_groups: HashSet<&str> = dimension_attrs.iter()
+        .filter_map(|path| {
+            let parts: Vec<&str> = path.split('.').collect();
+            if parts.len() == 3 { Some(parts[0]) } else { None }
+        })
+        .collect();
+    
+    let is_conformed = model.is_conformed_query(&dimension_attrs);
+    
     if !cross_table_metrics.is_empty() {
-        // Cross-tableGroup query path
+        // Cross-tableGroup metric query path
         // For now, support single cross-tableGroup metric per query
         if cross_table_metrics.len() > 1 {
             return Err(PlanError::InvalidQuery(
@@ -221,27 +251,20 @@ pub fn plan_semantic_query(
         
         let metric = cross_table_metrics[0];
         
-        // Collect dimension attributes from rows and columns
-        let mut dimension_attrs: Vec<String> = Vec::new();
-        if let Some(ref rows) = request.rows {
-            dimension_attrs.extend(rows.clone());
-        }
-        if let Some(ref cols) = request.columns {
-            dimension_attrs.extend(cols.clone());
-        }
-        
         plan_cross_table_group_query(schema, model, metric, &dimension_attrs)
+    } else if qualified_groups.len() > 1 {
+        // Multi-tableGroup qualified dimensions - UNION across the specified tableGroups
+        // e.g., "adwords.dates.year" + "facebookads.dates.year" → UNION with NULL projection
+        plan_multi_tablegroup_query(schema, model, request, &dimension_attrs, &qualified_groups)
+    } else if qualified_groups.len() == 1 {
+        // Single tableGroup qualified - constrain to that tableGroup
+        let target_group = *qualified_groups.iter().next().unwrap();
+        plan_single_tablegroup_query(schema, model, request, &dimension_attrs, target_group)
+    } else if is_conformed && model.table_groups.len() > 1 {
+        // Conformed dimension query - UNION across all feasible tableGroups
+        plan_conformed_query(schema, model, request, &dimension_attrs)
     } else {
         // Normal single-tableGroup query path
-        
-        // Build required dimensions from rows + columns
-        let mut required_dims: Vec<String> = Vec::new();
-        if let Some(ref rows) = request.rows {
-            required_dims.extend(rows.clone());
-        }
-        if let Some(ref cols) = request.columns {
-            required_dims.extend(cols.clone());
-        }
         
         // Extract measure dependencies from metrics
         let metric_names: Vec<String> = request.metrics.clone().unwrap_or_default();
@@ -259,7 +282,7 @@ pub fn plan_semantic_query(
             .collect();
         
         // Select optimal table
-        let selected_tables = select_tables(schema, model, &required_dims, &required_measures)
+        let selected_tables = select_tables(schema, model, &dimension_attrs, &required_measures)
             .map_err(|e| PlanError::InvalidQuery(format!("Table selection error: {:?}", e)))?;
         
         let selected = selected_tables.into_iter().next()
@@ -275,13 +298,14 @@ pub fn plan_semantic_query(
 }
 
 /// Build sort keys from resolved query attributes (row attrs, then col attrs)
+/// Meta attributes are included (constant values sort consistently)
 fn build_sort_keys(resolved: &ResolvedQuery<'_>) -> Vec<SortKey> {
     let mut keys = Vec::new();
     
     // First: row attributes
     for attr in &resolved.row_attributes {
         keys.push(SortKey {
-            column: format!("{}.{}", attr.dimension_name(), attr.attribute().name),
+            column: format!("{}.{}", attr.dimension_name(), attr.attribute_name()),
             direction: SortDirection::Ascending,
         });
     }
@@ -289,7 +313,7 @@ fn build_sort_keys(resolved: &ResolvedQuery<'_>) -> Vec<SortKey> {
     // Then: column attributes
     for attr in &resolved.column_attributes {
         keys.push(SortKey {
-            column: format!("{}.{}", attr.dimension_name(), attr.attribute().name),
+            column: format!("{}.{}", attr.dimension_name(), attr.attribute_name()),
             direction: SortDirection::Ascending,
         });
     }
@@ -299,14 +323,15 @@ fn build_sort_keys(resolved: &ResolvedQuery<'_>) -> Vec<SortKey> {
 
 /// Build a Column from an AttributeRef
 /// 
-/// Considers whether the table needs a join (based on key attribute inclusion) or has denormalized columns
+/// Considers whether the table needs a join (based on key attribute inclusion) or has denormalized columns.
+/// Panics if called with a Meta attribute (use build_attribute_expr instead).
 fn build_column(attr: &AttributeRef<'_>, table: &GroupTable, fact_alias: &str) -> Column {
     match attr {
         AttributeRef::Degenerate { attribute, .. } => {
             // Degenerate dimension: column is directly on fact table
             Column::new(fact_alias, attribute.column_name())
         }
-        AttributeRef::Joined { group_dim, dimension, attribute } => {
+        AttributeRef::Joined { group_dim, dimension, attribute, .. } => {
             // Check if this is a join or denormalized using attribute-based detection
             if needs_join_for_dimension(table, group_dim, dimension) {
                 // Table needs join - use joined dimension table
@@ -318,27 +343,50 @@ fn build_column(attr: &AttributeRef<'_>, table: &GroupTable, fact_alias: &str) -
                 Column::new(fact_alias, &attribute.name)
             }
         }
+        AttributeRef::Meta { .. } => {
+            panic!("Meta attributes should use build_attribute_expr, not build_column")
+        }
+    }
+}
+
+/// Build an Expr from an AttributeRef
+/// 
+/// Returns a Column reference for regular attributes, or a Literal for Meta attributes.
+fn build_attribute_expr(attr: &AttributeRef<'_>, table: &GroupTable, fact_alias: &str) -> Expr {
+    match attr {
+        AttributeRef::Meta { value, .. } => {
+            // Meta attributes are constant literal values
+            Expr::Literal(Literal::String(value.clone()))
+        }
+        _ => {
+            // Regular attributes become column references
+            Expr::Column(build_column(attr, table, fact_alias))
+        }
     }
 }
 
 /// Build a filter expression from a ResolvedFilter
 fn build_filter_expr(filter: &ResolvedFilter<'_>, fact_alias: &str) -> Expr {
-    // For filters, we need to determine the correct column reference
-    // This is simplified - in a full implementation we'd pass the table too
-    let column = match &filter.attribute {
+    // For filters, we need to determine the correct column/value reference
+    // Meta attributes are constant literals
+    let base_expr = match &filter.attribute {
         AttributeRef::Degenerate { attribute, .. } => {
-            Column::new(fact_alias, attribute.column_name())
+            Expr::Column(Column::new(fact_alias, attribute.column_name()))
         }
-        AttributeRef::Joined { group_dim, dimension, attribute } => {
+        AttributeRef::Joined { group_dim, dimension, attribute, .. } => {
             if group_dim.join.is_some() {
                 let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
-                Column::new(dim_alias, attribute.column_name())
+                Expr::Column(Column::new(dim_alias, attribute.column_name()))
             } else {
-                Column::new(fact_alias, attribute.column_name())
+                Expr::Column(Column::new(fact_alias, attribute.column_name()))
             }
         }
+        AttributeRef::Meta { value, .. } => {
+            // Meta attributes are constants - filtering on them will be evaluated statically
+            Expr::Literal(Literal::String(value.clone()))
+        }
     };
-    let column_expr = Expr::Column(column);
+    let column_expr = base_expr;
 
     match filter.operator.as_str() {
         "in" => {
@@ -393,7 +441,7 @@ fn build_filter_expr(filter: &ResolvedFilter<'_>, fact_alias: &str) -> Expr {
 /// Convert a JSON value to a Literal expression
 fn json_to_literal(value: &serde_json::Value) -> Expr {
     let lit = match value {
-        serde_json::Value::Null => Literal::Null,
+        serde_json::Value::Null => Literal::Null("string".to_string()),
         serde_json::Value::Bool(b) => Literal::Bool(*b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
@@ -401,12 +449,12 @@ fn json_to_literal(value: &serde_json::Value) -> Expr {
             } else if let Some(f) = n.as_f64() {
                 Literal::Float(f)
             } else {
-                Literal::Null
+                Literal::Null("f64".to_string())
             }
         }
         serde_json::Value::String(s) => Literal::String(s.clone()),
         // Arrays and objects become null (shouldn't happen in filters)
-        _ => Literal::Null,
+        _ => Literal::Null("string".to_string()),
     };
     Expr::Literal(lit)
 }
@@ -585,8 +633,8 @@ fn convert_expr_arg(arg: &ExprArg) -> Expr {
 
 /// Extract two arguments from a binary operation
 fn binary_args(args: &[ExprArg]) -> (Expr, Expr) {
-    let left = args.get(0).map(convert_expr_arg).unwrap_or(Expr::Literal(Literal::Null));
-    let right = args.get(1).map(convert_expr_arg).unwrap_or(Expr::Literal(Literal::Null));
+    let left = args.get(0).map(convert_expr_arg).unwrap_or(Expr::Literal(Literal::Null("f64".to_string())));
+    let right = args.get(1).map(convert_expr_arg).unwrap_or(Expr::Literal(Literal::Null("f64".to_string())));
     (left, right)
 }
 
@@ -659,8 +707,8 @@ fn convert_metric_arg(arg: &MetricExprArg) -> Expr {
 
 /// Extract two arguments from a metric binary operation
 fn metric_binary_args(args: &[MetricExprArg]) -> (Expr, Expr) {
-    let left = args.get(0).map(convert_metric_arg).unwrap_or(Expr::Literal(Literal::Null));
-    let right = args.get(1).map(convert_metric_arg).unwrap_or(Expr::Literal(Literal::Null));
+    let left = args.get(0).map(convert_metric_arg).unwrap_or(Expr::Literal(Literal::Null("f64".to_string())));
+    let right = args.get(1).map(convert_metric_arg).unwrap_or(Expr::Literal(Literal::Null("f64".to_string())));
     (left, right)
 }
 
@@ -799,16 +847,16 @@ fn add_attribute_column_with_type(
     fact_columns: &mut HashMap<String, String>,
     dimension_columns: &mut HashMap<String, HashMap<String, String>>,
 ) {
-    let data_type = attr.attribute().data_type().to_string();
-    
     match attr {
         AttributeRef::Degenerate { attribute, .. } => {
             // Degenerate: column is directly on fact table
+            let data_type = attribute.data_type().to_string();
             fact_columns
                 .entry(attribute.column_name().to_string())
                 .or_insert(data_type);
         }
-        AttributeRef::Joined { group_dim, dimension, attribute } => {
+        AttributeRef::Joined { group_dim, dimension, attribute, .. } => {
+            let data_type = attribute.data_type().to_string();
             // Check if join is needed based on attribute inclusion
             if needs_join_for_dimension(table, group_dim, dimension) {
                 // Table needs join - column is in dimension table
@@ -824,12 +872,702 @@ fn add_attribute_column_with_type(
                     .or_insert(data_type);
             }
         }
+        AttributeRef::Meta { .. } => {
+            // Meta attributes are literal values, no columns to collect
+        }
     }
 }
 
 // ============================================================================
 // Cross-TableGroup Query Planning
 // ============================================================================
+
+/// Plan a query on conformed dimensions across multiple tableGroups
+/// 
+/// This is triggered when:
+/// 1. All queried dimensions are marked as conformed in the model
+/// 2. There are multiple tableGroups that could serve the query
+/// 
+/// The function builds a UNION plan across all tableGroups that can serve the query.
+/// 
+/// Special case: If the query contains ONLY virtual dimensions (like `_table.*`) and
+/// NO metrics, we generate a VirtualTable (VALUES clause) instead of scanning tables.
+fn plan_conformed_query(
+    schema: &Schema,
+    model: &Model,
+    request: &QueryRequest,
+    dimension_attrs: &[String],
+) -> Result<PlanNode, PlanError> {
+    use crate::selector::SelectedTable;
+    
+    // Get physical dimensions (exclude virtual dimensions like _table.*)
+    let physical_dims: Vec<String> = dimension_attrs.iter()
+        .filter(|d| {
+            let parts: Vec<&str> = d.split('.').collect();
+            if parts.len() != 2 {
+                return true; // Keep malformed, let it fail later
+            }
+            // Check if dimension is virtual
+            !model.get_dimension(parts[0])
+                .map(|dim| dim.is_virtual())
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    
+    // Get virtual dimensions
+    let virtual_dims: Vec<String> = dimension_attrs.iter()
+        .filter(|d| {
+            let parts: Vec<&str> = d.split('.').collect();
+            if parts.len() != 2 {
+                return false;
+            }
+            model.get_dimension(parts[0])
+                .map(|dim| dim.is_virtual())
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    
+    // Get measure dependencies from metrics
+    let metric_names: Vec<String> = request.metrics.clone().unwrap_or_default();
+    let required_measures: Vec<String> = metric_names
+        .iter()
+        .filter_map(|metric_name| {
+            model.get_metric(metric_name).and_then(|m| {
+                match &m.expr {
+                    MetricExpr::MeasureRef(name) => Some(name.clone()),
+                    MetricExpr::Structured(_) => None,
+                }
+            })
+        })
+        .collect();
+    
+    // Special case: Virtual-only query (no physical dimensions, no metrics)
+    // Generate a VirtualTable instead of scanning tables
+    if physical_dims.is_empty() && metric_names.is_empty() && !virtual_dims.is_empty() {
+        return plan_virtual_only_query(model, &virtual_dims);
+    }
+    
+    let mut branches: Vec<PlanNode> = Vec::new();
+    
+    // Build a branch for each tableGroup that can serve the query
+    for table_group in &model.table_groups {
+        // Find a table in this tableGroup that has all required dimensions and measures
+        let feasible_table = table_group.tables.iter().find(|table| {
+            // Check all required physical dimensions
+            for dim_attr in &physical_dims {
+                let parts: Vec<&str> = dim_attr.split('.').collect();
+                if parts.len() != 2 {
+                    return false;
+                }
+                let (dim_name, attr_name) = (parts[0], parts[1]);
+                
+                if let Some(attrs) = table.get_dimension_attributes(dim_name) {
+                    if !attrs.iter().any(|a| a == attr_name) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            
+            // Check all required measures exist in this tableGroup and table
+            for measure_name in &required_measures {
+                if table_group.get_measure(measure_name).is_none() {
+                    return false;
+                }
+                if !table.has_measure(measure_name) {
+                    return false;
+                }
+            }
+            
+            true
+        });
+        
+        let Some(table) = feasible_table else {
+            // This tableGroup can't serve the query - skip it
+            continue;
+        };
+        
+        // Create a SelectedTable for this branch
+        let selected = SelectedTable {
+            group: table_group,
+            table,
+        };
+        
+        // Resolve and plan this branch
+        let resolved = resolve_query(schema, request, &selected)
+            .map_err(|e| PlanError::InvalidQuery(format!(
+                "Query resolution error for tableGroup '{}': {:?}", 
+                table_group.name, e
+            )))?;
+        
+        let branch = plan_query(&resolved)?;
+        branches.push(branch);
+    }
+    
+    if branches.is_empty() {
+        return Err(PlanError::InvalidQuery(
+            "No tableGroup can serve this conformed dimension query".to_string()
+        ));
+    }
+    
+    // If only one tableGroup can serve the query, return it directly
+    if branches.len() == 1 {
+        return Ok(branches.into_iter().next().unwrap());
+    }
+    
+    // Create UNION of all branches
+    Ok(PlanNode::Union(Union { inputs: branches }))
+}
+
+/// Plan a query with dimensions qualified for multiple different tableGroups.
+/// 
+/// This handles queries like "adwords.dates.year + facebookads.dates.year" where
+/// dimensions are explicitly scoped to specific tableGroups. The result is a UNION
+/// where each branch projects values for its tableGroup and NULLs for columns
+/// belonging to other tableGroups.
+/// 
+/// Key difference from conformed queries:
+/// - Conformed: All branches project actual values for all dimensions
+/// - Multi-TG qualified: Each branch projects NULLs for other TG's qualified dimensions
+fn plan_multi_tablegroup_query(
+    _schema: &Schema,
+    model: &Model,
+    request: &QueryRequest,
+    dimension_attrs: &[String],
+    qualified_groups: &HashSet<&str>,
+) -> Result<PlanNode, PlanError> {
+    let metric_names: Vec<String> = request.metrics.clone().unwrap_or_default();
+    
+    let mut branches: Vec<PlanNode> = Vec::new();
+    
+    // Build a branch for each qualified tableGroup
+    for table_group in &model.table_groups {
+        // Only process tableGroups mentioned in the qualified dimensions
+        if !qualified_groups.contains(table_group.name.as_str()) {
+            continue;
+        }
+        
+        // Find a feasible table in this tableGroup
+        let feasible_table = find_feasible_table_for_qualified(
+            model, table_group, dimension_attrs, &metric_names
+        );
+        
+        let Some(table) = feasible_table else {
+            return Err(PlanError::InvalidQuery(format!(
+                "No table in tableGroup '{}' can serve the qualified dimension query",
+                table_group.name
+            )));
+        };
+        
+        // Build the branch with NULL projection for other TG's qualified dimensions
+        let branch = build_union_branch(
+            model,
+            table_group,
+            table,
+            dimension_attrs,
+            &metric_names,
+        )?;
+        
+        branches.push(branch);
+    }
+    
+    if branches.is_empty() {
+        return Err(PlanError::InvalidQuery(
+            "No tableGroup can serve this qualified dimension query".to_string()
+        ));
+    }
+    
+    // If only one tableGroup, return directly (no UNION needed)
+    if branches.len() == 1 {
+        return Ok(branches.into_iter().next().unwrap());
+    }
+    
+    // Create UNION of all branches
+    Ok(PlanNode::Union(Union { inputs: branches }))
+}
+
+/// Plan a query constrained to a single tableGroup (via qualified dimension).
+/// 
+/// This handles queries like "adwords.dates.year" where all qualified dimensions
+/// target the same tableGroup.
+fn plan_single_tablegroup_query(
+    schema: &Schema,
+    model: &Model,
+    request: &QueryRequest,
+    dimension_attrs: &[String],
+    target_group: &str,
+) -> Result<PlanNode, PlanError> {
+    use crate::selector::SelectedTable;
+    
+    // Find the target tableGroup
+    let table_group = model.table_groups.iter()
+        .find(|tg| tg.name == target_group)
+        .ok_or_else(|| PlanError::InvalidQuery(format!(
+            "TableGroup '{}' not found in model", target_group
+        )))?;
+    
+    let metric_names: Vec<String> = request.metrics.clone().unwrap_or_default();
+    
+    // Find a feasible table
+    let feasible_table = find_feasible_table_for_qualified(
+        model, table_group, dimension_attrs, &metric_names
+    );
+    
+    let Some(table) = feasible_table else {
+        return Err(PlanError::InvalidQuery(format!(
+            "No table in tableGroup '{}' can serve the qualified dimension query",
+            target_group
+        )));
+    };
+    
+    // Convert 3-part paths to 2-part for the resolver
+    // e.g., "adwords.dates.year" → "dates.year"
+    let normalized_dims: Vec<String> = dimension_attrs.iter()
+        .map(|path| {
+            let parts: Vec<&str> = path.split('.').collect();
+            if parts.len() == 3 && parts[0] == target_group {
+                format!("{}.{}", parts[1], parts[2])
+            } else {
+                path.clone()
+            }
+        })
+        .collect();
+    
+    // Create a modified request with normalized dimensions
+    let normalized_request = QueryRequest {
+        model: request.model.clone(),
+        dimensions: None,
+        rows: Some(normalized_dims.iter()
+            .filter(|d| request.rows.as_ref().map(|r| r.iter().any(|rd| {
+                // Check if original path matches this normalized dim
+                let parts: Vec<&str> = rd.split('.').collect();
+                if parts.len() == 3 {
+                    format!("{}.{}", parts[1], parts[2]) == **d
+                } else {
+                    rd == *d
+                }
+            })).unwrap_or(false))
+            .cloned()
+            .collect()),
+        columns: request.columns.as_ref().map(|cols| {
+            cols.iter()
+                .map(|c| {
+                    let parts: Vec<&str> = c.split('.').collect();
+                    if parts.len() == 3 && parts[0] == target_group {
+                        format!("{}.{}", parts[1], parts[2])
+                    } else {
+                        c.clone()
+                    }
+                })
+                .collect()
+        }),
+        metrics: request.metrics.clone(),
+        filter: request.filter.clone(),
+    };
+    
+    // Use standard resolve + plan path
+    let selected = SelectedTable { group: table_group, table };
+    
+    let resolved = resolve_query(schema, &normalized_request, &selected)
+        .map_err(|e| PlanError::InvalidQuery(format!(
+            "Query resolution error for tableGroup '{}': {:?}",
+            target_group, e
+        )))?;
+    
+    plan_query(&resolved)
+}
+
+/// Find a feasible table in a tableGroup for qualified dimension queries.
+fn find_feasible_table_for_qualified<'a>(
+    model: &Model,
+    table_group: &'a TableGroup,
+    dimension_attrs: &[String],
+    metric_names: &[String],
+) -> Option<&'a GroupTable> {
+    // Get required measures from metrics
+    let required_measures: Vec<String> = metric_names
+        .iter()
+        .filter_map(|metric_name| {
+            model.get_metric(metric_name).and_then(|m| {
+                match &m.expr {
+                    MetricExpr::MeasureRef(name) => Some(name.clone()),
+                    MetricExpr::Structured(_) => None,
+                }
+            })
+        })
+        .collect();
+    
+    table_group.tables.iter().find(|table| {
+        // Check dimensions qualified for THIS tableGroup
+        for dim_attr in dimension_attrs {
+            let parts: Vec<&str> = dim_attr.split('.').collect();
+            
+            if parts.len() == 3 {
+                // Three-part: tableGroup.dimension.attribute
+                let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
+                
+                // Skip if this dimension is for a different tableGroup
+                if tg_qualifier != table_group.name {
+                    continue;
+                }
+                
+                // Check if this table has the dimension.attribute
+                if let Some(attrs) = table.get_dimension_attributes(dim_name) {
+                    if !attrs.iter().any(|a| a == attr_name) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else if parts.len() == 2 {
+                // Two-part: dimension.attribute (conformed or virtual)
+                let (dim_name, attr_name) = (parts[0], parts[1]);
+                
+                // Skip virtual dimensions
+                if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                    continue;
+                }
+                
+                // Check if this table has the dimension.attribute
+                if let Some(attrs) = table.get_dimension_attributes(dim_name) {
+                    if !attrs.iter().any(|a| a == attr_name) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+        
+        // Check all required measures
+        for measure_name in &required_measures {
+            if table_group.get_measure(measure_name).is_none() {
+                return false;
+            }
+            if !table.has_measure(measure_name) {
+                return false;
+            }
+        }
+        
+        true
+    })
+}
+
+/// Build a single branch for a multi-tableGroup UNION query.
+/// 
+/// This function creates a plan branch for one tableGroup that:
+/// - Scans and aggregates data for dimensions belonging to this tableGroup
+/// - Projects actual values for dimensions this TG owns
+/// - Projects NULLs for qualified dimensions belonging to other tableGroups
+/// - Projects virtual dimension values as literals
+/// - Optionally aggregates metrics
+fn build_union_branch(
+    model: &Model,
+    table_group: &TableGroup,
+    table: &GroupTable,
+    dimension_attrs: &[String],
+    metric_names: &[String],
+) -> Result<PlanNode, PlanError> {
+    // Parse all dimension attributes
+    let parsed_attrs: Vec<(String, ParsedDimensionAttr)> = dimension_attrs.iter()
+        .map(|attr_path| (attr_path.clone(), ParsedDimensionAttr::parse(attr_path, model)))
+        .collect();
+    
+    // Physical attrs that belong to this tableGroup (include in scan/group)
+    // Multiple parsed paths might reference the same physical column (e.g., dates.date and adwords.dates.date)
+    let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
+        .filter(|(_, parsed)| {
+            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+        })
+        .collect();
+    
+    // Build unique physical columns for scan/group (deduplicate by dim_name + attr_name)
+    // Also build a mapping from (dim_name, attr_name) -> group_by index
+    let mut unique_dim_attrs: Vec<(String, String)> = Vec::new();
+    let mut dim_attr_to_group_idx: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+    
+    for (_, parsed) in &physical_attrs {
+        let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+        if !dim_attr_to_group_idx.contains_key(&key) {
+            let idx = unique_dim_attrs.len();
+            unique_dim_attrs.push(key.clone());
+            dim_attr_to_group_idx.insert(key, idx);
+        }
+    }
+    
+    // Build the scan
+    let fact_alias = "fact";
+    let mut columns = Vec::new();
+    let mut types = Vec::new();
+    
+    // Track which dimensions need joins (deduplicated)
+    let mut joined_dimensions: HashSet<String> = HashSet::new();
+    
+    // Add dimension columns (for degenerate dimensions) - use unique_dim_attrs
+    for (dim_name, attr_name) in &unique_dim_attrs {
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if group_dim.is_degenerate() {
+                if let Some(attr) = group_dim.get_attribute(attr_name) {
+                    columns.push(attr.column_name().to_string());
+                    types.push(attr.data_type.to_string());
+                }
+            }
+        }
+    }
+    
+    // Add measure columns for metrics
+    let measures_to_aggregate: Vec<(&str, &Measure)> = metric_names.iter()
+        .filter_map(|metric_name| {
+            model.get_metric(metric_name).and_then(|m| {
+                match &m.expr {
+                    MetricExpr::MeasureRef(measure_name) => {
+                        table_group.get_measure(measure_name)
+                            .map(|measure| (metric_name.as_str(), measure))
+                    }
+                    MetricExpr::Structured(_) => None,
+                }
+            })
+        })
+        .collect();
+    
+    for (_, measure) in &measures_to_aggregate {
+        if let MeasureExpr::Column(col) = &measure.expr {
+            columns.push(col.clone());
+            types.push(measure.data_type().to_string());
+        }
+    }
+    
+    let mut plan = PlanNode::Scan(
+        Scan::new(&table.table)
+            .with_alias(fact_alias)
+            .with_columns(columns, types)
+    );
+    
+    // Add joins for non-degenerate dimensions (using unique_dim_attrs to avoid duplicate joins)
+    for (dim_name, _) in &unique_dim_attrs {
+        // Skip if we've already joined this dimension
+        if joined_dimensions.contains(dim_name) {
+            continue;
+        }
+        
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(join_spec) = &group_dim.join {
+                if let Some(dimension) = model.get_dimension(dim_name) {
+                    if needs_join_for_dimension(table, group_dim, dimension) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        
+                        let dim_cols: Vec<String> = dimension.attributes.iter()
+                            .map(|a| a.column_name().to_string())
+                            .collect();
+                        let dim_types: Vec<String> = dimension.attributes.iter()
+                            .map(|a| a.data_type.to_string())
+                            .collect();
+                        
+                        let dim_table = dimension.table.as_ref()
+                            .expect("Non-virtual dimension must have a table");
+                        
+                        let dim_scan = PlanNode::Scan(
+                            Scan::new(dim_table)
+                                .with_alias(dim_alias)
+                                .with_columns(dim_cols, dim_types)
+                        );
+                        
+                        let left_key = Column::new(fact_alias, &join_spec.left_key);
+                        let right_key = Column::new(
+                            join_spec.right_alias.as_deref().unwrap_or(dim_alias),
+                            &join_spec.right_key,
+                        );
+                        
+                        plan = PlanNode::Join(Join {
+                            left: Box::new(plan),
+                            right: Box::new(dim_scan),
+                            join_type: JoinType::Left,
+                            left_key,
+                            right_key,
+                        });
+                        
+                        joined_dimensions.insert(dim_name.clone());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Build GROUP BY columns (using unique_dim_attrs)
+    let group_by: Vec<Column> = unique_dim_attrs.iter()
+        .filter_map(|(dim_name, attr_name)| {
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if group_dim.is_degenerate() {
+                    if let Some(attr) = group_dim.get_attribute(attr_name) {
+                        return Some(Column::new(fact_alias, attr.column_name()));
+                    }
+                } else if let Some(dimension) = model.get_dimension(dim_name) {
+                    if let Some(attr) = dimension.get_attribute(attr_name) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        return Some(Column::new(dim_alias, attr.column_name()));
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+    
+    // Build aggregate expressions for metrics
+    let aggregates: Vec<AggregateExpr> = measures_to_aggregate.iter()
+        .map(|(metric_name, measure)| {
+            AggregateExpr {
+                func: measure.aggregation,
+                expr: convert_measure_expr(&measure.expr),
+                alias: metric_name.to_string(),
+            }
+        })
+        .collect();
+    
+    // Only add aggregate node if we have GROUP BY or aggregates
+    if !group_by.is_empty() || !aggregates.is_empty() {
+        plan = PlanNode::Aggregate(Aggregate {
+            input: Box::new(plan),
+            group_by: group_by.clone(),
+            aggregates,
+        });
+    }
+    
+    // Project to standardized output schema
+    // All branches MUST have the same schema
+    let mut projections = Vec::new();
+    
+    for (attr_path, parsed) in &parsed_attrs {
+        let expr = if parsed.is_virtual() {
+            // Virtual dimension: project as literal
+            let dim_name = parsed.dim_name();
+            let attr_name = parsed.attr_name();
+            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            match value {
+                PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
+                PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
+                PlanLiteralValue::Float64(f) => Expr::Literal(Literal::Float(f)),
+                PlanLiteralValue::Bool(b) => Expr::Literal(Literal::Bool(b)),
+                PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
+                _ => Expr::Literal(Literal::Null("string".to_string())),
+            }
+        } else if parsed.belongs_to_table_group(&table_group.name) {
+            // Physical dimension that belongs to this tableGroup
+            // Look up the GROUP BY index using the (dim_name, attr_name) mapping
+            let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+            if let Some(&idx) = dim_attr_to_group_idx.get(&key) {
+                let col = group_by.get(idx).cloned()
+                    .unwrap_or_else(|| Column::unqualified(attr_path));
+                Expr::Column(col)
+            } else {
+                // Fallback - shouldn't happen if logic is correct
+                let data_type = parsed.get_data_type(model);
+                Expr::Literal(Literal::Null(data_type))
+            }
+        } else {
+            // Qualified dimension for another tableGroup: project typed NULL
+            let data_type = parsed.get_data_type(model);
+            Expr::Literal(Literal::Null(data_type))
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: attr_path.clone(),
+        });
+    }
+    
+    // Add metric projections
+    for metric_name in metric_names {
+        projections.push(ProjectExpr {
+            expr: Expr::Column(Column::unqualified(metric_name)),
+            alias: metric_name.clone(),
+        });
+    }
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(plan),
+        expressions: projections,
+    }))
+}
+
+/// Plan a virtual-only query that doesn't need table scans.
+/// 
+/// For queries that only request virtual dimension attributes (like `_table.tableGroup`)
+/// and no metrics, we generate a VirtualTable with one row per tableGroup containing
+/// the literal metadata values.
+fn plan_virtual_only_query(
+    model: &Model,
+    virtual_dims: &[String],
+) -> Result<PlanNode, PlanError> {
+    // Parse virtual dimension attributes
+    let attrs: Vec<(&str, &str)> = virtual_dims.iter()
+        .filter_map(|d| {
+            let parts: Vec<&str> = d.split('.').collect();
+            if parts.len() == 2 {
+                Some((parts[0], parts[1]))
+            } else {
+                None
+            }
+        })
+        .collect();
+    
+    if attrs.is_empty() {
+        return Err(PlanError::InvalidQuery(
+            "No valid virtual dimension attributes in query".to_string()
+        ));
+    }
+    
+    // Build column names (semantic names like "dimension.attribute")
+    let columns: Vec<String> = virtual_dims.iter().cloned().collect();
+    
+    // All virtual attributes are strings for now
+    let column_types: Vec<String> = attrs.iter().map(|_| "string".to_string()).collect();
+    
+    // Build one row per tableGroup with the metadata values
+    let mut rows: Vec<Vec<PlanLiteralValue>> = Vec::new();
+    
+    for table_group in &model.table_groups {
+        let row: Vec<PlanLiteralValue> = attrs.iter()
+            .map(|(dim_name, attr_name)| {
+                get_virtual_attribute_value(model, table_group, dim_name, attr_name)
+            })
+            .collect();
+        rows.push(row);
+    }
+    
+    Ok(PlanNode::VirtualTable(VirtualTable {
+        columns,
+        column_types,
+        rows,
+    }))
+}
+
+/// Get the literal value for a virtual dimension attribute
+fn get_virtual_attribute_value(
+    model: &Model,
+    table_group: &TableGroup,
+    dim_name: &str,
+    attr_name: &str,
+) -> PlanLiteralValue {
+    // Currently we only support the _table virtual dimension
+    if dim_name == "_table" {
+        match attr_name {
+            "tableGroup" => PlanLiteralValue::String(table_group.name.clone()),
+            "model" => PlanLiteralValue::String(model.name.clone()),
+            "namespace" => model.namespace.as_ref()
+                .map(|ns| PlanLiteralValue::String(ns.clone()))
+                .unwrap_or(PlanLiteralValue::Null),
+            // For "table" attribute, we don't have a specific table context here
+            // In virtual-only queries, we just return the tableGroup name
+            "table" => PlanLiteralValue::Null,
+            _ => PlanLiteralValue::Null,
+        }
+    } else {
+        PlanLiteralValue::Null
+    }
+}
 
 /// A branch in a cross-tableGroup query
 /// Represents one tableGroup's contribution to the union
@@ -859,6 +1597,19 @@ pub fn plan_cross_table_group_query<'a>(
     metric: &'a Metric,
     dimension_attrs: &[String],
 ) -> Result<PlanNode, PlanError> {
+    // Validate tableGroup-qualified dimensions
+    for attr_path in dimension_attrs {
+        let parts: Vec<&str> = attr_path.split('.').collect();
+        if parts.len() == 3 {
+            let tg_name = parts[0];
+            if model.get_table_group(tg_name).is_none() {
+                return Err(PlanError::InvalidQuery(
+                    format!("TableGroup '{}' not found in qualified dimension '{}'", tg_name, attr_path)
+                ));
+            }
+        }
+    }
+    
     // Get the tableGroup-to-measure mappings from the metric
     let mappings = metric.table_group_measures();
     if mappings.is_empty() {
@@ -950,6 +1701,103 @@ pub fn plan_cross_table_group_query<'a>(
     }
 }
 
+/// Parsed dimension attribute for cross-tableGroup queries
+#[derive(Debug, Clone)]
+enum ParsedDimensionAttr {
+    /// Standard two-part: dimension.attribute
+    Standard { dim_name: String, attr_name: String },
+    /// TableGroup-qualified three-part: tableGroup.dimension.attribute
+    Qualified { tg_name: String, dim_name: String, attr_name: String },
+    /// Virtual dimension (like _table)
+    Virtual { dim_name: String, attr_name: String },
+}
+
+impl ParsedDimensionAttr {
+    fn parse(attr_path: &str, model: &Model) -> Self {
+        let parts: Vec<&str> = attr_path.split('.').collect();
+        
+        match parts.len() {
+            2 => {
+                let (dim_name, attr_name) = (parts[0], parts[1]);
+                // Check if this is a virtual dimension
+                if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                    ParsedDimensionAttr::Virtual {
+                        dim_name: dim_name.to_string(),
+                        attr_name: attr_name.to_string(),
+                    }
+                } else {
+                    ParsedDimensionAttr::Standard {
+                        dim_name: dim_name.to_string(),
+                        attr_name: attr_name.to_string(),
+                    }
+                }
+            }
+            3 => {
+                let (tg_name, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
+                ParsedDimensionAttr::Qualified {
+                    tg_name: tg_name.to_string(),
+                    dim_name: dim_name.to_string(),
+                    attr_name: attr_name.to_string(),
+                }
+            }
+            _ => {
+                // Fallback - treat as standard
+                ParsedDimensionAttr::Standard {
+                    dim_name: attr_path.to_string(),
+                    attr_name: String::new(),
+                }
+            }
+        }
+    }
+    
+    /// Check if this attribute belongs to the given tableGroup
+    fn belongs_to_table_group(&self, tg_name: &str) -> bool {
+        match self {
+            ParsedDimensionAttr::Qualified { tg_name: qualified_tg, .. } => qualified_tg == tg_name,
+            ParsedDimensionAttr::Standard { .. } => true, // Standard attrs belong to all
+            ParsedDimensionAttr::Virtual { .. } => true,   // Virtual attrs belong to all
+        }
+    }
+    
+    fn is_virtual(&self) -> bool {
+        matches!(self, ParsedDimensionAttr::Virtual { .. })
+    }
+    
+    fn dim_name(&self) -> &str {
+        match self {
+            ParsedDimensionAttr::Standard { dim_name, .. } => dim_name,
+            ParsedDimensionAttr::Qualified { dim_name, .. } => dim_name,
+            ParsedDimensionAttr::Virtual { dim_name, .. } => dim_name,
+        }
+    }
+    
+    fn attr_name(&self) -> &str {
+        match self {
+            ParsedDimensionAttr::Standard { attr_name, .. } => attr_name,
+            ParsedDimensionAttr::Qualified { attr_name, .. } => attr_name,
+            ParsedDimensionAttr::Virtual { attr_name, .. } => attr_name,
+        }
+    }
+    
+    /// Get the data type of this dimension attribute from the model
+    fn get_data_type(&self, model: &Model) -> String {
+        // For virtual dimensions, return string
+        if self.is_virtual() {
+            return "string".to_string();
+        }
+        
+        // Look up the dimension in the model
+        if let Some(dimension) = model.get_dimension(self.dim_name()) {
+            if let Some(attr) = dimension.get_attribute(self.attr_name()) {
+                return attr.data_type.to_string();
+            }
+        }
+        
+        // Fallback to string
+        "string".to_string()
+    }
+}
+
 /// Build a single branch of a cross-tableGroup query
 fn build_cross_table_group_branch(
     model: &Model,
@@ -959,19 +1807,45 @@ fn build_cross_table_group_branch(
     dimension_attrs: &[String],
     output_alias: &str,
 ) -> Result<PlanNode, PlanError> {
+    // Parse all dimension attributes
+    let parsed_attrs: Vec<(String, ParsedDimensionAttr)> = dimension_attrs.iter()
+        .map(|attr_path| (attr_path.clone(), ParsedDimensionAttr::parse(attr_path, model)))
+        .collect();
+    
+    // Separate into categories based on this tableGroup
+    // - Physical attrs that belong to this tableGroup (include in scan/group)
+    // - Virtual attrs (project as literals)
+    // - Qualified attrs for OTHER tableGroups (project as NULL)
+    let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
+        .filter(|(_, parsed)| {
+            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+        })
+        .collect();
+    
+    // Build unique physical columns for scan/group (deduplicate by dim_name + attr_name)
+    // Also build a mapping from (dim_name, attr_name) -> group_by index
+    let mut unique_dim_attrs: Vec<(String, String)> = Vec::new();
+    let mut dim_attr_to_group_idx: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+    
+    for (_, parsed) in &physical_attrs {
+        let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+        if !dim_attr_to_group_idx.contains_key(&key) {
+            let idx = unique_dim_attrs.len();
+            unique_dim_attrs.push(key.clone());
+            dim_attr_to_group_idx.insert(key, idx);
+        }
+    }
+    
     // Build the scan
     let fact_alias = "fact";
     let mut columns = Vec::new();
     let mut types = Vec::new();
     
-    // Add dimension columns (for degenerate dimensions)
-    for attr_path in dimension_attrs {
-        let parts: Vec<&str> = attr_path.split('.').collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        let (dim_name, attr_name) = (parts[0], parts[1]);
-        
+    // Track which dimensions need joins (deduplicated)
+    let mut joined_dimensions: HashSet<String> = HashSet::new();
+    
+    // Add dimension columns (for degenerate dimensions) - use unique_dim_attrs
+    for (dim_name, attr_name) in &unique_dim_attrs {
         if let Some(group_dim) = table_group.get_dimension(dim_name) {
             if group_dim.is_degenerate() {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
@@ -994,13 +1868,12 @@ fn build_cross_table_group_branch(
             .with_columns(columns, types)
     );
     
-    // Add joins for non-degenerate dimensions
-    for attr_path in dimension_attrs {
-        let parts: Vec<&str> = attr_path.split('.').collect();
-        if parts.len() != 2 {
+    // Add joins for non-degenerate dimensions (using unique_dim_attrs to avoid duplicate joins)
+    for (dim_name, _) in &unique_dim_attrs {
+        // Skip if we've already joined this dimension
+        if joined_dimensions.contains(dim_name) {
             continue;
         }
-        let (dim_name, _attr_name) = (parts[0], parts[1]);
         
         if let Some(group_dim) = table_group.get_dimension(dim_name) {
             if let Some(join_spec) = &group_dim.join {
@@ -1016,8 +1889,12 @@ fn build_cross_table_group_branch(
                             .map(|a| a.data_type.to_string())
                             .collect();
                         
+                        // Virtual dimensions don't have physical tables
+                        let dim_table = dimension.table.as_ref()
+                            .expect("Non-virtual dimension must have a table");
+                        
                         let dim_scan = PlanNode::Scan(
-                            Scan::new(&dimension.table)
+                            Scan::new(dim_table)
                                 .with_alias(dim_alias)
                                 .with_columns(dim_cols, dim_types)
                         );
@@ -1035,34 +1912,30 @@ fn build_cross_table_group_branch(
                             left_key,
                             right_key,
                         });
+                        
+                        joined_dimensions.insert(dim_name.clone());
                     }
                 }
             }
         }
     }
     
-    // Build GROUP BY columns
-    let group_by: Vec<Column> = dimension_attrs.iter()
-        .map(|attr_path| {
-            let parts: Vec<&str> = attr_path.split('.').collect();
-            if parts.len() != 2 {
-                return Column::unqualified(attr_path);
-            }
-            let (dim_name, attr_name) = (parts[0], parts[1]);
-            
+    // Build GROUP BY columns (using unique_dim_attrs)
+    let group_by: Vec<Column> = unique_dim_attrs.iter()
+        .filter_map(|(dim_name, attr_name)| {
             if let Some(group_dim) = table_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
-                        return Column::new(fact_alias, attr.column_name());
+                        return Some(Column::new(fact_alias, attr.column_name()));
                     }
                 } else if let Some(dimension) = model.get_dimension(dim_name) {
                     if let Some(attr) = dimension.get_attribute(attr_name) {
                         let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
-                        return Column::new(dim_alias, attr.column_name());
+                        return Some(Column::new(dim_alias, attr.column_name()));
                     }
                 }
             }
-            Column::unqualified(attr_path)
+            None
         })
         .collect();
     
@@ -1081,13 +1954,45 @@ fn build_cross_table_group_branch(
         aggregates,
     });
     
-    // Project to standardized output schema: dimension columns + metric value
+    // Project to standardized output schema
+    // All branches MUST have the same schema, so we iterate ALL dimension_attrs in order
     let mut projections = Vec::new();
     
-    // Add dimension columns with standardized names
-    for (i, attr_path) in dimension_attrs.iter().enumerate() {
+    for (attr_path, parsed) in &parsed_attrs {
+        let expr = if parsed.is_virtual() {
+            // Virtual dimension: project as literal
+            let dim_name = parsed.dim_name();
+            let attr_name = parsed.attr_name();
+            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            match value {
+                PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
+                PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
+                PlanLiteralValue::Float64(f) => Expr::Literal(Literal::Float(f)),
+                PlanLiteralValue::Bool(b) => Expr::Literal(Literal::Bool(b)),
+                PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
+                _ => Expr::Literal(Literal::Null("string".to_string())),
+            }
+        } else if parsed.belongs_to_table_group(&table_group.name) {
+            // Physical dimension that belongs to this tableGroup
+            // Look up the GROUP BY index using the (dim_name, attr_name) mapping
+            let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+            if let Some(&idx) = dim_attr_to_group_idx.get(&key) {
+                let col = group_by.get(idx).cloned()
+                    .unwrap_or_else(|| Column::unqualified(attr_path));
+                Expr::Column(col)
+            } else {
+                // Fallback - shouldn't happen if logic is correct
+                let data_type = parsed.get_data_type(model);
+                Expr::Literal(Literal::Null(data_type))
+            }
+        } else {
+            // Qualified dimension for another tableGroup: project typed NULL
+            let data_type = parsed.get_data_type(model);
+            Expr::Literal(Literal::Null(data_type))
+        };
+        
         projections.push(ProjectExpr {
-            expr: Expr::Column(group_by[i].clone()),
+            expr,
             alias: attr_path.clone(),
         });
     }
@@ -1478,6 +2383,116 @@ mod tests {
                 }
             }
             _ => panic!("Expected Sort node at top level"),
+        }
+    }
+
+    #[test]
+    fn test_plan_with_meta_attributes() {
+        let schema = load_test_schema();
+        let selected = get_first_selected(&schema, "steelwheels");
+        let request = QueryRequest {
+            model: "steelwheels".to_string(),
+            dimensions: None,
+            rows: Some(vec![
+                "dates.year".to_string(),
+                "_table.tableGroup".to_string(),
+            ]),
+            columns: None,
+            metrics: Some(vec!["sales".to_string()]),
+            filter: None,
+        };
+
+        let resolved = resolve_query(&schema, &request, &selected).unwrap();
+        let plan = plan_query(&resolved).unwrap();
+
+        // Should be: Sort(Project(Aggregate(...)))
+        // Meta attributes should be in Project as literals, not in GROUP BY
+        let proj = match plan {
+            PlanNode::Sort(sort) => {
+                assert_eq!(sort.sort_keys.len(), 2);
+                assert_eq!(sort.sort_keys[0].column, "dates.year");
+                assert_eq!(sort.sort_keys[1].column, "_table.tableGroup");
+                match *sort.input {
+                    PlanNode::Project(proj) => proj,
+                    _ => panic!("Expected Project node inside Sort"),
+                }
+            }
+            _ => panic!("Expected Sort node at top level"),
+        };
+        
+        // Project should have 3 expressions: dates.year, _table.tableGroup, sales
+        assert_eq!(proj.expressions.len(), 3);
+        assert_eq!(proj.expressions[0].alias, "dates.year");
+        assert_eq!(proj.expressions[1].alias, "_table.tableGroup");
+        assert_eq!(proj.expressions[2].alias, "sales");
+        
+        // The _table.tableGroup should be a literal
+        match &proj.expressions[1].expr {
+            Expr::Literal(Literal::String(value)) => {
+                assert_eq!(value, "orders");
+            }
+            other => panic!("Expected Literal(String) for _table.tableGroup, got {:?}", other),
+        }
+        
+        // Check that GROUP BY only has 1 column (dates.year), not the meta attribute
+        match proj.input.as_ref() {
+            PlanNode::Aggregate(agg) => {
+                assert_eq!(agg.group_by.len(), 1);
+                assert_eq!(agg.group_by[0].name, "year_id");
+            }
+            _ => panic!("Expected Aggregate node"),
+        }
+    }
+
+    #[test]
+    fn test_plan_meta_only() {
+        let schema = load_test_schema();
+        let selected = get_first_selected(&schema, "steelwheels");
+        let request = QueryRequest {
+            model: "steelwheels".to_string(),
+            dimensions: None,
+            rows: Some(vec![
+                "_table.model".to_string(),
+                "_table.tableGroup".to_string(),
+            ]),
+            columns: None,
+            metrics: Some(vec!["sales".to_string()]),
+            filter: None,
+        };
+
+        let resolved = resolve_query(&schema, &request, &selected).unwrap();
+        let plan = plan_query(&resolved).unwrap();
+
+        // With only meta attributes (no real dimensions), GROUP BY should be empty
+        // but we still have aggregation for the metric
+        match plan {
+            PlanNode::Sort(sort) => {
+                match *sort.input {
+                    PlanNode::Project(proj) => {
+                        assert_eq!(proj.expressions.len(), 3);
+                        
+                        // Both should be literals
+                        match &proj.expressions[0].expr {
+                            Expr::Literal(Literal::String(v)) => assert_eq!(v, "steelwheels"),
+                            _ => panic!("Expected literal for _table.model"),
+                        }
+                        match &proj.expressions[1].expr {
+                            Expr::Literal(Literal::String(v)) => assert_eq!(v, "orders"),
+                            _ => panic!("Expected literal for _table.tableGroup"),
+                        }
+                        
+                        // GROUP BY should be empty since only meta attributes
+                        match proj.input.as_ref() {
+                            PlanNode::Aggregate(agg) => {
+                                assert!(agg.group_by.is_empty());
+                            }
+                            _ => panic!("Expected Aggregate node"),
+                        }
+                    }
+                    _ => panic!("Expected Project node"),
+                }
+            }
+            _ => panic!("Expected Sort node"),
         }
     }
 }

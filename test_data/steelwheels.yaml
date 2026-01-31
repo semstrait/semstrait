@@ -55,6 +55,45 @@ models:
           - name: city
             label: City
             type: string
+
+      # Virtual dimension for table/model metadata
+      - name: _table
+        virtual: true
+        label: Table Metadata
+        description: Metadata about the table and model, emitted as constant literals
+        attributes:
+          - name: model
+            label: Model Name
+            description: The semantic model name
+            type: string
+          - name: namespace
+            label: Model Namespace
+            description: The model namespace (e.g., tenant ID)
+            type: string
+          - name: tableGroup
+            label: Table Group
+            description: The table group name
+            type: string
+          - name: table
+            label: Physical Table
+            description: The physical table name
+            type: string
+          - name: uuid
+            label: Table UUID
+            description: Unique identifier (e.g., from Iceberg catalog)
+            type: string
+          - name: sourceSystem
+            label: Source System
+            description: The source system that produced this data
+            type: string
+          - name: dataOwner
+            label: Data Owner
+            description: Team responsible for this data
+            type: string
+          - name: connectorType
+            label: Connector Type
+            description: The connector used to ingest this data
+            type: string
     
     # Metrics are model-level (shared across all table groups)
     # Metrics are the public query API - measures are internal
@@ -122,6 +161,9 @@ models:
                 column: order_status
                 label: Order Status
                 type: string
+          
+          # Virtual dimension for metadata (no join, values from model/table config)
+          - name: _table
         
         # ------------------------------------------
         # MEASURES shared by all tables in group
@@ -170,9 +212,13 @@ models:
               type: parquet
               path: /data/steelwheels/orderfact.parquet
             uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-            properties: {}
+            properties:
+              sourceSystem: "pentaho"
+              dataOwner: "analytics-team"
+              connectorType: "jdbc"
             dimensions:
               dates: [date, year, quarter, month]
               markets: [customer, territory, country, state, city]
               flags: [is_premium, status]
+              _table: [model, namespace, tableGroup, table, uuid, sourceSystem, dataOwner, connectorType]
             measures: [quantity, sales, revenue, premium_sales]

@@ -5,9 +5,28 @@
 # - unified_cost metric should generate a UNION of both tableGroups
 # - Each branch should aggregate its own measure (ad_cost vs media_spend)
 # - Final result should re-aggregate the unioned data
+# - Conformed dimensions (dates) can be queried across tableGroups
 
 models:
   - name: marketing
+    # Virtual _table dimension for metadata
+    dimensions:
+      - name: _table
+        virtual: true
+        attributes:
+          - name: model
+            type: string
+          - name: tableGroup
+            type: string
+          - name: table
+            type: string
+
+    # Conformed dimensions - can be queried across all tableGroups
+    # Queries on these automatically UNION across tableGroups
+    conformedDimensions:
+      - dates                    # All attributes of dates are conformed
+      - campaign: [campaign_id]  # Only campaign_id is conformed (campaign_name may differ)
+
     tableGroups:
       # Google Ads data
       - name: google_ads
@@ -25,6 +44,9 @@ models:
                 type: string
               - name: campaign_name
                 type: string
+          
+          # Virtual dimension reference
+          - name: _table
 
         measures:
           - name: ad_cost
@@ -50,6 +72,7 @@ models:
             dimensions:
               dates: [date, year]
               campaign: [campaign_id, campaign_name]
+              _table: [model, tableGroup, table]
             measures: [ad_cost, clicks, impressions]
 
       # Meta (Facebook) Ads data
@@ -68,6 +91,9 @@ models:
                 type: string
               - name: campaign_name
                 type: string
+          
+          # Virtual dimension reference
+          - name: _table
 
         measures:
           - name: media_spend
@@ -93,10 +119,21 @@ models:
             dimensions:
               dates: [date, year]
               campaign: [campaign_id, campaign_name]
+              _table: [model, tableGroup, table]
             measures: [media_spend, clicks, impressions]
 
-    # Cross-tableGroup metric
+    # Metrics
     metrics:
+      # Simple metric that exists in both tableGroups
+      - name: clicks
+        type: i64
+        expr: clicks
+      
+      - name: impressions
+        type: i64
+        expr: impressions
+      
+      # Cross-tableGroup metric (different measures per tableGroup)
       - name: unified_cost
         type: f64
         expr:

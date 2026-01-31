@@ -1,7 +1,7 @@
 //! Shared test utilities for integration tests
 
 use semstrait::{
-    emit_plan, parser, plan_query, resolve_query, select_tables,
+    emit_plan, parser,
     QueryRequest, Schema,
 };
 use substrait::proto::Plan;
@@ -22,54 +22,16 @@ pub fn load_test_data(name: &str) -> Schema {
 
 /// Run the full pipeline: schema + request → Substrait Plan
 pub fn run_pipeline(schema: &Schema, request: &QueryRequest) -> Result<Plan, String> {
+    use semstrait::planner::plan_semantic_query;
+    
     // Get model
     let model = schema
         .get_model(&request.model)
         .ok_or_else(|| format!("Model '{}' not found", request.model))?;
 
-    // Collect dimension names for selector
-    let dim_names: Vec<String> = request
-        .rows
-        .as_ref()
-        .map(|v| v.iter().cloned().collect::<Vec<String>>())
-        .unwrap_or_default();
-    
-    // Extract measure names from metrics (metrics reference underlying measures)
-    let metric_names: Vec<String> = request
-        .metrics
-        .as_ref()
-        .map(|v| v.iter().cloned().collect::<Vec<String>>())
-        .unwrap_or_default();
-    
-    // For selector, we need to find the underlying measures that metrics depend on
-    // For now, we pass the metric names - the selector will look up the measures
-    let measure_names: Vec<String> = metric_names
-        .iter()
-        .filter_map(|metric_name| {
-            model.get_metric(metric_name).and_then(|m| {
-                // Extract measure name from metric expression (simple case)
-                match &m.expr {
-                    semstrait::model::MetricExpr::MeasureRef(name) => Some(name.clone()),
-                    semstrait::model::MetricExpr::Structured(_) => None, // Complex case - skip for now
-                }
-            })
-        })
-        .collect();
-
-    // Select table
-    let selected = select_tables(schema, model, &dim_names, &measure_names)
-        .map_err(|e| format!("Selection failed: {}", e))?;
-
-    let table = selected
-        .first()
-        .ok_or_else(|| "No table selected".to_string())?;
-
-    // Resolve query
-    let resolved = resolve_query(schema, request, table)
-        .map_err(|e| format!("Resolution failed: {}", e))?;
-
-    // Build plan
-    let plan_node = plan_query(&resolved).map_err(|e| format!("Planning failed: {}", e))?;
+    // Use plan_semantic_query which handles cross-tableGroup cases
+    let plan_node = plan_semantic_query(schema, model, request)
+        .map_err(|e| format!("Planning failed: {}", e))?;
 
     // Emit Substrait
     let substrait = emit_plan(&plan_node, None).map_err(|e| format!("Emission failed: {}", e))?;

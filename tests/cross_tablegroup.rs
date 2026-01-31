@@ -75,7 +75,275 @@ fn test_single_tablegroup_metric_not_cross() {
     }
 }
 
-// TODO: Add tests for:
+// =============================================================================
+// Conformed Dimension Tests
+// =============================================================================
+
+#[test]
+fn test_conformed_dimension_detection() {
+    let schema = load_fixture("cross_tablegroup.yaml");
+    let model = schema.get_model("marketing").unwrap();
+
+    // dates is fully conformed
+    assert!(model.is_conformed("dates", "year"), "dates.year should be conformed");
+    assert!(model.is_conformed("dates", "date"), "dates.date should be conformed");
+    
+    // campaign has only campaign_id conformed
+    assert!(model.is_conformed("campaign", "campaign_id"), "campaign.campaign_id should be conformed");
+    assert!(!model.is_conformed("campaign", "campaign_name"), "campaign.campaign_name should NOT be conformed");
+    
+    // Non-listed dimensions are not conformed
+    assert!(!model.is_conformed("other", "attr"), "unlisted dimension should NOT be conformed");
+}
+
+#[test]
+fn test_conformed_query_detection() {
+    let schema = load_fixture("cross_tablegroup.yaml");
+    let model = schema.get_model("marketing").unwrap();
+
+    // Query with only conformed dimensions
+    let conformed_query = vec!["dates.year".to_string(), "_table.tableGroup".to_string()];
+    assert!(model.is_conformed_query(&conformed_query), "Query with dates.year and _table should be conformed");
+    
+    // Query with non-conformed attribute
+    let non_conformed_query = vec!["campaign.campaign_name".to_string()];
+    assert!(!model.is_conformed_query(&non_conformed_query), "Query with campaign.campaign_name should NOT be conformed");
+    
+    // Query with mix of conformed and non-conformed
+    let mixed_query = vec!["dates.year".to_string(), "campaign.campaign_name".to_string()];
+    assert!(!model.is_conformed_query(&mixed_query), "Mixed query should NOT be conformed");
+}
+
+#[test]
+fn test_conformed_dimension_union_plan() {
+    use common::run_pipeline;
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+
+    // Query conformed dimension with a metric that exists in both tableGroups
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec!["dates.year".to_string()]),
+        metrics: Some(vec!["clicks".to_string()]),
+        ..Default::default()
+    };
+
+    let plan = run_pipeline(&schema, &request)
+        .expect("Conformed dimension query should succeed");
+    
+    // Should produce a UNION plan (querying across both tableGroups)
+    assert!(
+        has_union(&plan),
+        "Conformed dimension query should produce a UNION plan"
+    );
+}
+
+#[test]
+fn test_conformed_dimension_with_table_metadata() {
+    use common::run_pipeline;
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+
+    // Query conformed dimension + _table.tableGroup + metric
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "dates.year".to_string(),
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: Some(vec!["clicks".to_string()]),
+        ..Default::default()
+    };
+
+    let plan = run_pipeline(&schema, &request)
+        .expect("Conformed dimension + _table query should succeed");
+    
+    // Should produce a UNION plan
+    assert!(
+        has_union(&plan),
+        "Conformed dimension + _table query should produce a UNION plan"
+    );
+}
+
+#[test]
+fn test_virtual_dimension_implicitly_conformed() {
+    use common::run_pipeline;
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+
+    // Query ONLY _table.tableGroup (virtual dimension) + metric
+    // Virtual dimensions should be implicitly conformed, no need to list in conformedDimensions
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: Some(vec!["clicks".to_string()]),
+        ..Default::default()
+    };
+
+    let plan = run_pipeline(&schema, &request)
+        .expect("Virtual dimension only query should succeed (implicitly conformed)");
+    
+    // Should produce a UNION plan (querying across both tableGroups)
+    assert!(
+        has_union(&plan),
+        "Virtual dimension query should produce a UNION plan"
+    );
+}
+
+#[test]
+fn test_virtual_only_query_no_table_scan() {
+    use common::run_pipeline;
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+
+    // Query ONLY _table.tableGroup (virtual dimension) with NO metrics
+    // This should NOT do any table scans - just return metadata
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: None,  // No metrics!
+        ..Default::default()
+    };
+
+    let plan = run_pipeline(&schema, &request)
+        .expect("Virtual-only query should succeed without table scans");
+    
+    // Should NOT produce a UNION - should be a VirtualTable
+    // (VirtualTable is emitted as a ReadRel with VirtualTable read_type)
+    assert!(
+        !has_union(&plan),
+        "Virtual-only query should NOT produce a UNION plan"
+    );
+}
+
+// =============================================================================
+// TableGroup-Qualified Dimension Tests
+// =============================================================================
+
+#[test]
+fn test_tablegroup_qualified_dimension_parsing() {
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+    
+    // Query with tableGroup-qualified dimension
+    // This should parse "google_ads.dates.year" as a qualified reference
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "google_ads.dates.year".to_string(),
+        ]),
+        metrics: Some(vec!["unified_cost".to_string()]),
+        ..Default::default()
+    };
+
+    // The query should succeed - the resolver should handle three-part paths
+    // We're mainly testing that it doesn't error
+    let result = common::run_pipeline(&schema, &request);
+    assert!(
+        result.is_ok(),
+        "TableGroup-qualified dimension query should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn test_tablegroup_qualified_dimension_cross_tablegroup_metric() {
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+    
+    // Query with tableGroup-qualified dimensions from BOTH tableGroups + cross-tableGroup metric
+    // Expected result: UNION with NULLs for the "other" tableGroup's dimension
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "google_ads.dates.year".to_string(),
+            "meta_ads.dates.year".to_string(),
+        ]),
+        metrics: Some(vec!["unified_cost".to_string()]),
+        ..Default::default()
+    };
+
+    let result = common::run_pipeline(&schema, &request);
+    assert!(
+        result.is_ok(),
+        "Query with qualified dimensions from both tableGroups should succeed: {:?}",
+        result.err()
+    );
+    
+    let plan = result.unwrap();
+    
+    // Should produce a UNION plan
+    assert!(
+        has_union(&plan),
+        "Query with qualified dimensions should produce a UNION plan"
+    );
+}
+
+#[test]
+fn test_tablegroup_qualified_with_virtual_dimension() {
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+    
+    // Query with tableGroup-qualified dimension + virtual _table dimension + metric
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "google_ads.dates.year".to_string(),
+            "_table.tableGroup".to_string(),
+        ]),
+        metrics: Some(vec!["unified_cost".to_string()]),
+        ..Default::default()
+    };
+
+    let result = common::run_pipeline(&schema, &request);
+    assert!(
+        result.is_ok(),
+        "Query with qualified + virtual dimensions should succeed: {:?}",
+        result.err()
+    );
+    
+    let plan = result.unwrap();
+    assert!(
+        has_union(&plan),
+        "Query with qualified + virtual dimensions should produce a UNION plan"
+    );
+}
+
+#[test]
+fn test_invalid_tablegroup_qualifier_fails() {
+    use semstrait::QueryRequest;
+    
+    let schema = load_fixture("cross_tablegroup.yaml");
+    
+    // Query with non-existent tableGroup qualifier should fail
+    let request = QueryRequest {
+        model: "marketing".to_string(),
+        rows: Some(vec![
+            "nonexistent_tg.dates.year".to_string(),
+        ]),
+        metrics: Some(vec!["unified_cost".to_string()]),
+        ..Default::default()
+    };
+
+    let result = common::run_pipeline(&schema, &request);
+    assert!(
+        result.is_err(),
+        "Query with invalid tableGroup qualifier should fail"
+    );
+}
+
+// TODO: Add more tests for:
 // - Cross-tableGroup with multiple dimension attributes
 // - Verify the re-aggregation logic
 // - Error handling for missing tableGroups

@@ -5,12 +5,20 @@ use super::types::DataType;
 use super::tablegroup::Source;
 
 /// A dimension definition with its attributes
+/// 
+/// Can be either a regular dimension (with physical table) or a virtual dimension
+/// (like `_table`) that provides metadata as constant literals.
 #[derive(Debug, Deserialize)]
 pub struct Dimension {
     pub name: String,
-    /// Data source configuration (parquet path, iceberg table, etc.)
-    pub source: Source,
-    pub table: String,
+    /// If true, this is a virtual dimension with no physical table.
+    /// Virtual dimensions provide metadata as constant literal values.
+    #[serde(rename = "virtual", default)]
+    pub is_virtual: bool,
+    /// Data source configuration (required for non-virtual dimensions)
+    pub source: Option<Source>,
+    /// Physical table name (required for non-virtual dimensions)
+    pub table: Option<String>,
     pub alias: Option<String>,
     pub label: Option<String>,
     /// Human-readable description for UIs and LLMs
@@ -48,7 +56,8 @@ impl Dimension {
     /// Get the parquet path if source is Parquet
     pub fn parquet_path(&self) -> Option<&str> {
         match &self.source {
-            Source::Parquet { path } => Some(path),
+            Some(Source::Parquet { path }) => Some(path),
+            None => None,
         }
     }
     
@@ -69,6 +78,16 @@ impl Dimension {
     /// Get all attribute names
     pub fn attribute_names(&self) -> Vec<&str> {
         self.attributes.iter().map(|a| a.name.as_str()).collect()
+    }
+    
+    /// Check if this is a virtual dimension (no physical table)
+    pub fn is_virtual(&self) -> bool {
+        self.is_virtual
+    }
+    
+    /// Get the physical table name (None for virtual dimensions)
+    pub fn table_name(&self) -> Option<&str> {
+        self.table.as_deref()
     }
 }
 
