@@ -1,8 +1,6 @@
 //! Root schema definition
 
 use serde::Deserialize;
-use serde::de::{self, Deserializer, MapAccess, Visitor};
-use std::fmt;
 use std::path::Path;
 use super::dimension::Dimension;
 use super::measure::Measure;
@@ -16,77 +14,6 @@ pub struct Schema {
     pub models: Vec<Model>,
 }
 
-/// A conformed dimension - can be queried across multiple tableGroups
-/// 
-/// Supports two YAML forms:
-/// - Simple: `- dates` (all attributes are conformed)
-/// - Detailed: `- campaign: [country, market]` (only listed attributes are conformed)
-#[derive(Debug, Clone)]
-pub struct ConformedDimension {
-    /// Name of the dimension
-    pub name: String,
-    /// Specific attributes that are conformed, or None if all attributes are conformed
-    pub attributes: Option<Vec<String>>,
-}
-
-impl ConformedDimension {
-    /// Check if a specific attribute is conformed for this dimension
-    pub fn is_attribute_conformed(&self, attr_name: &str) -> bool {
-        match &self.attributes {
-            None => true, // All attributes are conformed
-            Some(attrs) => attrs.iter().any(|a| a == attr_name),
-        }
-    }
-}
-
-// Custom deserializer for ConformedDimension to support both:
-// - `- dates` (string)
-// - `- campaign: [country, market]` (map)
-impl<'de> Deserialize<'de> for ConformedDimension {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct ConformedDimensionVisitor;
-
-        impl<'de> Visitor<'de> for ConformedDimensionVisitor {
-            type Value = ConformedDimension;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string or a map with dimension name and attributes")
-            }
-
-            // Simple form: `- dates`
-            fn visit_str<E>(self, value: &str) -> Result<ConformedDimension, E>
-            where
-                E: de::Error,
-            {
-                Ok(ConformedDimension {
-                    name: value.to_string(),
-                    attributes: None,
-                })
-            }
-
-            // Detailed form: `- campaign: [country, market]`
-            fn visit_map<M>(self, mut map: M) -> Result<ConformedDimension, M::Error>
-            where
-                M: MapAccess<'de>,
-            {
-                let entry: Option<(String, Vec<String>)> = map.next_entry()?;
-                match entry {
-                    Some((name, attributes)) => Ok(ConformedDimension {
-                        name,
-                        attributes: Some(attributes),
-                    }),
-                    None => Err(de::Error::custom("expected dimension name and attributes")),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(ConformedDimensionVisitor)
-    }
-}
-
 /// A model - the queryable business entity
 /// 
 /// Contains one or more table groups that share dimension and measure definitions.
@@ -96,13 +23,9 @@ pub struct Model {
     pub name: String,
     /// Namespace for the model (e.g., organization or project identifier)
     pub namespace: Option<String>,
-    /// Shared dimensions (with physical tables) available to table groups
+    /// Model-level dimensions - queryable with 2-part paths across all tableGroups
     #[serde(default)]
     pub dimensions: Vec<Dimension>,
-    /// Conformed dimensions - can be queried across multiple tableGroups
-    /// Queries on conformed dimensions automatically UNION across all tableGroups that have them
-    #[serde(rename = "conformedDimensions", default)]
-    pub conformed_dimensions: Vec<ConformedDimension>,
     /// Table groups - each group contains tables that share field definitions
     #[serde(rename = "tableGroups")]
     pub table_groups: Vec<TableGroup>,
@@ -239,65 +162,31 @@ impl Model {
             .collect()
     }
     
-    /// Check if a dimension.attribute is conformed (can be queried across tableGroups)
+    /// Check if a dimension is defined at model level (can be queried with 2-part path)
     /// 
-    /// Returns true if:
-    /// - The dimension is listed in conformedDimensions with no attribute restrictions, OR
-    /// - The dimension is listed with this specific attribute
-    pub fn is_conformed(&self, dim_name: &str, attr_name: &str) -> bool {
-        self.conformed_dimensions
-            .iter()
-            .find(|cd| cd.name == dim_name)
-            .map(|cd| cd.is_attribute_conformed(attr_name))
-            .unwrap_or(false)
+    /// Model-level dimensions are queryable across all tableGroups that reference them.
+    /// The attr_name parameter is kept for API compatibility but not used in the check.
+    pub fn is_conformed(&self, dim_name: &str, _attr_name: &str) -> bool {
+        self.dimensions.iter().any(|d| d.name == dim_name)
     }
     
-    /// Check if all dimension attributes in a query are conformed
+    /// Check if all dimension attributes in a query can use the cross-tableGroup UNION path
     /// 
-    /// Virtual dimensions (like `_table`) are implicitly conformed - they don't need
-    /// to be listed in conformedDimensions.
-    /// 
-    /// Returns true if:
-    /// - All dimensions in the query are virtual (implicitly conformed), OR
-    /// - All non-virtual dimensions are explicitly listed in conformedDimensions
+    /// Returns true if all dimensions are either:
+    /// - Virtual dimensions (like `_table`) - implicitly work across tableGroups
+    /// - Model-level dimensions - defined at model.dimensions, queryable with 2-part paths
     pub fn is_conformed_query(&self, dimension_attrs: &[String]) -> bool {
-        // Separate virtual and non-virtual dimensions
-        let (virtual_dims, physical_dims): (Vec<_>, Vec<_>) = dimension_attrs.iter()
-            .partition(|dim_attr| {
-                let parts: Vec<&str> = dim_attr.split('.').collect();
-                if parts.len() != 2 {
-                    return false;
-                }
-                // Check if this dimension is virtual (at model level)
-                self.get_dimension(parts[0])
-                    .map(|d| d.is_virtual())
-                    .unwrap_or(false)
-            });
-        
-        // If there are only virtual dimensions, allow UNION path
-        // (virtual dimensions are implicitly conformed)
-        if physical_dims.is_empty() && !virtual_dims.is_empty() {
-            return true;
+        if dimension_attrs.is_empty() {
+            return false;
         }
         
-        // If there are physical dimensions, they must all be conformed
-        if !physical_dims.is_empty() {
-            // Need conformedDimensions to be defined
-            if self.conformed_dimensions.is_empty() {
+        dimension_attrs.iter().all(|dim_attr| {
+            let parts: Vec<&str> = dim_attr.split('.').collect();
+            if parts.len() != 2 {
                 return false;
             }
-            
-            // Check all physical dimensions are conformed
-            return physical_dims.iter().all(|dim_attr| {
-                let parts: Vec<&str> = dim_attr.split('.').collect();
-                if parts.len() != 2 {
-                    return false;
-                }
-                self.is_conformed(parts[0], parts[1])
-            });
-        }
-        
-        // Empty query - not conformed
-        false
+            // Check if dimension exists at model level (includes virtual dimensions)
+            self.get_dimension(parts[0]).is_some()
+        })
     }
 }

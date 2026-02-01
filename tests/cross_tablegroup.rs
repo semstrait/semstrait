@@ -76,7 +76,7 @@ fn test_single_tablegroup_metric_not_cross() {
 }
 
 // =============================================================================
-// Conformed Dimension Tests
+// Model-Level Dimension Tests
 // =============================================================================
 
 #[test]
@@ -84,16 +84,19 @@ fn test_conformed_dimension_detection() {
     let schema = load_fixture("cross_tablegroup.yaml");
     let model = schema.get_model("marketing").unwrap();
 
-    // dates is fully conformed
-    assert!(model.is_conformed("dates", "year"), "dates.year should be conformed");
-    assert!(model.is_conformed("dates", "date"), "dates.date should be conformed");
+    // dates is at model level - all attributes are conformed
+    assert!(model.is_conformed("dates", "year"), "dates.year should be conformed (model-level)");
+    assert!(model.is_conformed("dates", "date"), "dates.date should be conformed (model-level)");
     
-    // campaign has only campaign_id conformed
-    assert!(model.is_conformed("campaign", "campaign_id"), "campaign.campaign_id should be conformed");
-    assert!(!model.is_conformed("campaign", "campaign_name"), "campaign.campaign_name should NOT be conformed");
+    // _table is at model level (virtual) - all attributes are conformed
+    assert!(model.is_conformed("_table", "tableGroup"), "_table.tableGroup should be conformed (virtual)");
     
-    // Non-listed dimensions are not conformed
-    assert!(!model.is_conformed("other", "attr"), "unlisted dimension should NOT be conformed");
+    // campaign is NOT at model level (inline only) - NOT conformed
+    assert!(!model.is_conformed("campaign", "campaign_id"), "campaign.campaign_id should NOT be conformed (inline only)");
+    assert!(!model.is_conformed("campaign", "campaign_name"), "campaign.campaign_name should NOT be conformed (inline only)");
+    
+    // Non-existent dimensions are not conformed
+    assert!(!model.is_conformed("other", "attr"), "non-existent dimension should NOT be conformed");
 }
 
 #[test]
@@ -101,15 +104,15 @@ fn test_conformed_query_detection() {
     let schema = load_fixture("cross_tablegroup.yaml");
     let model = schema.get_model("marketing").unwrap();
 
-    // Query with only conformed dimensions
+    // Query with only model-level dimensions
     let conformed_query = vec!["dates.year".to_string(), "_table.tableGroup".to_string()];
     assert!(model.is_conformed_query(&conformed_query), "Query with dates.year and _table should be conformed");
     
-    // Query with non-conformed attribute
+    // Query with inline-only dimension (not at model level)
     let non_conformed_query = vec!["campaign.campaign_name".to_string()];
-    assert!(!model.is_conformed_query(&non_conformed_query), "Query with campaign.campaign_name should NOT be conformed");
+    assert!(!model.is_conformed_query(&non_conformed_query), "Query with inline dimension should NOT be conformed");
     
-    // Query with mix of conformed and non-conformed
+    // Query with mix of model-level and inline dimensions
     let mixed_query = vec!["dates.year".to_string(), "campaign.campaign_name".to_string()];
     assert!(!model.is_conformed_query(&mixed_query), "Mixed query should NOT be conformed");
 }

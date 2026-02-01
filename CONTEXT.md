@@ -45,6 +45,9 @@ The semantic model is the single source of truth: define once, use for both UX g
 - **Enums shared across layers** - e.g., `model::Aggregation` used directly in `plan::AggregateExpr`
 - **Serde with aliases** - YAML strings like "count_distinct" deserialize to enum variants
 - **Virtual dimensions** - Dimensions with `virtual: true` have no physical table and emit constant literal values (e.g., `_table` for metadata)
+- **Model-level dimensions** - Defined at model level, queryable with two-part paths, UNION across tableGroups
+- **Inline dimensions** - Defined in tableGroups, queryable only with three-part paths (`tableGroup.dimension.attribute`)
+- **Typed NULLs in UNION** - When combining dimensions from different tableGroups, NULLs carry the correct type for schema compatibility
 
 ## Expressions
 
@@ -78,6 +81,16 @@ To add a new expression type: add variant to `ExprNode` enum, serde handles dese
 | Add plan node | `plan/node.rs` + update `planner/` and `emitter/` |
 | Add `_table` attribute | 1) Add to model's `_table` dimension attributes, 2) Add to table's `_table` list |
 | Add table property | 1) Add to `table.properties`, 2) Declare in `_table` dimension, 3) Add to table's `_table` list |
+| Add shared dimension | Define at model-level `dimensions` (queryable with 2-part path) |
+| Add tableGroup-specific dimension | Define inline in tableGroup (queryable with 3-part path) |
+
+## Dimension Path Types
+
+| Defined At | Path Format | Example | Behavior |
+|------------|-------------|---------|----------|
+| Model-level | Two-part | `dates.year` | UNION across all tableGroups |
+| Inline in tableGroup | Three-part | `adwords.campaign.name` | Single tableGroup only |
+| Virtual (model-level) | Two-part | `_table.tableGroup` | Literal values across all tableGroups |
 
 ## Testing
 

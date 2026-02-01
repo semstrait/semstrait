@@ -5,11 +5,11 @@
 # - unified_cost metric should generate a UNION of both tableGroups
 # - Each branch should aggregate its own measure (ad_cost vs media_spend)
 # - Final result should re-aggregate the unioned data
-# - Conformed dimensions (dates) can be queried across tableGroups
+# - Model-level dimensions (dates) can be queried with 2-part paths across tableGroups
 
 models:
   - name: marketing
-    # Virtual _table dimension for metadata
+    # Model-level dimensions - queryable with 2-part paths across all tableGroups
     dimensions:
       - name: _table
         virtual: true
@@ -21,11 +21,13 @@ models:
           - name: table
             type: string
 
-    # Conformed dimensions - can be queried across all tableGroups
-    # Queries on these automatically UNION across tableGroups
-    conformedDimensions:
-      - dates                    # All attributes of dates are conformed
-      - campaign: [campaign_id]  # Only campaign_id is conformed (campaign_name may differ)
+      # Shared dates dimension - queryable as dates.date, dates.year
+      - name: dates
+        attributes:
+          - name: date
+            type: date
+          - name: year
+            type: i32
 
     tableGroups:
       # Google Ads data

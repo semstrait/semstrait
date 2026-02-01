@@ -22,6 +22,9 @@ YAML Schema → semstrait → Substrait Plan → Any Engine
 - **Query Resolution** — Resolve business queries against the semantic model  
 - **Logical Planning** — Generate optimized relational algebra plans
 - **Substrait Output** — Emit portable compute plans for any Substrait-compatible engine
+- **Table Groups** — Multiple data sources (e.g., Google Ads, Facebook Ads) in one model
+- **Cross-TableGroup Queries** — Model-level dimensions automatically UNION across tableGroups
+- **Virtual Dimensions** — Metadata dimensions (like `_table`) with no physical table
 - **Degenerate Dimensions** — Support for fact table columns as dimension attributes
 - **Metrics** — Derived calculations from measures (e.g., `revenue / quantity`)
 - **Lightweight** — Pure Rust library, no runtime server required
@@ -217,6 +220,11 @@ dimensions:
 - ✅ Type-safe data types (`DataType` enum)
 - ✅ Type-safe aggregations (`Aggregation` enum)
 - ✅ LLM-friendly metadata (description, synonyms, examples)
+- ✅ Table groups with aggregate awareness
+- ✅ Model-level dimensions (cross-tableGroup UNION)
+- ✅ Virtual dimensions (`_table` metadata)
+- ✅ TableGroup-qualified dimension paths (3-part)
+- ✅ Cross-tableGroup UNION with typed NULLs
 - 🔲 Schema validation
 - 🔲 LookML parser support
 - 🔲 More aggregation functions

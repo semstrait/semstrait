@@ -58,11 +58,11 @@ This design ensures:
 ```yaml
 models:
   - name: <model_name>
-    namespace: <namespace>   # Optional namespace/organization identifier
-    dimensions: [...]        # Shared dimension tables for this model
-    metrics: [...]           # Derived calculations (model-level)
-    tableGroups: [...]       # Groups of tables sharing field definitions
-    dataFilter: [...]        # Row-level security (optional)
+    namespace: <namespace>          # Optional namespace/organization identifier
+    dimensions: [...]               # Model-level dimensions (queryable with 2-part paths)
+    metrics: [...]                  # Derived calculations (model-level)
+    tableGroups: [...]              # Groups of tables sharing field definitions
+    dataFilter: [...]               # Row-level security (optional)
 ```
 
 ### Dimension Definition
@@ -79,6 +79,82 @@ dimensions:
     label: <display_label>
     attributes: [...]
 ```
+
+## Dimension Path Types
+
+The location where a dimension is defined determines how it can be queried:
+
+| Defined At | Path Format | Example | Behavior |
+|------------|-------------|---------|----------|
+| Model-level `dimensions` | Two-part | `dates.year` | UNION across all tableGroups |
+| Inline in tableGroup | Three-part | `adwords.campaign.name` | Single tableGroup only |
+| Virtual (model-level) | Two-part | `_table.tableGroup` | Literal values across all tableGroups |
+
+### Model-Level Dimensions (Two-Part Path)
+
+Dimensions defined at the model level are shared concepts that can be queried across tableGroups. The planner automatically UNIONs results from all tableGroups that reference the dimension.
+
+```yaml
+rows:
+  - "dates.date"    # Queries dates.date from ALL tableGroups
+metrics: ["revenue"]
+```
+
+### Inline Dimensions (Three-Part Path)
+
+Dimensions defined inline within a tableGroup are tableGroup-specific and must be queried with the three-part path `tableGroup.dimension.attribute`.
+
+```yaml
+rows:
+  - "adwords.campaign.name"      # Only adwords campaigns
+  - "facebookads.campaign.name"  # Only facebookads campaigns
+metrics: ["revenue"]
+```
+
+### Virtual Dimensions (Two-Part Path)
+
+Virtual dimensions (like `_table`) are defined at model level with `virtual: true`. They have no physical table and emit literal values.
+
+```yaml
+rows:
+  - "_table.tableGroup"  # Shows which tableGroup each row came from
+metrics: ["revenue"]
+```
+
+## Mixed Dimension Queries
+
+You can combine model-level, inline, and virtual dimensions in the same query. The planner builds a UNION where:
+
+- **Model-level dimensions**: Have values in all rows
+- **Inline dimensions**: Have values only for their tableGroup, NULL for others
+- **Virtual dimensions**: Have tableGroup-specific literal values in all rows
+
+### Example
+
+Query:
+```yaml
+rows:
+  - "dates.date"              # Model-level (2-part)
+  - "adwords.dates.date"      # Inline (3-part)
+  - "facebookads.dates.date"  # Inline (3-part)
+  - "_table.tableGroup"       # Virtual (2-part)
+metrics: ["fun-cost"]
+```
+
+Result:
+```
+| dates.date | adwords.dates.date | facebookads.dates.date | _table.tableGroup | fun-cost |
+|------------|--------------------|-----------------------|-------------------|----------|
+| 2024-01-01 | 2024-01-01         | null                  | adwords           | 1500     |
+| 2024-01-02 | 2024-01-02         | null                  | adwords           | 1800     |
+| 2024-01-01 | null               | 2024-01-01            | facebookads       | 2300     |
+| 2024-01-02 | null               | 2024-01-02            | facebookads       | 2100     |
+```
+
+This enables:
+- Seeing the shared dimension value (`dates.date`) for sorting/grouping
+- Identifying which tableGroup each row came from via inline columns or `_table.tableGroup`
+- Client-side post-processing to compute cross-tableGroup totals
 
 ## Table Groups
 
