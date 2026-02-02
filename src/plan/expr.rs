@@ -80,6 +80,8 @@ pub enum Expr {
         /// Optional ELSE result
         else_result: Option<Box<Expr>>,
     },
+    /// COALESCE expression: returns first non-NULL value
+    Coalesce(Vec<Expr>),
 }
 
 /// Literal values

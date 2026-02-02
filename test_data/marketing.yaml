@@ -176,5 +176,18 @@ models:
                   eq: [tableGroup.name, "facebookads"]
                 then: spend
             else: 0
+      
+      - name: fun-impressions
+        type: f64
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [tableGroup.name, "adwords"]
+                then: impressions
+              - condition:
+                  eq: [tableGroup.name, "facebookads"]
+                then: impressions
+            else: 0
 
 # No shared dimension tables (all dimensions are degenerate/inline)

@@ -7,18 +7,44 @@
 //!
 //! Aggregate awareness is scoped to a single tableGroup. If multiple tableGroups
 //! can serve the query, an error is returned - use a cross-tableGroup metric instead.
+//!
+//! Multi-table JOIN support:
+//! When no single table has all required measures, multiple tables can be selected
+//! and joined on their common dimensions. Uses "smallest table first" heuristic
+//! to assign measures to the most aggregated tables.
 
 use std::collections::{HashMap, HashSet};
 use crate::model::{Model, TableGroup, GroupTable, Schema};
 use super::error::SelectError;
 
 /// Result of table selection - includes both the group and table
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SelectedTable<'a> {
     /// The table group containing the selected table
     pub group: &'a TableGroup,
     /// The selected table
     pub table: &'a GroupTable,
+}
+
+/// Result of multi-table selection for JOIN scenarios
+/// 
+/// When no single table has all required measures, multiple tables are selected
+/// and joined on common dimensions. Each table is assigned specific measures.
+#[derive(Debug)]
+pub struct MultiTableSelection<'a> {
+    /// The table group containing all selected tables
+    pub group: &'a TableGroup,
+    /// Selected tables with their assigned measures
+    pub tables: Vec<TableWithMeasures<'a>>,
+}
+
+/// A selected table with its assigned measures
+#[derive(Debug, Clone)]
+pub struct TableWithMeasures<'a> {
+    /// The selected table
+    pub table: &'a GroupTable,
+    /// Measures assigned to this table (using "first smallest wins" strategy)
+    pub measures: Vec<String>,
 }
 
 /// Select the optimal table(s) to serve a query
@@ -110,6 +136,166 @@ pub fn select_tables<'a>(
         .unwrap();
     
     Ok(vec![best])
+}
+
+/// Select multiple tables for a JOIN when no single table has all measures
+/// 
+/// This is used when:
+/// 1. Query requires measures that exist in different tables within the same tableGroup
+/// 2. All tables share the required common dimensions (JOIN keys)
+/// 
+/// Uses "smallest table first" strategy: measures are assigned to the smallest
+/// (most aggregated) table that has them. This minimizes data scanned.
+/// 
+/// # Arguments
+/// * `schema` - The schema containing dimension definitions
+/// * `model` - The model to select tables from
+/// * `required_dimensions` - Dimension.attribute paths needed for JOIN keys
+/// * `required_measures` - Measure names needed (may span multiple tables)
+/// 
+/// # Returns
+/// A `MultiTableSelection` with tables and their assigned measures, or an error
+pub fn select_tables_for_join<'a>(
+    _schema: &'a Schema,
+    model: &'a Model,
+    required_dimensions: &[String],
+    required_measures: &[String],
+) -> Result<MultiTableSelection<'a>, SelectError> {
+    if model.table_groups.is_empty() {
+        return Err(SelectError::NoTablesInModel {
+            model: model.name.clone(),
+        });
+    }
+    
+    // Extract tableGroup qualifiers from three-part dimension paths
+    let qualified_groups: HashSet<&str> = required_dimensions.iter()
+        .filter_map(|path| {
+            let parts: Vec<&str> = path.split('.').collect();
+            if parts.len() == 3 { Some(parts[0]) } else { None }
+        })
+        .collect();
+    
+    // Determine which tableGroup to use
+    // If qualified, use that specific one; otherwise find the one with all measures
+    let target_group = if qualified_groups.len() == 1 {
+        let group_name = *qualified_groups.iter().next().unwrap();
+        model.table_groups.iter()
+            .find(|g| g.name == group_name)
+            .ok_or_else(|| SelectError::NoFeasibleTable {
+                model: model.name.clone(),
+                reason: format!("TableGroup '{}' not found", group_name),
+            })?
+    } else if qualified_groups.len() > 1 {
+        return Err(SelectError::AmbiguousTableGroup {
+            model: model.name.clone(),
+            table_groups: qualified_groups.iter().map(|s| s.to_string()).collect(),
+        });
+    } else {
+        // Find tableGroup that has all required measures (across any of its tables)
+        model.table_groups.iter()
+            .find(|g| {
+                required_measures.iter().all(|m| {
+                    g.get_measure(m).is_some() && g.tables.iter().any(|t| t.has_measure(m))
+                })
+            })
+            .ok_or_else(|| SelectError::NoFeasibleTable {
+                model: model.name.clone(),
+                reason: "No tableGroup has all required measures".to_string(),
+            })?
+    };
+    
+    // Find all tables that have the required dimensions (can participate in JOIN)
+    let dimension_feasible: Vec<&GroupTable> = target_group.tables.iter()
+        .filter(|table| has_all_dimensions(model, target_group, table, required_dimensions))
+        .collect();
+    
+    if dimension_feasible.is_empty() {
+        return Err(SelectError::NoFeasibleTable {
+            model: model.name.clone(),
+            reason: "No table has all required dimensions".to_string(),
+        });
+    }
+    
+    // Sort tables by attribute count (smallest/most aggregated first)
+    let mut sorted_tables: Vec<&GroupTable> = dimension_feasible;
+    sorted_tables.sort_by_key(|t| t.attribute_count());
+    
+    // Assign measures to tables using "first smallest wins" strategy
+    let mut measure_assignments: HashMap<String, &GroupTable> = HashMap::new();
+    let mut tables_used: HashSet<String> = HashSet::new();
+    
+    for measure_name in required_measures {
+        // Find the smallest table that has this measure
+        if let Some(table) = sorted_tables.iter()
+            .find(|t| t.has_measure(measure_name))
+        {
+            measure_assignments.insert(measure_name.clone(), *table);
+            tables_used.insert(table.table.clone());
+        } else {
+            return Err(SelectError::NoFeasibleTable {
+                model: model.name.clone(),
+                reason: format!("No table has measure '{}'", measure_name),
+            });
+        }
+    }
+    
+    // Build the result: group tables by table, preserving smallest-first order
+    let mut tables_with_measures: Vec<TableWithMeasures> = Vec::new();
+    
+    for table in &sorted_tables {
+        if tables_used.contains(&table.table) {
+            let measures: Vec<String> = measure_assignments.iter()
+                .filter(|(_, t)| t.table == table.table)
+                .map(|(m, _)| m.clone())
+                .collect();
+            
+            if !measures.is_empty() {
+                tables_with_measures.push(TableWithMeasures {
+                    table,
+                    measures,
+                });
+            }
+        }
+    }
+    
+    Ok(MultiTableSelection {
+        group: target_group,
+        tables: tables_with_measures,
+    })
+}
+
+/// Check if a table has all required dimensions (for JOIN participation)
+fn has_all_dimensions(
+    model: &Model,
+    group: &TableGroup,
+    table: &GroupTable,
+    required_dimensions: &[String],
+) -> bool {
+    for dim_attr in required_dimensions {
+        // Skip virtual _table dimension
+        if dim_attr.starts_with("_table.") {
+            continue;
+        }
+        
+        let parts: Vec<&str> = dim_attr.split('.').collect();
+        if parts.len() == 3 {
+            // Three-part: tableGroup.dimension.attribute
+            let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
+            if tg_qualifier != group.name {
+                continue; // Different tableGroup, not required from this group
+            }
+            let two_part = format!("{}.{}", dim_name, attr_name);
+            if !table_has_attribute(model, group, table, &two_part) {
+                return false;
+            }
+        } else if parts.len() == 2 {
+            // Two-part: dimension.attribute
+            if !table_has_attribute(model, group, table, dim_attr) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Check if a table can serve a query with the given requirements

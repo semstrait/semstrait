@@ -351,3 +351,123 @@ fn test_invalid_tablegroup_qualifier_fails() {
 // - Verify the re-aggregation logic
 // - Error handling for missing tableGroups
 // - Cross-tableGroup with incompatible schemas
+
+// ============================================================================
+// Multiple Cross-TableGroup Metrics Tests
+// ============================================================================
+
+#[test]
+fn test_multiple_cross_tablegroup_metrics_detection() {
+    // Use the marketing.yaml fixture which has fun-cost and fun-impressions
+    let schema = parser::parse_file("test_data/marketing.yaml").unwrap();
+    let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
+
+    // Both metrics should be detected as cross-tableGroup
+    let cost_metric = model.get_metric("fun-cost").unwrap();
+    let impressions_metric = model.get_metric("fun-impressions").unwrap();
+
+    assert!(cost_metric.is_cross_table_group(), "fun-cost should be cross-tableGroup");
+    assert!(impressions_metric.is_cross_table_group(), "fun-impressions should be cross-tableGroup");
+}
+
+#[test]
+fn test_multiple_cross_tablegroup_metrics_planning() {
+    use semstrait::planner::plan_semantic_query;
+    use semstrait::query::QueryRequest;
+
+    let schema = parser::parse_file("test_data/marketing.yaml").unwrap();
+    let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
+
+    // Query with BOTH cross-tableGroup metrics
+    let request = QueryRequest {
+        model: "-ObDoDFVQGxxCGa5vw_Z".to_string(),
+        dimensions: None,
+        rows: Some(vec!["dates.date".to_string()]),
+        columns: None,
+        metrics: Some(vec!["fun-cost".to_string(), "fun-impressions".to_string()]),
+        filter: None,
+    };
+
+    // This should now succeed (no longer erroring with "multiple not supported")
+    let plan = plan_semantic_query(&schema, model, &request);
+    assert!(plan.is_ok(), "Multiple cross-tableGroup metrics should be supported: {:?}", plan.err());
+
+    // Verify the plan structure
+    let plan_node = plan.unwrap();
+    let substrait = semstrait::emit_plan(&plan_node, None).expect("Emission should succeed");
+    
+    // Should have a UNION
+    assert!(has_union(&substrait), "Multiple cross-tableGroup metrics should produce UNION plan");
+}
+
+#[test]
+fn test_multiple_cross_tablegroup_metrics_union_structure() {
+    use semstrait::planner::plan_semantic_query;
+    use semstrait::query::QueryRequest;
+    use semstrait::plan::PlanNode;
+
+    let schema = parser::parse_file("test_data/marketing.yaml").unwrap();
+    let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
+
+    let request = QueryRequest {
+        model: "-ObDoDFVQGxxCGa5vw_Z".to_string(),
+        dimensions: None,
+        rows: Some(vec!["dates.date".to_string()]),
+        columns: None,
+        metrics: Some(vec!["fun-cost".to_string(), "fun-impressions".to_string()]),
+        filter: None,
+    };
+
+    let plan = plan_semantic_query(&schema, model, &request).unwrap();
+
+    // The plan should be: Sort(Aggregate(Union([branch1, branch2])))
+    match plan {
+        PlanNode::Sort(sort) => {
+            match *sort.input {
+                PlanNode::Aggregate(agg) => {
+                    // Should re-aggregate with SUM for BOTH metrics
+                    assert_eq!(agg.aggregates.len(), 2, "Should have 2 aggregates (one per metric)");
+                    
+                    let aliases: Vec<&str> = agg.aggregates.iter()
+                        .map(|a| a.alias.as_str())
+                        .collect();
+                    assert!(aliases.contains(&"fun-cost"), "Should have fun-cost aggregate");
+                    assert!(aliases.contains(&"fun-impressions"), "Should have fun-impressions aggregate");
+                    
+                    // Input should be Union
+                    match *agg.input {
+                        PlanNode::Union(union) => {
+                            // Should have 2 branches (adwords and facebookads)
+                            assert_eq!(union.inputs.len(), 2, "Union should have 2 branches");
+                        }
+                        _ => panic!("Expected Union as input to Aggregate"),
+                    }
+                }
+                _ => panic!("Expected Aggregate inside Sort"),
+            }
+        }
+        _ => panic!("Expected Sort at top level"),
+    }
+}
+
+#[test]
+fn test_single_cross_tablegroup_metric_still_works() {
+    use semstrait::planner::plan_semantic_query;
+    use semstrait::query::QueryRequest;
+
+    let schema = parser::parse_file("test_data/marketing.yaml").unwrap();
+    let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
+
+    // Query with single cross-tableGroup metric (should still work)
+    let request = QueryRequest {
+        model: "-ObDoDFVQGxxCGa5vw_Z".to_string(),
+        dimensions: None,
+        rows: Some(vec!["dates.date".to_string()]),
+        columns: None,
+        metrics: Some(vec!["fun-cost".to_string()]),
+        filter: None,
+    };
+
+    let plan = plan_semantic_query(&schema, model, &request);
+    assert!(plan.is_ok(), "Single cross-tableGroup metric should work: {:?}", plan.err());
+}

@@ -8,7 +8,7 @@ use crate::plan::{
     VirtualTable, LiteralValue as PlanLiteralValue,
 };
 use crate::resolver::{ResolvedQuery, AttributeRef, ResolvedFilter, ResolvedDimension, resolve_query};
-use crate::selector::select_tables;
+use crate::selector::{select_tables, select_tables_for_join, SelectedTable, MultiTableSelection};
 use crate::query::QueryRequest;
 use super::error::PlanError;
 
@@ -240,18 +240,12 @@ pub fn plan_semantic_query(
     
     let is_conformed = model.is_conformed_query(&dimension_attrs);
     
-    if !cross_table_metrics.is_empty() {
-        // Cross-tableGroup metric query path
-        // For now, support single cross-tableGroup metric per query
-        if cross_table_metrics.len() > 1 {
-            return Err(PlanError::InvalidQuery(
-                "Multiple cross-tableGroup metrics in a single query not yet supported".to_string()
-            ));
-        }
-        
-        let metric = cross_table_metrics[0];
-        
-        plan_cross_table_group_query(schema, model, metric, &dimension_attrs)
+    if cross_table_metrics.len() == 1 {
+        // Single cross-tableGroup metric - use the proven path
+        plan_cross_table_group_query(schema, model, cross_table_metrics[0], &dimension_attrs)
+    } else if cross_table_metrics.len() > 1 {
+        // Multiple cross-tableGroup metrics - use multi-metric path
+        plan_multi_cross_table_group_query(schema, model, &cross_table_metrics, &dimension_attrs)
     } else if qualified_groups.len() > 1 {
         // Multi-tableGroup qualified dimensions - UNION across the specified tableGroups
         // e.g., "adwords.dates.year" + "facebookads.dates.year" → UNION with NULL projection
@@ -281,19 +275,44 @@ pub fn plan_semantic_query(
             })
             .collect();
         
-        // Select optimal table
-        let selected_tables = select_tables(schema, model, &dimension_attrs, &required_measures)
-            .map_err(|e| PlanError::InvalidQuery(format!("Table selection error: {:?}", e)))?;
-        
-        let selected = selected_tables.into_iter().next()
-            .ok_or_else(|| PlanError::InvalidQuery("No feasible table found for query".to_string()))?;
-        
-        // Resolve the query
-        let resolved = resolve_query(schema, request, &selected)
-            .map_err(|e| PlanError::InvalidQuery(format!("Query resolution error: {:?}", e)))?;
-        
-        // Build the plan
-        plan_query(&resolved)
+        // Try single-table selection first
+        match select_tables(schema, model, &dimension_attrs, &required_measures) {
+            Ok(selected_tables) => {
+                let selected = selected_tables.into_iter().next()
+                    .ok_or_else(|| PlanError::InvalidQuery("No feasible table found for query".to_string()))?;
+                
+                // Resolve the query
+                let resolved = resolve_query(schema, request, &selected)
+                    .map_err(|e| PlanError::InvalidQuery(format!("Query resolution error: {:?}", e)))?;
+                
+                // Build the plan
+                plan_query(&resolved)
+            }
+            Err(_single_table_err) => {
+                // Single table selection failed - try multi-table JOIN
+                let multi_selection = select_tables_for_join(schema, model, &dimension_attrs, &required_measures)
+                    .map_err(|e| PlanError::InvalidQuery(format!("Multi-table selection error: {:?}", e)))?;
+                
+                if multi_selection.tables.len() == 1 {
+                    // Only one table needed - use normal path
+                    let selected = SelectedTable {
+                        group: multi_selection.group,
+                        table: multi_selection.tables[0].table,
+                    };
+                    let resolved = resolve_query(schema, request, &selected)
+                        .map_err(|e| PlanError::InvalidQuery(format!("Query resolution error: {:?}", e)))?;
+                    plan_query(&resolved)
+                } else {
+                    // Multiple tables needed - use JOIN path
+                    plan_same_tablegroup_join(
+                        model, 
+                        &multi_selection, 
+                        &dimension_attrs,
+                        &metric_names,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -880,6 +899,654 @@ fn add_attribute_column_with_type(
 
 // ============================================================================
 // Cross-TableGroup Query Planning
+// ============================================================================
+
+// ============================================================================
+// UNIFIED TABLEGROUP BRANCH BUILDER
+// ============================================================================
+//
+// This is the core building block for the hierarchical plan structure.
+// The hierarchy is:
+//
+//   Query
+//   └── Cross-TableGroup Layer (UNION for additive metrics)
+//       ├── TableGroup A Branch
+//       │   └── Within-TG Layer (JOIN if measures spread across tables)
+//       │       ├── Table 1 (Scan → Aggregate)
+//       │       └── Table 2 (Scan → Aggregate)
+//       └── TableGroup B Branch
+//           └── Single Table (Scan → Aggregate)
+//
+// The key principle: build_tablegroup_branch() is the ONLY function that
+// knows how to build a plan for a single tableGroup. All higher-level
+// functions (cross-TG, conformed, etc.) call it for each branch.
+// ============================================================================
+
+/// Build an aggregated plan for a single tableGroup.
+///
+/// This is the unified function for building within-tableGroup plans.
+/// It handles:
+/// - Single table selection (when one table has all measures)
+/// - Multi-table JOIN (when measures are spread across tables)
+/// - Dimension JOINs (for non-degenerate dimensions)
+/// - Aggregation
+///
+/// # Arguments
+/// * `model` - The semantic model
+/// * `table_group` - The tableGroup to build a branch for
+/// * `dimension_attrs` - Dimension paths (e.g., ["dates.date", "campaign.name"])
+/// * `measure_aliases` - List of (output_alias, measure_name) pairs
+///
+/// # Returns
+/// An aggregated PlanNode. Does NOT include final projection - that's the caller's job.
+fn build_tablegroup_branch(
+    model: &Model,
+    table_group: &TableGroup,
+    dimension_attrs: &[String],
+    measure_aliases: &[(String, String)],  // (output_alias, measure_name)
+) -> Result<PlanNode, PlanError> {
+    // Parse dimension attributes (skip virtual dimensions for physical planning)
+    let physical_dims: Vec<(String, String)> = dimension_attrs.iter()
+        .filter_map(|attr_path| {
+            let parts: Vec<&str> = attr_path.split('.').collect();
+            match parts.len() {
+                2 => {
+                    let dim_name = parts[0];
+                    // Skip virtual dimensions
+                    if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                        return None;
+                    }
+                    Some((dim_name.to_string(), parts[1].to_string()))
+                }
+                3 => {
+                    // tableGroup.dimension.attribute - skip the tableGroup prefix
+                    let dim_name = parts[1];
+                    if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                        return None;
+                    }
+                    Some((dim_name.to_string(), parts[2].to_string()))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    
+    // Extract just the measure names
+    let measure_names: Vec<&str> = measure_aliases.iter()
+        .map(|(_, m)| m.as_str())
+        .collect();
+    
+    // Try to find a single table that has all required measures
+    let single_table = table_group.tables.iter()
+        .find(|t| measure_names.iter().all(|m| t.has_measure(m)));
+    
+    if let Some(table) = single_table {
+        // Single table path - simpler and more efficient
+        // No prefix needed since this result won't be JOINed with other sub-queries
+        build_single_table_aggregate(model, table_group, table, &physical_dims, measure_aliases, None)
+    } else {
+        // Multi-table path - need to JOIN tables
+        build_multi_table_aggregate(model, table_group, &physical_dims, measure_aliases)
+    }
+}
+
+/// Build an aggregated plan from a single table
+///
+/// # Arguments
+/// * `output_prefix` - Optional prefix to add to output column names (e.g., "t0" -> "t0.dates.date")
+///                     Used when this sub-query will be JOINed with others
+fn build_single_table_aggregate(
+    model: &Model,
+    table_group: &TableGroup,
+    table: &GroupTable,
+    physical_dims: &[(String, String)],  // (dim_name, attr_name)
+    measure_aliases: &[(String, String)],  // (output_alias, measure_name)
+    output_prefix: Option<&str>,
+) -> Result<PlanNode, PlanError> {
+    let fact_alias = "fact";
+    let mut columns = Vec::new();
+    let mut types = Vec::new();
+    let mut joined_dimensions: HashSet<String> = HashSet::new();
+    
+    // Add dimension columns
+    for (dim_name, attr_name) in physical_dims {
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if group_dim.is_degenerate() {
+                if let Some(attr) = group_dim.get_attribute(attr_name) {
+                    let col_name = attr.column_name().to_string();
+                    if !columns.contains(&col_name) {
+                        columns.push(col_name);
+                        types.push(attr.data_type.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Add measure columns
+    for (_, measure_name) in measure_aliases {
+        if let Some(measure) = table_group.get_measure(measure_name) {
+            if let MeasureExpr::Column(col) = &measure.expr {
+                if !columns.contains(col) {
+                    columns.push(col.clone());
+                    types.push(measure.data_type().to_string());
+                }
+            }
+        }
+    }
+    
+    // Build scan
+    let mut plan = PlanNode::Scan(
+        Scan::new(&table.table)
+            .with_alias(fact_alias)
+            .with_columns(columns, types)
+    );
+    
+    // Add dimension joins for non-degenerate dimensions
+    for (dim_name, _) in physical_dims {
+        if joined_dimensions.contains(dim_name) {
+            continue;
+        }
+        
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(join_spec) = &group_dim.join {
+                if let Some(dimension) = model.get_dimension(dim_name) {
+                    if needs_join_for_dimension(table, group_dim, dimension) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        
+                        let dim_cols: Vec<String> = dimension.attributes.iter()
+                            .map(|a| a.column_name().to_string())
+                            .collect();
+                        let dim_types: Vec<String> = dimension.attributes.iter()
+                            .map(|a| a.data_type.to_string())
+                            .collect();
+                        
+                        let dim_table = dimension.table.as_ref()
+                            .expect("Non-virtual dimension must have a table");
+                        
+                        let dim_scan = PlanNode::Scan(
+                            Scan::new(dim_table)
+                                .with_alias(dim_alias)
+                                .with_columns(dim_cols, dim_types)
+                        );
+                        
+                        let left_key = Column::new(fact_alias, &join_spec.left_key);
+                        let right_key = Column::new(
+                            join_spec.right_alias.as_deref().unwrap_or(dim_alias),
+                            &join_spec.right_key,
+                        );
+                        
+                        plan = PlanNode::Join(Join {
+                            left: Box::new(plan),
+                            right: Box::new(dim_scan),
+                            join_type: JoinType::Left,
+                            left_key,
+                            right_key,
+                        });
+                        
+                        joined_dimensions.insert(dim_name.clone());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Build GROUP BY columns
+    let group_by: Vec<Column> = physical_dims.iter()
+        .filter_map(|(dim_name, attr_name)| {
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if group_dim.is_degenerate() {
+                    if let Some(attr) = group_dim.get_attribute(attr_name) {
+                        return Some(Column::new(fact_alias, attr.column_name()));
+                    }
+                } else if let Some(dimension) = model.get_dimension(dim_name) {
+                    if let Some(attr) = dimension.get_attribute(attr_name) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        return Some(Column::new(dim_alias, attr.column_name()));
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+    
+    // Build aggregates
+    let aggregates: Vec<AggregateExpr> = measure_aliases.iter()
+        .filter_map(|(alias, measure_name)| {
+            table_group.get_measure(measure_name).map(|measure| {
+                AggregateExpr {
+                    func: measure.aggregation,
+                    expr: convert_measure_expr(&measure.expr),
+                    alias: alias.clone(),
+                }
+            })
+        })
+        .collect();
+    
+    let agg_plan = PlanNode::Aggregate(Aggregate {
+        input: Box::new(plan),
+        group_by: group_by.clone(),
+        aggregates,
+    });
+    
+    // Project to rename physical columns to semantic names
+    // If output_prefix is provided, prefix the output column names for JOIN disambiguation
+    let mut projections = Vec::new();
+    
+    for (idx, (dim_name, attr_name)) in physical_dims.iter().enumerate() {
+        let semantic_name = format!("{}.{}", dim_name, attr_name);
+        let output_name = if let Some(prefix) = output_prefix {
+            format!("{}.{}", prefix, semantic_name)
+        } else {
+            semantic_name
+        };
+        
+        // Get the GROUP BY column for this dimension
+        if let Some(col) = group_by.get(idx) {
+            projections.push(ProjectExpr {
+                expr: Expr::Column(col.clone()),
+                alias: output_name,
+            });
+        }
+    }
+    
+    // Add measure columns (already have correct aliases from aggregate)
+    for (alias, _) in measure_aliases {
+        let output_name = if let Some(prefix) = output_prefix {
+            format!("{}.{}", prefix, alias)
+        } else {
+            alias.clone()
+        };
+        projections.push(ProjectExpr {
+            expr: Expr::Column(Column::unqualified(alias)),
+            alias: output_name,
+        });
+    }
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(agg_plan),
+        expressions: projections,
+    }))
+}
+
+/// Build an aggregated plan by JOINing multiple tables
+fn build_multi_table_aggregate(
+    model: &Model,
+    table_group: &TableGroup,
+    physical_dims: &[(String, String)],  // (dim_name, attr_name)
+    measure_aliases: &[(String, String)],  // (output_alias, measure_name)
+) -> Result<PlanNode, PlanError> {
+    // Find which tables have which measures
+    // Use "smallest table first" heuristic (fewest attributes = most aggregated)
+    let mut tables_sorted: Vec<&GroupTable> = table_group.tables.iter().collect();
+    tables_sorted.sort_by_key(|t| t.attribute_count());
+    
+    // Assign measures to tables (first table that has the measure wins)
+    let mut table_measures: HashMap<usize, Vec<(String, String)>> = HashMap::new();
+    let mut assigned_measures: HashSet<&str> = HashSet::new();
+    
+    for (alias, measure_name) in measure_aliases {
+        if assigned_measures.contains(measure_name.as_str()) {
+            continue;
+        }
+        
+        for (idx, table) in tables_sorted.iter().enumerate() {
+            if table.has_measure(measure_name) {
+                table_measures.entry(idx)
+                    .or_default()
+                    .push((alias.clone(), measure_name.clone()));
+                assigned_measures.insert(measure_name.as_str());
+                break;
+            }
+        }
+    }
+    
+    if table_measures.is_empty() {
+        return Err(PlanError::InvalidQuery(
+            "No tables found for required measures".to_string()
+        ));
+    }
+    
+    // Build sub-query for each table
+    // Each sub-query will prefix its output columns with tN (e.g., t0.dates.date)
+    let mut sub_queries: Vec<(PlanNode, String)> = Vec::new();
+    
+    for (idx, measures) in &table_measures {
+        let table = tables_sorted[*idx];
+        let table_alias = format!("t{}", idx);
+        
+        let sub_plan = build_single_table_aggregate(
+            model,
+            table_group,
+            table,
+            physical_dims,
+            measures,
+            Some(&table_alias),  // Prefix output columns with tN
+        )?;
+        
+        sub_queries.push((sub_plan, table_alias));
+    }
+    
+    // If only one table needed, we need to strip the prefix from output columns
+    // since the caller expects unprefixed semantic names
+    if sub_queries.len() == 1 {
+        let (plan, prefix) = sub_queries.into_iter().next().unwrap();
+        // Add a projection to rename prefixed columns back to unprefixed
+        let mut projections = Vec::new();
+        for (dim_name, attr_name) in physical_dims {
+            let prefixed = format!("{}.{}.{}", prefix, dim_name, attr_name);
+            let semantic_name = format!("{}.{}", dim_name, attr_name);
+            projections.push(ProjectExpr {
+                expr: Expr::Column(Column::unqualified(&prefixed)),
+                alias: semantic_name,
+            });
+        }
+        for (alias, _) in measure_aliases {
+            let prefixed = format!("{}.{}", prefix, alias);
+            projections.push(ProjectExpr {
+                expr: Expr::Column(Column::unqualified(&prefixed)),
+                alias: alias.clone(),
+            });
+        }
+        return Ok(PlanNode::Project(Project {
+            input: Box::new(plan),
+            expressions: projections,
+        }));
+    }
+    
+    // JOIN all sub-queries together
+    // Sub-queries output columns with prefixed names (e.g., "t0.dates.date")
+    // We use unqualified columns since the prefix is part of the column name itself
+    let (first_plan, first_alias) = sub_queries.remove(0);
+    let mut joined_plan = first_plan;
+    let mut left_alias = first_alias;
+    
+    for (right_plan, right_alias) in sub_queries {
+        // Use the first dimension attribute as the join key
+        if let Some((dim_name, attr_name)) = physical_dims.first() {
+            let semantic_name = format!("{}.{}", dim_name, attr_name);
+            // Column names include the prefix, e.g., "t0.dates.date"
+            let left_col_name = format!("{}.{}", left_alias, semantic_name);
+            let right_col_name = format!("{}.{}", right_alias, semantic_name);
+            
+            let left_key = Column::unqualified(&left_col_name);
+            let right_key = Column::unqualified(&right_col_name);
+            
+            joined_plan = PlanNode::Join(Join {
+                left: Box::new(joined_plan),
+                right: Box::new(right_plan),
+                join_type: JoinType::Full,
+                left_key,
+                right_key,
+            });
+            
+            left_alias = format!("{}_{}", left_alias, right_alias);
+        } else {
+            return Err(PlanError::InvalidQuery(
+                "Cannot JOIN tables without common dimensions".to_string()
+            ));
+        }
+    }
+    
+    // Build final projection with COALESCE for dimensions
+    let mut projections = Vec::new();
+    
+    // Project dimension attributes
+    for (dim_name, attr_name) in physical_dims {
+        let semantic_name = format!("{}.{}", dim_name, attr_name);
+        
+        // Build COALESCE across all table aliases
+        // Column names include the prefix (e.g., "t0.dates.date", "t1.dates.date")
+        let table_indices: Vec<usize> = table_measures.keys().cloned().collect();
+        let coalesce_args: Vec<Expr> = table_indices.iter()
+            .map(|idx| {
+                let col_name = format!("t{}.{}", idx, semantic_name);
+                Expr::Column(Column::unqualified(&col_name))
+            })
+            .collect();
+        
+        let expr = if coalesce_args.len() == 1 {
+            coalesce_args.into_iter().next().unwrap()
+        } else {
+            Expr::Coalesce(coalesce_args)
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: semantic_name,
+        });
+    }
+    
+    // Project measures
+    for (alias, measure_name) in measure_aliases {
+        // Find which table this measure came from
+        let table_idx = table_measures.iter()
+            .find(|(_, measures)| measures.iter().any(|(_, m)| m == measure_name))
+            .map(|(idx, _)| *idx);
+        
+        if let Some(idx) = table_idx {
+            // Measure columns also have the prefix
+            let col_name = format!("t{}.{}", idx, alias);
+            projections.push(ProjectExpr {
+                expr: Expr::Column(Column::unqualified(&col_name)),
+                alias: alias.clone(),
+            });
+        }
+    }
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(joined_plan),
+        expressions: projections,
+    }))
+}
+
+// ============================================================================
+// CROSS-TABLEGROUP UNION PLANNING
+// ============================================================================
+
+/// Plan a cross-tableGroup UNION query for multiple metrics.
+///
+/// This is the unified function for cross-tableGroup additive metrics.
+/// It:
+/// 1. Builds a branch for each tableGroup using build_tablegroup_branch()
+/// 2. Projects each branch to a common schema (adding NULLs for missing columns)
+/// 3. UNIONs all branches
+/// 4. Re-aggregates to combine rows from different tableGroups
+///
+/// # Arguments
+/// * `model` - The semantic model
+/// * `dimension_attrs` - Dimension paths
+/// * `metric_tg_measures` - For each metric: (metric_name, [(tg_name, measure_name)])
+fn plan_cross_tablegroup_union(
+    model: &Model,
+    dimension_attrs: &[String],
+    metric_tg_measures: &[(String, Vec<(String, String)>)],  // [(metric_name, [(tg_name, measure_name)])]
+) -> Result<PlanNode, PlanError> {
+    // Collect all metric names
+    let metric_names: Vec<&str> = metric_tg_measures.iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    
+    // Group by tableGroup: tg_name -> [(metric_name, measure_name)]
+    let mut tg_to_metric_measures: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    
+    for (metric_name, tg_measures) in metric_tg_measures {
+        for (tg_name, measure_name) in tg_measures {
+            tg_to_metric_measures
+                .entry(tg_name.clone())
+                .or_default()
+                .push((metric_name.clone(), measure_name.clone()));
+        }
+    }
+    
+    // Build a branch for each tableGroup
+    let mut branches: Vec<PlanNode> = Vec::new();
+    
+    for (tg_name, metric_measure_pairs) in &tg_to_metric_measures {
+        let table_group = model.get_table_group(tg_name)
+            .ok_or_else(|| PlanError::InvalidQuery(
+                format!("TableGroup '{}' not found", tg_name)
+            ))?;
+        
+        // Convert to (alias, measure_name) format
+        let measure_aliases: Vec<(String, String)> = metric_measure_pairs.iter()
+            .map(|(metric, measure)| (metric.clone(), measure.clone()))
+            .collect();
+        
+        // Build the aggregated branch
+        let branch = build_tablegroup_branch(model, table_group, dimension_attrs, &measure_aliases)?;
+        
+        // Project to common schema
+        let projected = project_branch_for_union(
+            model,
+            table_group,
+            branch,
+            dimension_attrs,
+            &metric_names,
+            &metric_measure_pairs,
+        )?;
+        
+        branches.push(projected);
+    }
+    
+    // If only one branch, return it directly
+    if branches.len() == 1 {
+        return Ok(branches.into_iter().next().unwrap());
+    }
+    
+    // UNION all branches
+    let union = PlanNode::Union(Union { inputs: branches });
+    
+    // Re-aggregate
+    let group_by: Vec<Column> = dimension_attrs.iter()
+        .map(|attr| Column::unqualified(attr))
+        .collect();
+    
+    let aggregates: Vec<AggregateExpr> = metric_names.iter()
+        .map(|name| AggregateExpr {
+            func: Aggregation::Sum,
+            expr: Expr::Column(Column::unqualified(*name)),
+            alias: name.to_string(),
+        })
+        .collect();
+    
+    let plan = PlanNode::Aggregate(Aggregate {
+        input: Box::new(union),
+        group_by: group_by.clone(),
+        aggregates,
+    });
+    
+    // Sort by dimensions
+    let sort_keys: Vec<SortKey> = dimension_attrs.iter()
+        .map(|attr| SortKey {
+            column: attr.clone(),
+            direction: SortDirection::Ascending,
+        })
+        .collect();
+    
+    if !sort_keys.is_empty() {
+        Ok(PlanNode::Sort(Sort {
+            input: Box::new(plan),
+            sort_keys,
+        }))
+    } else {
+        Ok(plan)
+    }
+}
+
+/// Project a tableGroup branch to the common UNION schema
+fn project_branch_for_union(
+    model: &Model,
+    table_group: &TableGroup,
+    input: PlanNode,
+    dimension_attrs: &[String],
+    all_metric_names: &[&str],
+    tg_metrics: &[(String, String)],  // (metric_name, measure_name) for THIS tableGroup
+) -> Result<PlanNode, PlanError> {
+    let tg_metric_set: HashSet<&str> = tg_metrics.iter()
+        .map(|(m, _)| m.as_str())
+        .collect();
+    
+    let mut projections = Vec::new();
+    
+    // Project dimension attributes
+    for attr_path in dimension_attrs {
+        let parts: Vec<&str> = attr_path.split('.').collect();
+        
+        // Extract dimension info and check for tableGroup qualifier
+        let (tg_qualifier, dim_name, attr_name) = match parts.len() {
+            2 => (None, parts[0], parts[1]),
+            3 => (Some(parts[0]), parts[1], parts[2]),
+            _ => continue,
+        };
+        
+        // Check if this is a virtual dimension
+        if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+            // Virtual dimension: project as literal
+            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            let expr = match value {
+                PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
+                PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
+                PlanLiteralValue::Float64(f) => Expr::Literal(Literal::Float(f)),
+                PlanLiteralValue::Bool(b) => Expr::Literal(Literal::Bool(b)),
+                _ => Expr::Literal(Literal::Null("string".to_string())),
+            };
+            projections.push(ProjectExpr {
+                expr,
+                alias: attr_path.clone(),
+            });
+        } else if let Some(qualifier) = tg_qualifier {
+            // 3-part path: check if this tableGroup matches the qualifier
+            if qualifier == table_group.name {
+                // This tableGroup owns this dimension path - output actual column
+                let semantic_name = format!("{}.{}", dim_name, attr_name);
+                projections.push(ProjectExpr {
+                    expr: Expr::Column(Column::unqualified(&semantic_name)),
+                    alias: attr_path.clone(),
+                });
+            } else {
+                // Different tableGroup - output typed NULL
+                let data_type = model.get_dimension(dim_name)
+                    .and_then(|d| d.get_attribute(attr_name))
+                    .map(|a| a.data_type.to_string())
+                    .unwrap_or_else(|| "string".to_string());
+                projections.push(ProjectExpr {
+                    expr: Expr::Literal(Literal::Null(data_type)),
+                    alias: attr_path.clone(),
+                });
+            }
+        } else {
+            // 2-part path (unqualified): always output actual column
+            let semantic_name = format!("{}.{}", dim_name, attr_name);
+            projections.push(ProjectExpr {
+                expr: Expr::Column(Column::unqualified(&semantic_name)),
+                alias: attr_path.clone(),
+            });
+        }
+    }
+    
+    // Project all metric columns
+    for metric_name in all_metric_names {
+        let expr = if tg_metric_set.contains(metric_name) {
+            Expr::Column(Column::unqualified(*metric_name))
+        } else {
+            Expr::Literal(Literal::Null("f64".to_string()))
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: metric_name.to_string(),
+        });
+    }
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(input),
+        expressions: projections,
+    }))
+}
+
+// ============================================================================
+// LEGACY PLANNING FUNCTIONS (kept for compatibility)
 // ============================================================================
 
 /// Plan a query on conformed dimensions across multiple tableGroups
@@ -1578,6 +2245,522 @@ pub struct CrossTableGroupBranch<'a> {
     pub table: &'a GroupTable,
 }
 
+/// Plan a cross-tableGroup query for multiple metrics that span multiple tableGroups
+/// 
+/// This generates a Union plan that:
+/// 1. Collects all (tableGroup, measure, metric) mappings from all metrics
+/// 2. Groups measures by tableGroup
+/// 3. Builds one branch per tableGroup, aggregating all needed measures
+/// 4. Projects each branch with all metric names
+/// 5. Unions the results
+/// 6. Re-aggregates by dimension columns, summing each metric
+/// 
+/// # Arguments
+/// * `_schema` - The schema (unused, kept for API compatibility)
+/// * `model` - The model containing the tableGroups and dimensions
+/// * `metrics` - The cross-tableGroup metrics to query
+/// * `dimension_attrs` - The dimension.attribute paths to GROUP BY
+pub fn plan_multi_cross_table_group_query<'a>(
+    _schema: &'a Schema,
+    model: &'a Model,
+    metrics: &[&'a Metric],
+    dimension_attrs: &[String],
+) -> Result<PlanNode, PlanError> {
+    // Validate tableGroup-qualified dimensions
+    for attr_path in dimension_attrs {
+        let parts: Vec<&str> = attr_path.split('.').collect();
+        if parts.len() == 3 {
+            let tg_name = parts[0];
+            if model.get_table_group(tg_name).is_none() {
+                return Err(PlanError::InvalidQuery(
+                    format!("TableGroup '{}' not found in qualified dimension '{}'", tg_name, attr_path)
+                ));
+            }
+        }
+    }
+    
+    // Convert metrics to the format expected by plan_cross_tablegroup_union
+    // [(metric_name, [(tg_name, measure_name)])]
+    let metric_tg_measures: Vec<(String, Vec<(String, String)>)> = metrics.iter()
+        .map(|metric| {
+            let mappings = metric.table_group_measures();
+            (metric.name.clone(), mappings)
+        })
+        .collect();
+    
+    // Validate all metrics are cross-tableGroup
+    for (metric_name, mappings) in &metric_tg_measures {
+        if mappings.is_empty() {
+            return Err(PlanError::InvalidQuery(
+                format!("Metric '{}' is not a cross-tableGroup metric", metric_name)
+            ));
+        }
+    }
+    
+    // Delegate to the unified function
+    plan_cross_tablegroup_union(model, dimension_attrs, &metric_tg_measures)
+}
+
+/// Build a single branch for a multi-metric cross-tableGroup query
+/// 
+/// Each branch aggregates ALL measures needed for metrics in this tableGroup,
+/// and projects ALL metric names (with NULL for metrics not from this TG).
+/// 
+/// DEPRECATED: Use build_tablegroup_branch() + project_branch_for_union() instead.
+/// Kept for reference; will be removed in a future version.
+#[allow(dead_code)]
+fn build_multi_metric_branch(
+    model: &Model,
+    table_group: &TableGroup,
+    table: &GroupTable,
+    measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
+    dimension_attrs: &[String],
+    all_metric_names: &[&str], // All metrics in query (for consistent schema)
+) -> Result<PlanNode, PlanError> {
+    // Parse all dimension attributes
+    let parsed_attrs: Vec<(String, ParsedDimensionAttr)> = dimension_attrs.iter()
+        .map(|attr_path| (attr_path.clone(), ParsedDimensionAttr::parse(attr_path, model)))
+        .collect();
+    
+    // Physical attrs that belong to this tableGroup
+    let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
+        .filter(|(_, parsed)| {
+            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+        })
+        .collect();
+    
+    // Build unique physical columns for scan/group
+    let mut unique_dim_attrs: Vec<(String, String)> = Vec::new();
+    let mut dim_attr_to_group_idx: HashMap<(String, String), usize> = HashMap::new();
+    
+    for (_, parsed) in &physical_attrs {
+        let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+        if !dim_attr_to_group_idx.contains_key(&key) {
+            let idx = unique_dim_attrs.len();
+            unique_dim_attrs.push(key.clone());
+            dim_attr_to_group_idx.insert(key, idx);
+        }
+    }
+    
+    // Build the scan
+    let fact_alias = "fact";
+    let mut columns = Vec::new();
+    let mut types = Vec::new();
+    
+    // Track which dimensions need joins
+    let mut joined_dimensions: HashSet<String> = HashSet::new();
+    
+    // Add dimension columns (for degenerate dimensions)
+    for (dim_name, attr_name) in &unique_dim_attrs {
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if group_dim.is_degenerate() {
+                if let Some(attr) = group_dim.get_attribute(attr_name) {
+                    columns.push(attr.column_name().to_string());
+                    types.push(attr.data_type.to_string());
+                }
+            }
+        }
+    }
+    
+    // Add ALL measure columns
+    for (_, measure) in measures_with_metrics {
+        if let MeasureExpr::Column(col) = &measure.expr {
+            if !columns.contains(col) {
+                columns.push(col.clone());
+                types.push(measure.data_type().to_string());
+            }
+        }
+    }
+    
+    let mut plan = PlanNode::Scan(
+        Scan::new(&table.table)
+            .with_alias(fact_alias)
+            .with_columns(columns, types)
+    );
+    
+    // Add joins for non-degenerate dimensions
+    for (dim_name, _) in &unique_dim_attrs {
+        if joined_dimensions.contains(dim_name) {
+            continue;
+        }
+        
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(join_spec) = &group_dim.join {
+                if let Some(dimension) = model.get_dimension(dim_name) {
+                    if needs_join_for_dimension(table, group_dim, dimension) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        
+                        let dim_cols: Vec<String> = dimension.attributes.iter()
+                            .map(|a| a.column_name().to_string())
+                            .collect();
+                        let dim_types: Vec<String> = dimension.attributes.iter()
+                            .map(|a| a.data_type.to_string())
+                            .collect();
+                        
+                        let dim_table = dimension.table.as_ref()
+                            .expect("Non-virtual dimension must have a table");
+                        
+                        let dim_scan = PlanNode::Scan(
+                            Scan::new(dim_table)
+                                .with_alias(dim_alias)
+                                .with_columns(dim_cols, dim_types)
+                        );
+                        
+                        let left_key = Column::new(fact_alias, &join_spec.left_key);
+                        let right_key = Column::new(
+                            join_spec.right_alias.as_deref().unwrap_or(dim_alias),
+                            &join_spec.right_key,
+                        );
+                        
+                        plan = PlanNode::Join(Join {
+                            left: Box::new(plan),
+                            right: Box::new(dim_scan),
+                            join_type: JoinType::Left,
+                            left_key,
+                            right_key,
+                        });
+                        
+                        joined_dimensions.insert(dim_name.clone());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Build GROUP BY columns
+    let group_by: Vec<Column> = unique_dim_attrs.iter()
+        .filter_map(|(dim_name, attr_name)| {
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if group_dim.is_degenerate() {
+                    if let Some(attr) = group_dim.get_attribute(attr_name) {
+                        return Some(Column::new(fact_alias, attr.column_name()));
+                    }
+                } else if let Some(dimension) = model.get_dimension(dim_name) {
+                    if let Some(attr) = dimension.get_attribute(attr_name) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        return Some(Column::new(dim_alias, attr.column_name()));
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+    
+    // Build aggregate expressions for ALL measures (alias = metric name)
+    let aggregates: Vec<AggregateExpr> = measures_with_metrics.iter()
+        .map(|(metric_name, measure)| {
+            AggregateExpr {
+                func: measure.aggregation,
+                expr: convert_measure_expr(&measure.expr),
+                alias: metric_name.to_string(),
+            }
+        })
+        .collect();
+    
+    plan = PlanNode::Aggregate(Aggregate {
+        input: Box::new(plan),
+        group_by: group_by.clone(),
+        aggregates,
+    });
+    
+    // Build metric lookup for this tableGroup
+    let tg_metrics: HashSet<&str> = measures_with_metrics.iter()
+        .map(|(name, _)| *name)
+        .collect();
+    
+    // Project to standardized output schema
+    // All branches MUST have the same schema
+    let mut projections = Vec::new();
+    
+    // Project dimension attributes
+    for (attr_path, parsed) in &parsed_attrs {
+        let expr = if parsed.is_virtual() {
+            let dim_name = parsed.dim_name();
+            let attr_name = parsed.attr_name();
+            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            match value {
+                PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
+                PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
+                PlanLiteralValue::Float64(f) => Expr::Literal(Literal::Float(f)),
+                PlanLiteralValue::Bool(b) => Expr::Literal(Literal::Bool(b)),
+                PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
+                _ => Expr::Literal(Literal::Null("string".to_string())),
+            }
+        } else if parsed.belongs_to_table_group(&table_group.name) {
+            let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+            if let Some(&idx) = dim_attr_to_group_idx.get(&key) {
+                let col = group_by.get(idx).cloned()
+                    .unwrap_or_else(|| Column::unqualified(attr_path));
+                Expr::Column(col)
+            } else {
+                let data_type = parsed.get_data_type(model);
+                Expr::Literal(Literal::Null(data_type))
+            }
+        } else {
+            let data_type = parsed.get_data_type(model);
+            Expr::Literal(Literal::Null(data_type))
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: attr_path.clone(),
+        });
+    }
+    
+    // Project ALL metric columns (with NULL for metrics not from this TG)
+    for metric_name in all_metric_names {
+        let expr = if tg_metrics.contains(metric_name) {
+            // This metric comes from this tableGroup - reference the aggregated column
+            Expr::Column(Column::unqualified(*metric_name))
+        } else {
+            // This metric doesn't come from this tableGroup - project NULL
+            // Use f64 type as that's typical for metrics
+            Expr::Literal(Literal::Null("f64".to_string()))
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: metric_name.to_string(),
+        });
+    }
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(plan),
+        expressions: projections,
+    }))
+}
+
+/// Build a multi-table JOIN branch for cross-tableGroup queries
+/// 
+/// This handles the case where measures needed for metrics are spread across
+/// multiple tables within a single tableGroup. We build a JOIN of aggregated
+/// sub-queries and project all metrics.
+/// 
+/// DEPRECATED: Use build_tablegroup_branch() which handles multi-table JOINs internally.
+/// Kept for reference; will be removed in a future version.
+#[allow(dead_code)]
+fn build_multi_table_metric_branch(
+    model: &Model,
+    table_group: &TableGroup,
+    selection: &MultiTableSelection<'_>,
+    measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
+    dimension_attrs: &[String],
+    all_metric_names: &[&str], // All metrics in query (for consistent schema)
+) -> Result<PlanNode, PlanError> {
+    // Parse all dimension attributes
+    let parsed_attrs: Vec<(String, ParsedDimensionAttr)> = dimension_attrs.iter()
+        .map(|attr_path| (attr_path.clone(), ParsedDimensionAttr::parse(attr_path, model)))
+        .collect();
+    
+    // Physical attrs that belong to this tableGroup
+    let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
+        .filter(|(_, parsed)| {
+            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+        })
+        .collect();
+    
+    // Build unique dimension attrs for GROUP BY
+    let mut unique_dim_attrs: Vec<(String, String)> = Vec::new();
+    for (_, parsed) in &physical_attrs {
+        let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
+        if !unique_dim_attrs.contains(&key) {
+            unique_dim_attrs.push(key);
+        }
+    }
+    
+    // Create a mapping from measure name to metric name
+    let measure_to_metric: HashMap<&str, &str> = measures_with_metrics.iter()
+        .map(|(metric, measure)| (measure.name.as_str(), *metric))
+        .collect();
+    
+    // Build aggregated sub-queries for each table
+    let mut table_subqueries: Vec<(String, PlanNode, Vec<String>)> = Vec::new(); // (alias, plan, measure_aliases)
+    
+    for (idx, table_with_measures) in selection.tables.iter().enumerate() {
+        let table = table_with_measures.table;
+        let table_alias = format!("t{}", idx);
+        
+        // Build columns for scan
+        let mut columns = Vec::new();
+        let mut types = Vec::new();
+        
+        // Add dimension columns
+        for (dim_name, attr_name) in &unique_dim_attrs {
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if group_dim.is_degenerate() {
+                    if let Some(attr) = group_dim.get_attribute(attr_name) {
+                        let col_name = attr.column_name().to_string();
+                        if !columns.contains(&col_name) {
+                            columns.push(col_name);
+                            types.push(attr.data_type.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Add measure columns for this table
+        let mut measure_aliases = Vec::new();
+        for measure_name in &table_with_measures.measures {
+            if let Some(measure) = table_group.get_measure(measure_name) {
+                if let MeasureExpr::Column(col) = &measure.expr {
+                    if !columns.contains(col) {
+                        columns.push(col.clone());
+                        types.push(measure.data_type().to_string());
+                    }
+                }
+                // Use metric name as alias if we have a mapping
+                let alias = measure_to_metric.get(measure_name.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| measure_name.clone());
+                measure_aliases.push(alias);
+            }
+        }
+        
+        // Build scan
+        let scan = PlanNode::Scan(
+            Scan::new(&table.table)
+                .with_alias(&table_alias)
+                .with_columns(columns, types)
+        );
+        
+        // Build GROUP BY columns
+        let group_by: Vec<Column> = unique_dim_attrs.iter()
+            .filter_map(|(dim_name, attr_name)| {
+                if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                    if group_dim.is_degenerate() {
+                        if let Some(attr) = group_dim.get_attribute(attr_name) {
+                            return Some(Column::new(&table_alias, attr.column_name()));
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        
+        // Build aggregates for this table's measures
+        let aggregates: Vec<AggregateExpr> = table_with_measures.measures.iter()
+            .filter_map(|measure_name| {
+                let measure = table_group.get_measure(measure_name)?;
+                let alias = measure_to_metric.get(measure_name.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| measure_name.clone());
+                Some(AggregateExpr {
+                    func: measure.aggregation,
+                    expr: convert_measure_expr(&measure.expr),
+                    alias,
+                })
+            })
+            .collect();
+        
+        let agg_plan = PlanNode::Aggregate(Aggregate {
+            input: Box::new(scan),
+            group_by,
+            aggregates,
+        });
+        
+        table_subqueries.push((table_alias, agg_plan, measure_aliases));
+    }
+    
+    // Join all subqueries together
+    let mut joined_plan = table_subqueries.remove(0).1;
+    let first_alias = "t0";
+    
+    for (idx, (_, subquery, _)) in table_subqueries.into_iter().enumerate() {
+        let right_alias = format!("t{}", idx + 1);
+        
+        // Join on the first dimension column (all tables share dimensions)
+        let join_key = if let Some((dim_name, attr_name)) = unique_dim_attrs.first() {
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if let Some(attr) = group_dim.get_attribute(attr_name) {
+                    attr.column_name().to_string()
+                } else {
+                    "date".to_string() // fallback
+                }
+            } else {
+                "date".to_string()
+            }
+        } else {
+            "date".to_string()
+        };
+        
+        joined_plan = PlanNode::Join(Join {
+            left: Box::new(joined_plan),
+            right: Box::new(subquery),
+            join_type: JoinType::Full,
+            left_key: Column::new(first_alias, &join_key),
+            right_key: Column::new(&right_alias, &join_key),
+        });
+    }
+    
+    // Build metric lookup for this tableGroup
+    let tg_metrics: HashSet<&str> = measures_with_metrics.iter()
+        .map(|(name, _)| *name)
+        .collect();
+    
+    // Project to standardized output schema
+    let mut projections = Vec::new();
+    
+    // Project dimension attributes
+    for (attr_path, parsed) in &parsed_attrs {
+        let expr = if parsed.is_virtual() {
+            let dim_name = parsed.dim_name();
+            let attr_name = parsed.attr_name();
+            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            match value {
+                PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
+                PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
+                PlanLiteralValue::Float64(f) => Expr::Literal(Literal::Float(f)),
+                PlanLiteralValue::Bool(b) => Expr::Literal(Literal::Bool(b)),
+                PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
+                _ => Expr::Literal(Literal::Null("string".to_string())),
+            }
+        } else if parsed.belongs_to_table_group(&table_group.name) {
+            // Use COALESCE for dimension columns from joined tables
+            let dim_name = parsed.dim_name();
+            let attr_name = parsed.attr_name();
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if let Some(attr) = group_dim.get_attribute(attr_name) {
+                    // Reference from first table (after aggregate, columns are unqualified)
+                    Expr::Column(Column::unqualified(attr.column_name()))
+                } else {
+                    Expr::Literal(Literal::Null(parsed.get_data_type(model)))
+                }
+            } else {
+                Expr::Literal(Literal::Null(parsed.get_data_type(model)))
+            }
+        } else {
+            let data_type = parsed.get_data_type(model);
+            Expr::Literal(Literal::Null(data_type))
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: attr_path.clone(),
+        });
+    }
+    
+    // Project ALL metric columns
+    for metric_name in all_metric_names {
+        let expr = if tg_metrics.contains(metric_name) {
+            // This metric comes from this tableGroup
+            Expr::Column(Column::unqualified(*metric_name))
+        } else {
+            Expr::Literal(Literal::Null("f64".to_string()))
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: metric_name.to_string(),
+        });
+    }
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(joined_plan),
+        expressions: projections,
+    }))
+}
+
 /// Plan a cross-tableGroup query for a metric that spans multiple tableGroups
 /// 
 /// This generates a Union plan that:
@@ -2007,6 +3190,352 @@ fn build_cross_table_group_branch(
         input: Box::new(plan),
         expressions: projections,
     }))
+}
+
+// ============================================================================
+// Same-TableGroup Multi-Table JOIN Planning
+// ============================================================================
+
+/// Plan a query that JOINs multiple tables within the same tableGroup
+/// 
+/// This is used when no single table has all required measures but multiple
+/// tables together can satisfy the query. Tables are JOINed on their common
+/// dimensions using FULL OUTER JOIN.
+/// 
+/// The plan structure is:
+/// ```text
+/// Project(final_columns)
+///   └─ Aggregate(re-aggregate joined results)
+///       └─ Join(FULL OUTER on dimensions)
+///           ├─ Aggregate(table1 by dimensions)
+///           │   └─ Scan(table1)
+///           └─ Join(FULL OUTER on dimensions)
+///               ├─ Aggregate(table2 by dimensions)
+///               │   └─ Scan(table2)
+///               └─ ...
+/// ```
+fn plan_same_tablegroup_join(
+    model: &Model,
+    selection: &MultiTableSelection<'_>,
+    dimension_attrs: &[String],
+    metric_names: &[String],
+) -> Result<PlanNode, PlanError> {
+    let table_group = selection.group;
+    
+    // Parse dimension attributes (skip virtual dimensions)
+    let physical_dims: Vec<(String, String)> = dimension_attrs.iter()
+        .filter_map(|attr_path| {
+            let parts: Vec<&str> = attr_path.split('.').collect();
+            if parts.len() == 2 {
+                let dim_name = parts[0];
+                // Skip virtual dimensions
+                if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                    return None;
+                }
+                Some((dim_name.to_string(), parts[1].to_string()))
+            } else if parts.len() == 3 {
+                // tableGroup.dimension.attribute - skip the tableGroup prefix
+                let dim_name = parts[1];
+                if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                    return None;
+                }
+                Some((dim_name.to_string(), parts[2].to_string()))
+            } else {
+                None
+            }
+        })
+        .collect();
+    
+    if selection.tables.is_empty() {
+        return Err(PlanError::InvalidQuery("No tables selected for JOIN".to_string()));
+    }
+    
+    // Build sub-query for each table
+    let mut sub_queries: Vec<(PlanNode, String)> = Vec::new(); // (plan, alias)
+    
+    for (idx, table_with_measures) in selection.tables.iter().enumerate() {
+        let table = table_with_measures.table;
+        let measures = &table_with_measures.measures;
+        let table_alias = format!("t{}", idx);
+        
+        let sub_plan = build_table_subquery(
+            model,
+            table_group,
+            table,
+            &physical_dims,
+            measures,
+            &table_alias,
+        )?;
+        
+        sub_queries.push((sub_plan, table_alias));
+    }
+    
+    // Start with the first sub-query
+    let (first_plan, first_alias) = sub_queries.remove(0);
+    let mut joined_plan = first_plan;
+    let mut left_alias = first_alias;
+    
+    // JOIN remaining sub-queries
+    for (right_plan, right_alias) in sub_queries {
+        // Use the first dimension attribute as the join key
+        // (all physical dimensions should work as join keys)
+        if let Some((dim_name, attr_name)) = physical_dims.first() {
+            // Get the column name for this dimension attribute
+            let col_name = get_dimension_column_name(table_group, dim_name, attr_name);
+            
+            let left_key = Column::new(&left_alias, &col_name);
+            let right_key = Column::new(&right_alias, &col_name);
+            
+            joined_plan = PlanNode::Join(Join {
+                left: Box::new(joined_plan),
+                right: Box::new(right_plan),
+                join_type: JoinType::Full,
+                left_key,
+                right_key,
+            });
+            
+            // For the next join, use a compound alias
+            left_alias = format!("{}_{}", left_alias, right_alias);
+        } else {
+            // No physical dimensions - can't join, just use the first table
+            // This shouldn't happen in practice
+            return Err(PlanError::InvalidQuery(
+                "Cannot JOIN tables without common dimensions".to_string()
+            ));
+        }
+    }
+    
+    // Build final projection
+    // Dimensions use COALESCE across all tables, measures come from their assigned tables
+    let mut projections = Vec::new();
+    
+    // Project dimension attributes with COALESCE
+    for (dim_name, attr_name) in &physical_dims {
+        let col_name = get_dimension_column_name(table_group, dim_name, attr_name);
+        let semantic_name = format!("{}.{}", dim_name, attr_name);
+        
+        // Build COALESCE across all table aliases
+        let coalesce_args: Vec<Expr> = selection.tables.iter().enumerate()
+            .map(|(idx, _)| Expr::Column(Column::new(&format!("t{}", idx), &col_name)))
+            .collect();
+        
+        let expr = if coalesce_args.len() == 1 {
+            coalesce_args.into_iter().next().unwrap()
+        } else {
+            Expr::Coalesce(coalesce_args)
+        };
+        
+        projections.push(ProjectExpr {
+            expr,
+            alias: semantic_name,
+        });
+    }
+    
+    // Project virtual dimension attributes as literals (if any)
+    for attr_path in dimension_attrs {
+        let parts: Vec<&str> = attr_path.split('.').collect();
+        if parts.len() == 2 {
+            let dim_name = parts[0];
+            let attr_name = parts[1];
+            if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
+                let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+                let expr = match value {
+                    PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
+                    PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
+                    PlanLiteralValue::Float64(f) => Expr::Literal(Literal::Float(f)),
+                    PlanLiteralValue::Bool(b) => Expr::Literal(Literal::Bool(b)),
+                    _ => Expr::Literal(Literal::Null("string".to_string())),
+                };
+                projections.push(ProjectExpr {
+                    expr,
+                    alias: attr_path.clone(),
+                });
+            }
+        }
+    }
+    
+    // Project metrics from their assigned tables
+    for metric_name in metric_names {
+        // Find which table has this metric's measure
+        let table_idx = selection.tables.iter().position(|twm| {
+            twm.measures.iter().any(|m| {
+                // Check if this measure is used by this metric
+                if let Some(metric) = model.get_metric(metric_name) {
+                    match &metric.expr {
+                        MetricExpr::MeasureRef(measure_name) => measure_name == m,
+                        MetricExpr::Structured(_) => false, // TODO: handle complex metrics
+                    }
+                } else {
+                    false
+                }
+            })
+        });
+        
+        if let Some(idx) = table_idx {
+            projections.push(ProjectExpr {
+                expr: Expr::Column(Column::new(&format!("t{}", idx), metric_name)),
+                alias: metric_name.clone(),
+            });
+        }
+    }
+    
+    let final_plan = PlanNode::Project(Project {
+        input: Box::new(joined_plan),
+        expressions: projections,
+    });
+    
+    // Add sort by dimensions
+    let sort_keys: Vec<SortKey> = physical_dims.iter()
+        .map(|(dim_name, attr_name)| SortKey {
+            column: format!("{}.{}", dim_name, attr_name),
+            direction: SortDirection::Ascending,
+        })
+        .collect();
+    
+    if sort_keys.is_empty() {
+        Ok(final_plan)
+    } else {
+        Ok(PlanNode::Sort(Sort {
+            input: Box::new(final_plan),
+            sort_keys,
+        }))
+    }
+}
+
+/// Build a sub-query for one table in a multi-table JOIN
+/// 
+/// Returns: Aggregate(Scan(table)) grouped by dimensions with measures aggregated
+fn build_table_subquery(
+    model: &Model,
+    table_group: &TableGroup,
+    table: &GroupTable,
+    physical_dims: &[(String, String)], // (dim_name, attr_name)
+    measures: &[String],
+    alias: &str,
+) -> Result<PlanNode, PlanError> {
+    // Collect columns and types for the scan
+    let mut columns = Vec::new();
+    let mut types = Vec::new();
+    
+    // Add dimension columns
+    for (dim_name, attr_name) in physical_dims {
+        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if group_dim.is_degenerate() {
+                if let Some(attr) = group_dim.get_attribute(attr_name) {
+                    columns.push(attr.column_name().to_string());
+                    types.push(attr.data_type.to_string());
+                }
+            }
+        }
+    }
+    
+    // Add measure columns
+    for measure_name in measures {
+        if let Some(measure) = table_group.get_measure(measure_name) {
+            if let MeasureExpr::Column(col) = &measure.expr {
+                columns.push(col.clone());
+                types.push(measure.data_type().to_string());
+            }
+        }
+    }
+    
+    // Build scan
+    let scan = PlanNode::Scan(
+        Scan::new(&table.table)
+            .with_alias(alias)
+            .with_columns(columns, types)
+    );
+    
+    // Build GROUP BY columns
+    let group_by: Vec<Column> = physical_dims.iter()
+        .filter_map(|(dim_name, attr_name)| {
+            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if group_dim.is_degenerate() {
+                    if let Some(attr) = group_dim.get_attribute(attr_name) {
+                        return Some(Column::new(alias, attr.column_name()));
+                    }
+                } else if let Some(dimension) = model.get_dimension(dim_name) {
+                    if let Some(attr) = dimension.get_attribute(attr_name) {
+                        let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
+                        return Some(Column::new(dim_alias, attr.column_name()));
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+    
+    // Build aggregates for measures
+    // The aggregate alias should be the METRIC name (for projection later)
+    let aggregates: Vec<AggregateExpr> = measures.iter()
+        .filter_map(|measure_name| {
+            table_group.get_measure(measure_name).map(|measure| {
+                // Find the metric name that uses this measure
+                let metric_name = model.metrics.as_ref()
+                    .and_then(|metrics| {
+                        metrics.iter().find(|m| {
+                            matches!(&m.expr, MetricExpr::MeasureRef(name) if name == measure_name)
+                        })
+                    })
+                    .map(|m| m.name.clone())
+                    .unwrap_or_else(|| measure_name.clone());
+                
+                AggregateExpr {
+                    func: measure.aggregation,
+                    expr: convert_measure_expr(&measure.expr),
+                    alias: metric_name,
+                }
+            })
+        })
+        .collect();
+    
+    // Project to standardized schema with alias-qualified column names
+    let mut projections = Vec::new();
+    
+    // Project dimensions with the column name (not semantic name) for JOIN
+    for (dim_name, attr_name) in physical_dims {
+        let col_name = get_dimension_column_name(table_group, dim_name, attr_name);
+        projections.push(ProjectExpr {
+            expr: Expr::Column(Column::unqualified(&col_name)),
+            alias: col_name.clone(),
+        });
+    }
+    
+    // Project aggregated measures with metric names
+    for agg in &aggregates {
+        projections.push(ProjectExpr {
+            expr: Expr::Column(Column::unqualified(&agg.alias)),
+            alias: agg.alias.clone(),
+        });
+    }
+    
+    let plan = PlanNode::Aggregate(Aggregate {
+        input: Box::new(scan),
+        group_by,
+        aggregates,
+    });
+    
+    Ok(PlanNode::Project(Project {
+        input: Box::new(plan),
+        expressions: projections,
+    }))
+}
+
+/// Get the physical column name for a dimension attribute
+fn get_dimension_column_name(
+    table_group: &TableGroup,
+    dim_name: &str,
+    attr_name: &str,
+) -> String {
+    if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if group_dim.is_degenerate() {
+            if let Some(attr) = group_dim.get_attribute(attr_name) {
+                return attr.column_name().to_string();
+            }
+        }
+    }
+    // Fallback to attribute name
+    attr_name.to_string()
 }
 
 #[cfg(test)]

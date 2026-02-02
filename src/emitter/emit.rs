@@ -65,6 +65,7 @@ const FUNC_AND: u32 = 200;
 const FUNC_OR: u32 = 201;
 const FUNC_IS_NULL: u32 = 202;
 const FUNC_IS_NOT_NULL: u32 = 203;
+const FUNC_COALESCE: u32 = 204;
 
 // Arithmetic function anchors
 const FUNC_ADD: u32 = 300;
@@ -148,6 +149,7 @@ fn build_extensions() -> Vec<SimpleExtensionDeclaration> {
         make_function_extension(URI_COMPARISON, FUNC_GTE, "gte"),
         // Boolean functions
         make_function_extension(URI_BOOLEAN, FUNC_AND, "and"),
+        make_function_extension(URI_BOOLEAN, FUNC_COALESCE, "coalesce"),
         // Arithmetic functions
         make_function_extension(URI_ARITHMETIC, FUNC_ADD, "add"),
         make_function_extension(URI_ARITHMETIC, FUNC_SUBTRACT, "subtract"),
@@ -702,6 +704,7 @@ fn emit_expr(expr: &Expr, ctx: &SchemaContext) -> Result<proto::Expression, Emit
         Expr::IsNull(inner) => emit_is_null(inner, ctx),
         Expr::IsNotNull(inner) => emit_is_not_null(inner, ctx),
         Expr::Case { when_then, else_result } => emit_case(when_then, else_result.as_deref(), ctx),
+        Expr::Coalesce(exprs) => emit_coalesce(exprs, ctx),
     }
 }
 
@@ -928,6 +931,29 @@ fn emit_is_not_null(inner: &Expr, ctx: &SchemaContext) -> Result<proto::Expressi
                         arg_type: Some(ArgType::Value(inner_expr)),
                     },
                 ],
+                output_type: None,
+                ..Default::default()
+            }
+        )),
+    })
+}
+
+/// Emit a COALESCE expression - returns first non-NULL value
+fn emit_coalesce(exprs: &[Expr], ctx: &SchemaContext) -> Result<proto::Expression, EmitError> {
+    let arguments: Vec<proto::FunctionArgument> = exprs
+        .iter()
+        .map(|e| {
+            emit_expr(e, ctx).map(|expr| proto::FunctionArgument {
+                arg_type: Some(ArgType::Value(expr)),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(proto::Expression {
+        rex_type: Some(expression::RexType::ScalarFunction(
+            proto::expression::ScalarFunction {
+                function_reference: FUNC_COALESCE,
+                arguments,
                 output_type: None,
                 ..Default::default()
             }
