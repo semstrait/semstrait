@@ -9,7 +9,7 @@
 
 semantic_models:
   - name: sales_multi
-    tableGroups:
+    datasetGroups:
       - name: sales_agg
         dimensions:
           - name: dates
@@ -37,9 +37,9 @@ semantic_models:
             expr: order_count
             type: i64
 
-        tables:
+        datasets:
           # Most aggregated - yearly
-          - table: agg.yearly_summary
+          - dataset: agg.yearly_summary
             source:
               type: parquet
               path: /data/agg/yearly_summary.parquet
@@ -49,7 +49,7 @@ semantic_models:
             measures: [revenue, orders]
 
           # Medium aggregation - monthly
-          - table: agg.monthly_summary
+          - dataset: agg.monthly_summary
             source:
               type: parquet
               path: /data/agg/monthly_summary.parquet
@@ -59,7 +59,7 @@ semantic_models:
             measures: [revenue, orders]
 
           # Most granular - daily
-          - table: agg.daily_detail
+          - dataset: agg.daily_detail
             source:
               type: parquet
               path: /data/agg/daily_detail.parquet

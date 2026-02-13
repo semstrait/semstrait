@@ -48,7 +48,7 @@ semantic_models:
         expr: order_count
         type: i64
     
-    tableGroups:
+    datasetGroups:
       - name: transactions
         dimensions:
           - name: dates
@@ -93,8 +93,8 @@ semantic_models:
             expr: order_id
             type: i64
 
-        tables:
-          - table: warehouse.sales_fact
+        datasets:
+          - dataset: warehouse.sales_fact
             source:
               type: parquet
               path: /data/warehouse/sales_fact.parquet

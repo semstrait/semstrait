@@ -1,11 +1,11 @@
 use std::collections::HashSet;
-use crate::semantic_model::{Schema, SemanticModel, TableGroup, GroupTable, Metric, MetricExpr, MetricExprNode, MetricExprArg};
+use crate::semantic_model::{Schema, SemanticModel, DatasetGroup, GroupDataset, Metric, MetricExpr, MetricExprNode, MetricExprArg};
 use crate::query::{DataFilter, QueryRequest};
-use crate::selector::SelectedTable;
+use crate::selector::SelectedDataset;
 use super::error::ResolveError;
 use super::types::{AttributeRef, ResolvedDimension, ResolvedFilter, ResolvedQuery};
 
-/// Resolve an analytics query request against a schema and selected table
+/// Resolve an analytics query request against a schema and selected dataset
 /// 
 /// This turns string references (model name, metric names, "dimension.attribute" strings)
 /// into actual schema object references.
@@ -13,14 +13,14 @@ use super::types::{AttributeRef, ResolvedDimension, ResolvedFilter, ResolvedQuer
 /// # Arguments
 /// * `schema` - The schema containing dimension definitions
 /// * `request` - The query request with model name, metrics, dimensions, etc.
-/// * `selected` - The selected table (from selector) containing both group and table
+/// * `selected` - The selected dataset (from selector) containing both group and dataset
 pub fn resolve_query<'a>(
     schema: &'a Schema,
     request: &QueryRequest,
-    selected: &SelectedTable<'a>,
+    selected: &SelectedDataset<'a>,
 ) -> Result<ResolvedQuery<'a>, ResolveError> {
     let group = selected.group;
-    let table = selected.table;
+    let dataset = selected.dataset;
     
     // 1. Resolve the model (for metrics which are model-level)
     let model = schema
@@ -28,27 +28,27 @@ pub fn resolve_query<'a>(
         .ok_or_else(|| ResolveError::ModelNotFound(request.model.clone()))?;
 
     // 2. Resolve row attributes (e.g., ["dates.year", "markets.country"])
-    let row_attributes = resolve_attributes(model, group, table, request.rows.as_ref())?;
+    let row_attributes = resolve_attributes(model, group, dataset, request.rows.as_ref())?;
 
     // 3. Resolve column attributes
-    let column_attributes = resolve_attributes(model, group, table, request.columns.as_ref())?;
+    let column_attributes = resolve_attributes(model, group, dataset, request.columns.as_ref())?;
 
     // 4. Resolve metrics (from model - metrics are model-level)
     let metrics = resolve_metrics(model, request.metrics.as_ref())?;
 
     // 5. Collect all measures needed by metrics
-    let measures = collect_metric_measures(group, table, &metrics)?;
+    let measures = collect_metric_measures(group, dataset, &metrics)?;
 
     // 6. Resolve filters
-    let filters = resolve_filters(model, group, table, request.filter.as_ref())?;
+    let filters = resolve_filters(model, group, dataset, request.filter.as_ref())?;
 
     // 7. Collect all unique dimensions needed for this query (including filter dimensions)
     let dimensions = collect_dimensions(&row_attributes, &column_attributes, &filters);
 
     Ok(ResolvedQuery {
         model,
-        table_group: group,
-        table,
+        dataset_group: group,
+        dataset,
         dimensions,
         row_attributes,
         column_attributes,
@@ -61,8 +61,8 @@ pub fn resolve_query<'a>(
 /// Resolve filters to ResolvedFilter objects
 fn resolve_filters<'a>(
     model: &'a SemanticModel,
-    group: &'a TableGroup,
-    table: &'a GroupTable,
+    group: &'a DatasetGroup,
+    dataset: &'a GroupDataset,
     filters: Option<&Vec<DataFilter>>,
 ) -> Result<Vec<ResolvedFilter<'a>>, ResolveError> {
     let Some(filter_list) = filters else {
@@ -72,7 +72,7 @@ fn resolve_filters<'a>(
     filter_list
         .iter()
         .map(|f| {
-            let attribute = resolve_attribute(model, group, table, &f.field)?;
+            let attribute = resolve_attribute(model, group, dataset, &f.field)?;
             // Default operator: "in" for arrays, "eq" for single values
             let operator = f.operator.clone().unwrap_or_else(|| {
                 if f.value.is_array() { "in".to_string() } else { "eq".to_string() }
@@ -89,8 +89,8 @@ fn resolve_filters<'a>(
 /// Resolve a list of "dimension.attribute" strings to AttributeRef objects
 fn resolve_attributes<'a>(
     model: &'a SemanticModel,
-    group: &'a TableGroup,
-    table: &'a GroupTable,
+    group: &'a DatasetGroup,
+    dataset: &'a GroupDataset,
     attributes: Option<&Vec<String>>,
 ) -> Result<Vec<AttributeRef<'a>>, ResolveError> {
     let Some(attrs) = attributes else {
@@ -99,19 +99,19 @@ fn resolve_attributes<'a>(
 
     attrs
         .iter()
-        .map(|attr_str| resolve_attribute(model, group, table, attr_str))
+        .map(|attr_str| resolve_attribute(model, group, dataset, attr_str))
         .collect()
 }
 
 /// Resolve a single attribute string
 /// 
 /// Supports two formats:
-/// - "dimension.attribute" - resolved against the selected tableGroup
-/// - "tableGroup.dimension.attribute" - resolved against a specific tableGroup
+/// - "dimension.attribute" - resolved against the selected datasetGroup
+/// - "datasetGroup.dimension.attribute" - resolved against a specific datasetGroup
 fn resolve_attribute<'a>(
     model: &'a SemanticModel,
-    group: &'a TableGroup,
-    table: &'a GroupTable,
+    group: &'a DatasetGroup,
+    dataset: &'a GroupDataset,
     attr_str: &str,
 ) -> Result<AttributeRef<'a>, ResolveError> {
     // Parse the attribute string
@@ -121,78 +121,78 @@ fn resolve_attribute<'a>(
         2 => {
             // Standard format: "dimension.attribute"
             let (dim_name, attr_name) = (parts[0], parts[1]);
-            resolve_attribute_in_group(model, group, table, dim_name, attr_name, None)
+            resolve_attribute_in_group(model, group, dataset, dim_name, attr_name, None)
         }
         3 => {
-            // TableGroup-qualified format: "tableGroup.dimension.attribute"
+            // DatasetGroup-qualified format: "datasetGroup.dimension.attribute"
             let (tg_name, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
-            resolve_table_group_qualified_attribute(model, tg_name, dim_name, attr_name)
+            resolve_dataset_group_qualified_attribute(model, tg_name, dim_name, attr_name)
         }
         _ => Err(ResolveError::InvalidAttributeFormat(attr_str.to_string())),
     }
 }
 
-/// Resolve a tableGroup-qualified attribute (e.g., "adwords.campaign.name")
-fn resolve_table_group_qualified_attribute<'a>(
+/// Resolve a datasetGroup-qualified attribute (e.g., "adwords.campaign.name")
+fn resolve_dataset_group_qualified_attribute<'a>(
     model: &'a SemanticModel,
     tg_name: &str,
     dim_name: &str,
     attr_name: &str,
 ) -> Result<AttributeRef<'a>, ResolveError> {
-    // Get the specified tableGroup
+    // Get the specified datasetGroup
     let target_group = model
-        .get_table_group(tg_name)
-        .ok_or_else(|| ResolveError::TableGroupNotFound(tg_name.to_string()))?;
+        .get_dataset_group(tg_name)
+        .ok_or_else(|| ResolveError::DatasetGroupNotFound(tg_name.to_string()))?;
     
-    // Find a table in this tableGroup (use the first one for validation)
-    let target_table = target_group.tables.first()
+    // Find a dataset in this datasetGroup (use the first one for validation)
+    let target_dataset = target_group.datasets.first()
         .ok_or_else(|| ResolveError::InvalidQuery(
-            format!("TableGroup '{}' has no tables", tg_name)
+            format!("DatasetGroup '{}' has no datasets", tg_name)
         ))?;
     
-    // Resolve the attribute within that tableGroup
+    // Resolve the attribute within that datasetGroup
     resolve_attribute_in_group(
         model, 
         target_group, 
-        target_table, 
+        target_dataset, 
         dim_name, 
         attr_name, 
         Some(tg_name.to_string())
     )
 }
 
-/// Resolve an attribute within a specific tableGroup
+/// Resolve an attribute within a specific datasetGroup
 fn resolve_attribute_in_group<'a>(
     model: &'a SemanticModel,
-    group: &'a TableGroup,
-    table: &'a GroupTable,
+    group: &'a DatasetGroup,
+    dataset: &'a GroupDataset,
     dim_name: &str,
     attr_name: &str,
-    table_group_qualifier: Option<String>,
+    dataset_group_qualifier: Option<String>,
 ) -> Result<AttributeRef<'a>, ResolveError> {
     // Handle virtual _table dimension for metadata attributes
     if dim_name == "_table" {
-        return resolve_meta_attribute(model, group, table, attr_name);
+        return resolve_meta_attribute(model, group, dataset, attr_name);
     }
 
-    // Get the dimension from the table group
+    // Get the dimension from the dataset group
     let group_dim = group
         .get_dimension(dim_name)
         .ok_or_else(|| ResolveError::DimensionNotFound(dim_name.to_string()))?;
 
-    // Check that the table has this dimension and attribute
-    let table_attrs = table
+    // Check that the dataset has this dimension and attribute
+    let dataset_attrs = dataset
         .get_dimension_attributes(dim_name)
         .ok_or_else(|| ResolveError::DimensionNotFound(dim_name.to_string()))?;
     
-    if !table_attrs.iter().any(|a| a == attr_name) {
+    if !dataset_attrs.iter().any(|a| a == attr_name) {
         return Err(ResolveError::AttributeNotFound {
             dimension: dim_name.to_string(),
             attribute: attr_name.to_string(),
         });
     }
 
-    // Check for degenerate dimension (inline attributes on TableGroupDimension)
+    // Check for degenerate dimension (inline attributes on DatasetGroupDimension)
     if group_dim.is_degenerate() {
         let attribute = group_dim
             .get_attribute(attr_name)
@@ -204,7 +204,7 @@ fn resolve_attribute_in_group<'a>(
         return Ok(AttributeRef::Degenerate {
             group_dim,
             attribute,
-            table_group_qualifier,
+            dataset_group_qualifier,
         });
     }
 
@@ -225,7 +225,7 @@ fn resolve_attribute_in_group<'a>(
         group_dim,
         dimension,
         attribute,
-        table_group_qualifier,
+        dataset_group_qualifier,
     })
 }
 
@@ -233,19 +233,19 @@ fn resolve_attribute_in_group<'a>(
 /// 
 /// The attribute must be:
 /// 1. Declared in the model's `_table` dimension (if explicit _table dimension exists)
-/// 2. Declared as available on the table (in table.dimensions._table)
+/// 2. Declared as available on the dataset (in dataset.dimensions._table)
 /// 
 /// Supported built-in attributes:
 /// - `_table.model` - Model name
 /// - `_table.namespace` - Model namespace  
-/// - `_table.tableGroup` - TableGroup name
-/// - `_table.table` - Physical table name
-/// - `_table.uuid` - Table UUID (e.g., from Iceberg catalog)
-/// - `_table.{key}` - Any key from table.properties
+/// - `_table.datasetGroup` - DatasetGroup name (also supports legacy `_table.tableGroup`)
+/// - `_table.dataset` - Physical dataset name (also supports legacy `_table.table`)
+/// - `_table.uuid` - Dataset UUID (e.g., from Iceberg catalog)
+/// - `_table.{key}` - Any key from dataset.properties
 fn resolve_meta_attribute<'a>(
     model: &'a SemanticModel,
-    group: &'a TableGroup,
-    table: &'a GroupTable,
+    group: &'a DatasetGroup,
+    dataset: &'a GroupDataset,
     attr_name: &str,
 ) -> Result<AttributeRef<'a>, ResolveError> {
     // 1. Check if _table dimension is declared in the model
@@ -261,21 +261,21 @@ fn resolve_meta_attribute<'a>(
         }
     }
     
-    // 3. Check if this table declares this _table attribute as available
-    if let Some(table_attrs) = table.get_dimension_attributes("_table") {
-        if !table_attrs.iter().any(|a| a == attr_name) {
+    // 3. Check if this dataset declares this _table attribute as available
+    if let Some(dataset_attrs) = dataset.get_dimension_attributes("_table") {
+        if !dataset_attrs.iter().any(|a| a == attr_name) {
             return Err(ResolveError::AttributeNotFound {
                 dimension: "_table".to_string(),
                 attribute: attr_name.to_string(),
             });
         }
     } else if table_dim.is_some() {
-        // _table dimension declared but table doesn't list any _table attributes
+        // _table dimension declared but dataset doesn't list any _table attributes
         return Err(ResolveError::DimensionNotFound("_table".to_string()));
     }
     
     // 4. Resolve the actual value
-    let value = resolve_meta_value(model, group, table, attr_name)?;
+    let value = resolve_meta_value(model, group, dataset, attr_name)?;
 
     Ok(AttributeRef::Meta {
         name: attr_name.to_string(),
@@ -286,8 +286,8 @@ fn resolve_meta_attribute<'a>(
 /// Get the actual value for a _table metadata attribute
 fn resolve_meta_value(
     model: &SemanticModel,
-    group: &TableGroup,
-    table: &GroupTable,
+    group: &DatasetGroup,
+    dataset: &GroupDataset,
     attr_name: &str,
 ) -> Result<String, ResolveError> {
     match attr_name {
@@ -298,23 +298,24 @@ fn resolve_meta_value(
                 reason: "model does not have a namespace defined".to_string(),
             }
         }),
-        "tableGroup" => Ok(group.name.clone()),
-        "table" => Ok(table.table.clone()),
-        "uuid" => table.uuid.clone().ok_or_else(|| {
+        // Support both new and legacy names
+        "datasetGroup" | "tableGroup" => Ok(group.name.clone()),
+        "dataset" | "table" => Ok(dataset.dataset.clone()),
+        "uuid" => dataset.uuid.clone().ok_or_else(|| {
             ResolveError::MetaAttributeNotSet {
                 attribute: "uuid".to_string(),
-                reason: "table does not have a uuid defined".to_string(),
+                reason: "dataset does not have a uuid defined".to_string(),
             }
         }),
         key => {
-            // Look in table.properties
-            table.properties
+            // Look in dataset.properties
+            dataset.properties
                 .as_ref()
                 .and_then(|props| props.get(key))
                 .cloned()
                 .ok_or_else(|| ResolveError::MetaAttributeNotSet {
                     attribute: key.to_string(),
-                    reason: format!("table does not have property '{}' defined", key),
+                    reason: format!("dataset does not have property '{}' defined", key),
                 })
         }
     }
@@ -340,8 +341,8 @@ fn resolve_metrics<'a>(
 
 /// Collect all measures required by metrics
 fn collect_metric_measures<'a>(
-    group: &'a TableGroup,
-    table: &'a GroupTable,
+    group: &'a DatasetGroup,
+    dataset: &'a GroupDataset,
     metrics: &[&'a Metric],
 ) -> Result<Vec<&'a crate::semantic_model::Measure>, ResolveError> {
     let mut measure_names: HashSet<&str> = HashSet::new();
@@ -351,12 +352,12 @@ fn collect_metric_measures<'a>(
         collect_metric_measure_deps(&metric.expr, &mut measure_names);
     }
     
-    // Resolve all measure names to Measure objects (from the table group)
+    // Resolve all measure names to Measure objects (from the dataset group)
     measure_names
         .into_iter()
         .map(|name| {
-            // Check that the table supports this measure
-            if !table.has_measure(name) {
+            // Check that the dataset supports this measure
+            if !dataset.has_measure(name) {
                 return Err(ResolveError::MeasureNotFound(name.to_string()));
             }
             group.get_measure(name)
@@ -467,16 +468,16 @@ fn collect_dimensions<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::selector::select_tables;
+    use crate::selector::select_datasets;
 
     fn load_test_schema() -> Schema {
         Schema::from_file("test_data/steelwheels.yaml").unwrap()
     }
     
-    /// Helper to get the first selected table from the model
-    fn get_first_selected<'a>(schema: &'a Schema, model_name: &str) -> SelectedTable<'a> {
+    /// Helper to get the first selected dataset from the model
+    fn get_first_selected<'a>(schema: &'a Schema, model_name: &str) -> SelectedDataset<'a> {
         let model = schema.get_model(model_name).unwrap();
-        select_tables(schema, model, &[], &[]).unwrap().into_iter().next().unwrap()
+        select_datasets(schema, model, &[], &[]).unwrap().into_iter().next().unwrap()
     }
 
     #[test]
@@ -529,7 +530,7 @@ mod tests {
     #[test]
     fn test_resolve_model_not_found() {
         let schema = load_test_schema();
-        // Use a valid table for the call, but the model name in request is invalid
+        // Use a valid dataset for the call, but the model name in request is invalid
         let selected = get_first_selected(&schema, "steelwheels");
         let request = QueryRequest {
             model: "nonexistent".to_string(),
@@ -711,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_meta_table_group() {
+    fn test_resolve_meta_dataset_group() {
         let schema = load_test_schema();
         let selected = get_first_selected(&schema, "steelwheels");
         let request = QueryRequest {

@@ -34,7 +34,7 @@ semantic_models:
         expr: order_count
         type: i64
     
-    tableGroups:
+    datasetGroups:
       - name: order_facts
         dimensions:
           # Denormalized - columns are on fact table, no join needed
@@ -72,8 +72,8 @@ semantic_models:
             expr: order_id
             type: i64
 
-        tables:
-          - table: sales.orders
+        datasets:
+          - dataset: sales.orders
             source:
               type: parquet
               path: /data/sales/orders.parquet

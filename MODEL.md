@@ -5,11 +5,11 @@ This document describes the target YAML format for semstrait semantic models.
 ## Overview
 
 The semantic model supports:
-- **Multiple tables** serving the same semantic model (aggregate awareness)
-- **Table groups** that share dimension and measure definitions
-- **Automatic table selection** based on query requirements (scoped to tableGroup)
-- **Union of partitioned tables** with disjoint rows
-- **Cross-tableGroup metrics** for unified reporting across data sources
+- **Multiple datasets** serving the same semantic model (aggregate awareness)
+- **Dataset groups** that share dimension and measure definitions
+- **Automatic dataset selection** based on query requirements (scoped to datasetGroup)
+- **Union of partitioned datasets** with disjoint rows
+- **Cross-datasetGroup metrics** for unified reporting across data sources
 - **Metrics-only queries** - measures are internal, metrics are the public API
 
 ## Query Interface
@@ -49,7 +49,7 @@ metrics:
 ```
 
 This design ensures:
-- Users don't need to know about tableGroups or physical table structure
+- Users don't need to know about datasetGroups or physical dataset structure
 - No ambiguity about which source data comes from
 - Clear separation between internal implementation (measures) and public API (metrics)
 
@@ -61,7 +61,7 @@ semantic_models:
     namespace: <namespace>          # Optional namespace/organization identifier
     dimensions: [...]               # Model-level dimensions (queryable with 2-part paths)
     metrics: [...]                  # Derived calculations (model-level)
-    tableGroups: [...]              # Groups of tables sharing field definitions
+    datasetGroups: [...]             # Groups of datasets sharing field definitions
     dataFilter: [...]               # Row-level security (optional)
 ```
 
@@ -86,23 +86,23 @@ The location where a dimension is defined determines how it can be queried:
 
 | Defined At | Path Format | Example | Behavior |
 |------------|-------------|---------|----------|
-| Model-level `dimensions` | Two-part | `dates.year` | UNION across all tableGroups |
-| Inline in tableGroup | Three-part | `adwords.campaign.name` | Single tableGroup only |
-| Virtual (model-level) | Two-part | `_table.tableGroup` | Literal values across all tableGroups |
+| Model-level `dimensions` | Two-part | `dates.year` | UNION across all datasetGroups |
+| Inline in datasetGroup | Three-part | `adwords.campaign.name` | Single datasetGroup only |
+| Virtual (model-level) | Two-part | `_table.datasetGroup` | Literal values across all datasetGroups |
 
 ### Model-Level Dimensions (Two-Part Path)
 
-Dimensions defined at the model level are shared concepts that can be queried across tableGroups. The planner automatically UNIONs results from all tableGroups that reference the dimension.
+Dimensions defined at the model level are shared concepts that can be queried across datasetGroups. The planner automatically UNIONs results from all datasetGroups that reference the dimension.
 
 ```yaml
 rows:
-  - "dates.date"    # Queries dates.date from ALL tableGroups
+  - "dates.date"    # Queries dates.date from ALL datasetGroups
 metrics: ["revenue"]
 ```
 
 ### Inline Dimensions (Three-Part Path)
 
-Dimensions defined inline within a tableGroup are tableGroup-specific and must be queried with the three-part path `tableGroup.dimension.attribute`.
+Dimensions defined inline within a datasetGroup are datasetGroup-specific and must be queried with the three-part path `datasetGroup.dimension.attribute`.
 
 ```yaml
 rows:
@@ -117,7 +117,7 @@ Virtual dimensions (like `_table`) are defined at model level with `virtual: tru
 
 ```yaml
 rows:
-  - "_table.tableGroup"  # Shows which tableGroup each row came from
+  - "_table.datasetGroup"  # Shows which datasetGroup each row came from
 metrics: ["revenue"]
 ```
 
@@ -126,8 +126,8 @@ metrics: ["revenue"]
 You can combine model-level, inline, and virtual dimensions in the same query. The planner builds a UNION where:
 
 - **Model-level dimensions**: Have values in all rows
-- **Inline dimensions**: Have values only for their tableGroup, NULL for others
-- **Virtual dimensions**: Have tableGroup-specific literal values in all rows
+- **Inline dimensions**: Have values only for their datasetGroup, NULL for others
+- **Virtual dimensions**: Have datasetGroup-specific literal values in all rows
 
 ### Example
 
@@ -137,13 +137,13 @@ rows:
   - "dates.date"              # Model-level (2-part)
   - "adwords.dates.date"      # Inline (3-part)
   - "facebookads.dates.date"  # Inline (3-part)
-  - "_table.tableGroup"       # Virtual (2-part)
+  - "_table.datasetGroup"       # Virtual (2-part)
 metrics: ["fun-cost"]
 ```
 
 Result:
 ```
-| dates.date | adwords.dates.date | facebookads.dates.date | _table.tableGroup | fun-cost |
+| dates.date | adwords.dates.date | facebookads.dates.date | _table.datasetGroup | fun-cost |
 |------------|--------------------|-----------------------|-------------------|----------|
 | 2024-01-01 | 2024-01-01         | null                  | adwords           | 1500     |
 | 2024-01-02 | 2024-01-02         | null                  | adwords           | 1800     |
@@ -153,17 +153,17 @@ Result:
 
 This enables:
 - Seeing the shared dimension value (`dates.date`) for sorting/grouping
-- Identifying which tableGroup each row came from via inline columns or `_table.tableGroup`
-- Client-side post-processing to compute cross-tableGroup totals
+- Identifying which datasetGroup each row came from via inline columns or `_table.datasetGroup`
+- Client-side post-processing to compute cross-datasetGroup totals
 
-## Table Groups
+## Dataset Groups
 
-A `tableGroup` defines:
+A `datasetGroup` defines:
 1. **Dimensions** - all dimension references available to tables in the group
 2. **Measures** - all measure definitions shared by tables in the group
 3. **Tables** - physical tables, each declaring which subset of fields it has
 
-### Why Table Groups?
+### Why Dataset Groups?
 
 - **Partitioned tables**: Multiple tables with identical schemas but disjoint rows (e.g., `orders_2023`, `orders_2024`) can be UNIONed
 - **Aggregate tables**: Pre-aggregated tables with fewer dimensions sit alongside detail tables
@@ -253,7 +253,7 @@ semantic_models:
     # ============================================
     # TABLE GROUPS
     # ============================================
-    tableGroups:
+    datasetGroups:
       - name: orders
         # ------------------------------------------
         # DIMENSIONS available in this group
@@ -309,18 +309,18 @@ semantic_models:
             expr: order_id
         
         # ------------------------------------------
-        # TABLES: Each declares its field subset
+        # DATASETS: Each declares its field subset
         # ------------------------------------------
         # Join detection is based on attribute inclusion:
         # - dates: 'date' attr has column: time_id (the key attr)
         # - markets: 'customer' attr has column: customernumber (the key attr)
         # Including the key attribute → JOIN; excluding it → denormalized
-        tables:
-          # Detail fact table - includes key attrs, needs joins
-          - table: orderfact
+        datasets:
+          # Detail fact dataset - includes key attrs, needs joins
+          - dataset: orderfact
             source:
               type: parquet
-              path: "{model.namespace}/{model.name}/{table.name}.parquet"
+              path: "{model.namespace}/{model.name}/{dataset.name}.parquet"
             uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
             properties:
               connectorType: "jdbc"
@@ -332,29 +332,29 @@ semantic_models:
             measures: [sales, quantity, revenue, order_count]
           
           # Denormalized aggregate - excludes key attrs, no joins
-          - table: daily_territory_agg
+          - dataset: daily_territory_agg
             source:
               type: parquet
-              path: "{model.namespace}/{model.name}/{table.name}.parquet"
+              path: "{model.namespace}/{model.name}/{dataset.name}.parquet"
             dimensions:
               dates: [date, month, year]    # 'date' present but no 'customer' → partial join
               markets: [territory, country]  # No 'customer' → denormalized
             measures: [sales, quantity]
           
           # More aggregated - no key attrs at all
-          - table: monthly_summary
+          - dataset: monthly_summary
             source:
               type: parquet
-              path: "{model.namespace}/{model.name}/{table.name}.parquet"
+              path: "{model.namespace}/{model.name}/{dataset.name}.parquet"
             dimensions:
               dates: [month, year]           # No 'date' → denormalized
             measures: [sales, quantity]
           
           # Most aggregated
-          - table: yearly_totals
+          - dataset: yearly_totals
             source:
               type: parquet
-              path: "{model.namespace}/{model.name}/{table.name}.parquet"
+              path: "{model.namespace}/{model.name}/{dataset.name}.parquet"
             dimensions:
               dates: [year]                  # No 'date' → denormalized
             measures: [sales]
@@ -364,7 +364,7 @@ semantic_models:
 
 ### Dimensions
 
-Tables declare which dimensions/attributes they have:
+Datasets declare which dimensions/attributes they have:
 
 ```yaml
 dimensions:
@@ -401,20 +401,20 @@ Example:
 # dates dimension: 'date' attribute has column: time_id (the join key)
 # markets dimension: 'customer' attribute has column: customernumber (the join key)
 
-# This table includes 'date' and 'customer' → will JOIN both dimensions
-- table: steelwheels.orderfact
+# This dataset includes 'date' and 'customer' → will JOIN both dimensions
+- dataset: steelwheels.orderfact
   dimensions:
     dates: [date, month, year]    # 'date' = key attr → JOIN
     markets: [customer, country]  # 'customer' = key attr → JOIN
     flags: [is_premium]           # Degenerate, no join
 
-# This table excludes 'date' → dates attributes are denormalized
-- table: steelwheels.monthly_summary
+# This dataset excludes 'date' → dates attributes are denormalized
+- dataset: steelwheels.monthly_summary
   dimensions:
     dates: [month, year]          # No 'date' → denormalized columns
 
-# This table excludes both key attributes → fully denormalized
-- table: steelwheels.yearly_totals
+# This dataset excludes both key attributes → fully denormalized
+- dataset: steelwheels.yearly_totals
   dimensions:
     dates: [year]                 # No 'date' → denormalized
     markets: [territory]          # No 'customer' → denormalized
@@ -424,65 +424,65 @@ This approach eliminates redundancy: the attribute list already implies whether 
 
 ### Measures
 
-Tables declare which measures they support by referencing group-level measure names:
+Datasets declare which measures they support by referencing group-level measure names:
 
 ```yaml
 measures: [sales, quantity]       # References to group measures
 ```
 
-## Table Selection (Aggregate Awareness)
+## Dataset Selection (Aggregate Awareness)
 
 ### Algorithm
 
-1. **Filter to feasible tables**: Table must have all dimensions and measures required by the query
-2. **Select optimal table**: Prefer table with fewest total attributes (most aggregated = likely smallest)
-3. **Handle partitioned tables**: If multiple tables with same schema have `rowFilter`, UNION them if query spans multiple filters
+1. **Filter to feasible datasets**: Dataset must have all dimensions and measures required by the query
+2. **Select optimal dataset**: Prefer dataset with fewest total attributes (most aggregated = likely smallest)
+3. **Handle partitioned datasets**: If multiple datasets with same schema have `rowFilter`, UNION them if query spans multiple filters
 
 ### Feasibility Check
 
 ```
 Query: GROUP BY dates.year, markets.territory WITH measures [sales]
 
-Table: yearly_totals
+Dataset: yearly_totals
   - dates: [year] ✓
   - markets: ✗ (not available)
   → NOT FEASIBLE
 
-Table: daily_territory_agg
+Dataset: daily_territory_agg
   - dates: [date, month, year] → has year ✓
   - markets: [territory, country] → has territory ✓
   - measures: [sales, quantity] → has sales ✓
   → FEASIBLE
 
-Table: orderfact
+Dataset: orderfact
   - dates: [date, month, quarter, year] ✓
   - markets: [customer, territory, country, state, city] ✓
   - measures: [sales, quantity, revenue, order_count] ✓
   → FEASIBLE
 
-Selection: daily_territory_agg (fewer attributes = more aggregated)
+Selection: daily_territory_agg (fewest attributes = most aggregated)
 ```
 
-### Union for Partitioned Tables
+### Union for Partitioned Datasets
 
 ```
 Query: dates.year IN [2023, 2024], measures [sales]
 
-Tables with rowFilter:
+Datasets with rowFilter:
   - orders_2023: rowFilter: { dates.year: 2023 }
   - orders_2024: rowFilter: { dates.year: 2024 }
 
-Both filters match query → UNION both tables
+Both filters match query → UNION both datasets
 ```
 
-### Cross-TableGroup Metrics
+### Cross-DatasetGroup Metrics
 
-Metrics can span multiple tableGroups using `tableGroup.name` conditions. This enables unified metrics across data sources with different measure names:
+Metrics can span multiple datasetGroups using `datasetGroup.name` conditions. This enables unified metrics across data sources with different measure names:
 
 ```yaml
 semantic_models:
   - name: marketing
-    tableGroups:
+    datasetGroups:
       - name: google_ads
         measures:
           - name: ad_cost
@@ -504,44 +504,44 @@ semantic_models:
           case:
             when:
               - condition:
-                  eq: [tableGroup.name, "google_ads"]
+                  eq: [datasetGroup.name, "google_ads"]
                 then: ad_cost
               - condition:
-                  eq: [tableGroup.name, "meta_ads"]
+                  eq: [datasetGroup.name, "meta_ads"]
                 then: media_spend
             else: 0
 ```
 
-The planner detects `tableGroup.name` conditions and generates a UNION plan:
-1. Query each tableGroup for its mapped measure
+The planner detects `datasetGroup.name` conditions and generates a UNION plan:
+1. Query each datasetGroup for its mapped measure
 2. Project to a common schema
 3. Union the results
 4. Re-aggregate by the requested dimensions
 
-Use `plan_cross_table_group_query()` for explicit cross-tableGroup planning.
+Use `plan_cross_dataset_group_query()` for explicit cross-datasetGroup planning.
 
 ## rowFilter (Partitioning)
 
-Tables can declare a `rowFilter` indicating they contain a subset of data:
+Datasets can declare a `rowFilter` indicating they contain a subset of data:
 
 ```yaml
-- table: orders_2023
+- dataset: orders_2023
   rowFilter:
     dates.year: 2023
 
-- table: orders_emea_2023
+- dataset: orders_emea_2023
   rowFilter:
     dates.year: 2023
     markets.territory: "EMEA"
 ```
 
 The selector uses `rowFilter` to:
-1. Determine if a table is relevant for a query's filters
-2. Identify tables that can be UNIONed (same schema, disjoint row filters)
+1. Determine if a dataset is relevant for a query's filters
+2. Identify datasets that can be UNIONed (same schema, disjoint row filters)
 
 ## Degenerate Dimensions
 
-Dimensions whose attributes live directly on the fact table (not in a separate dimension table). Defined at the tableGroup level without a `join`:
+Dimensions whose attributes live directly on the fact table (not in a separate dimension table). Defined at the datasetGroup level without a `join`:
 
 ```yaml
 dimensions:
@@ -571,16 +571,16 @@ semantic_models:
 |-------|------|-------------|
 | `namespace` | string | Optional namespace for the model (e.g., organization, project, or domain identifier) |
 
-## Table Metadata
+## Dataset Metadata
 
-Tables require a `source` configuration and can have optional metadata:
+Datasets require a `source` configuration and can have optional metadata:
 
 ```yaml
-tables:
-  - table: orderfact
+datasets:
+  - dataset: orderfact
     source:
       type: parquet
-      path: "{model.namespace}/{model.name}/{table.name}.parquet"
+      path: "{model.namespace}/{model.name}/{dataset.name}.parquet"
     uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     properties:
       connectorType: "jdbc"
@@ -591,17 +591,17 @@ tables:
 | Field | Type | Description |
 |-------|------|-------------|
 | `source` | object | **Required.** Data source configuration |
-| `uuid` | string | Unique identifier for the table (e.g., Iceberg table UUID) |
+| `uuid` | string | Unique identifier for the dataset (e.g., Iceberg table UUID) |
 | `properties` | map<string, string> | Custom key-value properties for connector metadata, lineage, etc. |
 
 ## Source Configuration
 
-Both tables and dimensions require a `source` configuration specifying how to access the data:
+Both datasets and dimensions require a `source` configuration specifying how to access the data:
 
 ```yaml
 source:
   type: parquet
-  path: "/data/{model.namespace}/{table.name}.parquet"
+  path: "/data/{model.namespace}/{dataset.name}.parquet"
 ```
 
 Currently supported types: `parquet` (Iceberg support planned)
@@ -610,15 +610,15 @@ Currently supported types: `parquet` (Iceberg support planned)
 
 Path strings support variable substitution:
 
-**For Tables:**
+**For Datasets:**
 
 | Variable | Description |
 |----------|-------------|
 | `{model.name}` | Model name |
 | `{model.namespace}` | Model namespace (errors if not set) |
-| `{tableGroup.name}` | Table group name |
-| `{table.name}` | Physical table name |
-| `{table.uuid}` | Table UUID (errors if not set) |
+| `{datasetGroup.name}` | Dataset group name |
+| `{dataset.name}` | Physical dataset name |
+| `{dataset.uuid}` | Dataset UUID (errors if not set) |
 
 **For Dimensions:**
 
@@ -631,10 +631,10 @@ Path strings support variable substitution:
 
 Example:
 ```yaml
-# Table source path
+# Dataset source path
 source:
   type: parquet
-  path: "{model.namespace}/{model.name}/{table.name}.parquet"
+  path: "{model.namespace}/{model.name}/{dataset.name}.parquet"
 # Resolves to: "tenant-uuid/steelwheels/orderfact.parquet"
 
 # Dimension source path
@@ -691,7 +691,7 @@ Supported: `add`, `subtract`, `multiply`, `divide`
 
 ## Virtual `_table` Dimension
 
-The `_table` dimension is a virtual dimension that provides access to table and model metadata as queryable attributes. These values are emitted as constant literals in the query output.
+The `_table` dimension is a virtual dimension that provides access to dataset and model metadata as queryable attributes. These values are emitted as constant literals in the query output.
 
 Unlike regular dimensions, virtual dimensions have no physical table - they are marked with `virtual: true` and their attribute values come from the model configuration rather than data.
 
@@ -726,7 +726,7 @@ semantic_models:
           - name: namespace
             label: Model Namespace
             type: string
-          - name: tableGroup
+          - name: datasetGroup
             label: Table Group
             type: string
           - name: table
@@ -744,12 +744,12 @@ semantic_models:
             type: string
 ```
 
-### Referencing in TableGroups and Tables
+### Referencing in DatasetGroups and Datasets
 
-Like regular dimensions, `_table` must be referenced in the tableGroup and each table must declare which attributes it provides:
+Like regular dimensions, `_table` must be referenced in the datasetGroup and each dataset must declare which attributes it provides:
 
 ```yaml
-tableGroups:
+datasetGroups:
   - name: orders
     dimensions:
       - name: dates
@@ -759,16 +759,16 @@ tableGroups:
       # Reference the virtual dimension (no join needed)
       - name: _table
     
-    tables:
-      - table: steelwheels.orderfact
+    datasets:
+      - dataset: steelwheels.orderfact
         uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         properties:
           sourceSystem: "pentaho"
           dataOwner: "analytics-team"
         dimensions:
           dates: [year, quarter, month]
-          # Declare which _table attributes this table provides
-          _table: [model, namespace, tableGroup, table, uuid, sourceSystem, dataOwner]
+          # Declare which _table attributes this dataset provides
+          _table: [model, namespace, datasetGroup, dataset, uuid, sourceSystem, dataOwner]
         measures: [sales, quantity]
 ```
 
@@ -780,14 +780,14 @@ Include `_table.*` attributes in `rows` or `columns` just like regular dimension
 model: "steelwheels"
 rows:
   - "dates.year"
-  - "_table.tableGroup"
+  - "_table.datasetGroup"
   - "_table.sourceSystem"
 metrics: ["sales"]
 ```
 
 Result:
 ```
-| dates.year | _table.tableGroup | _table.sourceSystem | sales    |
+| dates.year | _table.datasetGroup | _table.sourceSystem | sales    |
 |------------|-------------------|---------------------|----------|
 | 2023       | orders            | pentaho             | 500000   |
 | 2024       | orders            | pentaho             | 650000   |
@@ -799,24 +799,24 @@ Result:
 |-----------|--------------|-------------|
 | `_table.model` | `model.name` | Model name |
 | `_table.namespace` | `model.namespace` | Model namespace (required if declared) |
-| `_table.tableGroup` | `tableGroup.name` | TableGroup name |
-| `_table.table` | `table.table` | Physical table name |
-| `_table.uuid` | `table.uuid` | Table UUID (required if declared) |
-| `_table.{key}` | `table.properties[key]` | Custom property from `properties` map |
+| `_table.datasetGroup` | `datasetGroup.name` | DatasetGroup name |
+| `_table.dataset` | `dataset.dataset` | Physical dataset name |
+| `_table.uuid` | `dataset.uuid` | Dataset UUID (required if declared) |
+| `_table.{key}` | `dataset.properties[key]` | Custom property from `properties` map |
 
-### Cross-TableGroup Queries
+### Cross-DatasetGroup Queries
 
-When used with cross-tableGroup metrics, each UNION branch gets its own metadata values:
+When used with cross-datasetGroup metrics, each UNION branch gets its own metadata values:
 
 ```yaml
 model: "marketing"
 rows:
   - "dates.date"
-  - "_table.tableGroup"
+  - "_table.datasetGroup"
 metrics: ["unified_cost"]
 
 # Result:
-# | dates.date | _table.tableGroup | unified_cost |
+# | dates.date | _table.datasetGroup | unified_cost |
 # |------------|-------------------|--------------|
 # | 2024-01-01 | google_ads        | 1500.00      |
 # | 2024-01-01 | meta_ads          | 2300.00      |

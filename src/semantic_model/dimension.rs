@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 use super::types::DataType;
-use super::tablegroup::Source;
+use super::datasetgroup::Source;
 
 /// A dimension definition with its attributes
 /// 

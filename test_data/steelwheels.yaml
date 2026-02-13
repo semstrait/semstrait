@@ -131,7 +131,7 @@ semantic_models:
         userAttribute: allowedLocations
     
     # Table groups that can serve this model
-    tableGroups:
+    datasetGroups:
       - name: orders
         # ------------------------------------------
         # DIMENSIONS available in this group
@@ -206,8 +206,8 @@ semantic_models:
         # ------------------------------------------
         # TABLES: Each declares its field subset
         # ------------------------------------------
-        tables:
-          - table: steelwheels.orderfact
+        datasets:
+          - dataset: steelwheels.orderfact
             source:
               type: parquet
               path: /data/steelwheels/orderfact.parquet

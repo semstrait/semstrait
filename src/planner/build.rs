@@ -1,14 +1,14 @@
 //! Plan building logic
 
 use std::collections::{HashMap, HashSet};
-use crate::semantic_model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupTable, Dimension, TableGroupDimension, TableGroup, Schema, SemanticModel, Metric, Aggregation, Measure};
+use crate::semantic_model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupDataset, Dimension, DatasetGroupDimension, DatasetGroup, Schema, SemanticModel, Metric, Aggregation, Measure};
 use crate::plan::{
     Aggregate, AggregateExpr, Column, Expr, Filter, Join, JoinType, 
     Literal, PlanNode, Scan, BinaryOperator, Project, ProjectExpr, Sort, SortKey, SortDirection, Union,
     VirtualTable, LiteralValue as PlanLiteralValue,
 };
 use crate::resolver::{ResolvedQuery, AttributeRef, ResolvedFilter, ResolvedDimension, resolve_query};
-use crate::selector::{select_tables, select_tables_for_join, SelectedTable, MultiTableSelection};
+use crate::selector::{select_datasets, select_datasets_for_join, SelectedDataset, MultiDatasetSelection};
 use crate::query::QueryRequest;
 use super::error::PlanError;
 
@@ -21,8 +21,8 @@ use super::error::PlanError;
 /// 
 /// The "key attribute" is the dimension attribute whose column matches the join's rightKey.
 fn needs_join_for_dimension(
-    table: &GroupTable,
-    group_dim: &TableGroupDimension,
+    table: &GroupDataset,
+    group_dim: &DatasetGroupDimension,
     dimension: &Dimension,
 ) -> bool {
     // No join spec = degenerate dimension, never needs join
@@ -46,8 +46,8 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     let (fact_columns, fact_types, dimension_columns) = collect_required_columns(resolved);
     
     // Start with the fact table scan (from the selected table)
-    let fact_table = &resolved.table.table;
-    let fact_alias = "fact"; // GroupTable doesn't have alias, use default
+    let fact_table = &resolved.dataset.dataset;
+    let fact_alias = "fact"; // GroupDataset doesn't have alias, use default
     
     let mut plan: PlanNode = PlanNode::Scan(
         Scan::new(fact_table)
@@ -60,7 +60,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
         // Only join if this is a Joined dimension (not degenerate) and needs a join
         if let ResolvedDimension::Joined { group_dim, dimension } = dim {
             // Check if join is needed based on attribute inclusion
-            if needs_join_for_dimension(resolved.table, group_dim, dimension) {
+            if needs_join_for_dimension(resolved.dataset, group_dim, dimension) {
                 if let Some(join_spec) = &group_dim.join {
                     let dim_alias = dimension.alias.as_deref().unwrap_or(&dimension.name);
 
@@ -124,7 +124,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     let group_by: Vec<Column> = resolved.row_attributes.iter()
         .chain(resolved.column_attributes.iter())
         .filter(|attr| !attr.is_meta())
-        .map(|attr| build_column(attr, resolved.table, fact_alias))
+        .map(|attr| build_column(attr, resolved.dataset, fact_alias))
         .collect();
 
     // Build aggregate expressions from measures
@@ -158,7 +158,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
         // Row attributes first, then column attributes
         for attr in resolved.row_attributes.iter().chain(resolved.column_attributes.iter()) {
             let semantic_name = format!("{}.{}", attr.dimension_name(), attr.attribute_name());
-            let expr = build_attribute_expr(attr, resolved.table, fact_alias);
+            let expr = build_attribute_expr(attr, resolved.dataset, fact_alias);
             projections.push(ProjectExpr {
                 expr,
                 alias: semantic_name,
@@ -195,7 +195,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
 /// 
 /// This is the main entry point for query planning. It:
 /// 1. Analyzes the requested metrics to detect cross-tableGroup metrics
-/// 2. Routes to `plan_cross_table_group_query` for cross-tableGroup metrics
+/// 2. Routes to `plan_cross_dataset_group_query` for cross-tableGroup metrics
 /// 3. Routes to normal select → resolve → plan flow for single-tableGroup queries
 /// 
 /// # Arguments
@@ -225,7 +225,7 @@ pub fn plan_semantic_query(
         .map(|names| {
             names.iter()
                 .filter_map(|name| model.get_metric(name))
-                .filter(|m| m.is_cross_table_group())
+                .filter(|m| m.is_cross_dataset_group())
                 .collect()
         })
         .unwrap_or_default();
@@ -242,10 +242,10 @@ pub fn plan_semantic_query(
     
     if cross_table_metrics.len() == 1 {
         // Single cross-tableGroup metric - use the proven path
-        plan_cross_table_group_query(schema, model, cross_table_metrics[0], &dimension_attrs)
+        plan_cross_dataset_group_query(schema, model, cross_table_metrics[0], &dimension_attrs)
     } else if cross_table_metrics.len() > 1 {
         // Multiple cross-tableGroup metrics - use multi-metric path
-        plan_multi_cross_table_group_query(schema, model, &cross_table_metrics, &dimension_attrs)
+        plan_multi_cross_dataset_group_query(schema, model, &cross_table_metrics, &dimension_attrs)
     } else if qualified_groups.len() > 1 {
         // Multi-tableGroup qualified dimensions - UNION across the specified tableGroups
         // e.g., "adwords.dates.year" + "facebookads.dates.year" → UNION with NULL projection
@@ -254,7 +254,7 @@ pub fn plan_semantic_query(
         // Single tableGroup qualified - constrain to that tableGroup
         let target_group = *qualified_groups.iter().next().unwrap();
         plan_single_tablegroup_query(schema, model, request, &dimension_attrs, target_group)
-    } else if is_conformed && model.table_groups.len() > 1 {
+    } else if is_conformed && model.dataset_groups.len() > 1 {
         // Conformed dimension query - UNION across all feasible tableGroups
         plan_conformed_query(schema, model, request, &dimension_attrs)
     } else {
@@ -276,7 +276,7 @@ pub fn plan_semantic_query(
             .collect();
         
         // Try single-table selection first
-        match select_tables(schema, model, &dimension_attrs, &required_measures) {
+        match select_datasets(schema, model, &dimension_attrs, &required_measures) {
             Ok(selected_tables) => {
                 let selected = selected_tables.into_iter().next()
                     .ok_or_else(|| PlanError::InvalidQuery("No feasible table found for query".to_string()))?;
@@ -290,14 +290,14 @@ pub fn plan_semantic_query(
             }
             Err(_single_table_err) => {
                 // Single table selection failed - try multi-table JOIN
-                let multi_selection = select_tables_for_join(schema, model, &dimension_attrs, &required_measures)
+                let multi_selection = select_datasets_for_join(schema, model, &dimension_attrs, &required_measures)
                     .map_err(|e| PlanError::InvalidQuery(format!("Multi-table selection error: {:?}", e)))?;
                 
-                if multi_selection.tables.len() == 1 {
+                if multi_selection.datasets.len() == 1 {
                     // Only one table needed - use normal path
-                    let selected = SelectedTable {
+                    let selected = SelectedDataset {
                         group: multi_selection.group,
-                        table: multi_selection.tables[0].table,
+                        dataset: multi_selection.datasets[0].dataset,
                     };
                     let resolved = resolve_query(schema, request, &selected)
                         .map_err(|e| PlanError::InvalidQuery(format!("Query resolution error: {:?}", e)))?;
@@ -344,7 +344,7 @@ fn build_sort_keys(resolved: &ResolvedQuery<'_>) -> Vec<SortKey> {
 /// 
 /// Considers whether the table needs a join (based on key attribute inclusion) or has denormalized columns.
 /// Panics if called with a Meta attribute (use build_attribute_expr instead).
-fn build_column(attr: &AttributeRef<'_>, table: &GroupTable, fact_alias: &str) -> Column {
+fn build_column(attr: &AttributeRef<'_>, table: &GroupDataset, fact_alias: &str) -> Column {
     match attr {
         AttributeRef::Degenerate { attribute, .. } => {
             // Degenerate dimension: column is directly on fact table
@@ -371,7 +371,7 @@ fn build_column(attr: &AttributeRef<'_>, table: &GroupTable, fact_alias: &str) -
 /// Build an Expr from an AttributeRef
 /// 
 /// Returns a Column reference for regular attributes, or a Literal for Meta attributes.
-fn build_attribute_expr(attr: &AttributeRef<'_>, table: &GroupTable, fact_alias: &str) -> Expr {
+fn build_attribute_expr(attr: &AttributeRef<'_>, table: &GroupDataset, fact_alias: &str) -> Expr {
     match attr {
         AttributeRef::Meta { value, .. } => {
             // Meta attributes are constant literal values
@@ -490,7 +490,7 @@ fn collect_required_columns(
     for dim in &resolved.dimensions {
         if let ResolvedDimension::Joined { group_dim, dimension } = dim {
             // Check if join is needed based on attribute inclusion
-            if needs_join_for_dimension(resolved.table, group_dim, dimension) {
+            if needs_join_for_dimension(resolved.dataset, group_dim, dimension) {
                 if let Some(join) = &group_dim.join {
                     // Right key is on dimension table - find its type from the key attribute
                     let right_type = dimension.key_attribute(&join.right_key)
@@ -512,23 +512,23 @@ fn collect_required_columns(
 
     // Collect columns from row attributes
     for attr in &resolved.row_attributes {
-        add_attribute_column_with_type(attr, resolved.table, &mut fact_columns, &mut dimension_columns);
+        add_attribute_column_with_type(attr, resolved.dataset, &mut fact_columns, &mut dimension_columns);
     }
 
     // Collect columns from column attributes
     for attr in &resolved.column_attributes {
-        add_attribute_column_with_type(attr, resolved.table, &mut fact_columns, &mut dimension_columns);
+        add_attribute_column_with_type(attr, resolved.dataset, &mut fact_columns, &mut dimension_columns);
     }
 
     // Collect columns from filters
     for filter in &resolved.filters {
-        add_attribute_column_with_type(&filter.attribute, resolved.table, &mut fact_columns, &mut dimension_columns);
+        add_attribute_column_with_type(&filter.attribute, resolved.dataset, &mut fact_columns, &mut dimension_columns);
     }
 
     // Collect columns from measures
     // Use column type from table.columns or degenerate dimension attributes, fall back to measure type
     for measure in &resolved.measures {
-        collect_measure_columns(&measure.expr, &measure.data_type(), resolved.table, resolved.table_group, &mut fact_columns);
+        collect_measure_columns(&measure.expr, &measure.data_type(), resolved.dataset, resolved.dataset_group, &mut fact_columns);
     }
 
     // Convert to Vec for stable ordering
@@ -704,9 +704,9 @@ fn convert_metric_node(node: &MetricExprNode) -> Expr {
         }
         MetricExprNode::Case(_) => {
             // Cross-tableGroup metrics with CASE expressions should be resolved 
-            // at a higher level (in plan_cross_table_group_query) before reaching here.
+            // at a higher level (in plan_cross_dataset_group_query) before reaching here.
             // If we get here, it means the metric should have been handled specially.
-            panic!("Metric CASE expressions should be resolved before planning. Use plan_cross_table_group_query for cross-tableGroup metrics.")
+            panic!("Metric CASE expressions should be resolved before planning. Use plan_cross_dataset_group_query for cross-tableGroup metrics.")
         }
     }
 }
@@ -737,7 +737,7 @@ fn metric_binary_args(args: &[MetricExprArg]) -> (Expr, Expr) {
 /// 1. Explicit table.columns (if defined)
 /// 2. Degenerate dimension attributes in the table group
 /// 3. Fall back to the provided default type
-fn lookup_column_type(name: &str, table: &GroupTable, table_group: &TableGroup, fallback_type: &DataType) -> String {
+fn lookup_column_type(name: &str, table: &GroupDataset, dataset_group: &DatasetGroup, fallback_type: &DataType) -> String {
     // First, try explicit columns
     if let Some(col) = table.get_column(name) {
         return col.data_type().to_string();
@@ -745,7 +745,7 @@ fn lookup_column_type(name: &str, table: &GroupTable, table_group: &TableGroup, 
     
     // Second, check degenerate dimension attributes
     // Look through all degenerate dimensions in the table group
-    for dim in &table_group.dimensions {
+    for dim in &dataset_group.dimensions {
         if dim.is_degenerate() {
             if let Some(attrs) = &dim.attributes {
                 for attr in attrs {
@@ -765,16 +765,16 @@ fn lookup_column_type(name: &str, table: &GroupTable, table_group: &TableGroup, 
 fn collect_measure_columns(
     expr: &MeasureExpr, 
     fallback_type: &DataType, 
-    table: &GroupTable,
-    table_group: &TableGroup,
+    table: &GroupDataset,
+    dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
     match expr {
         MeasureExpr::Column(name) => {
-            let col_type = lookup_column_type(name, table, table_group, fallback_type);
+            let col_type = lookup_column_type(name, table, dataset_group, fallback_type);
             columns.entry(name.clone()).or_insert(col_type);
         }
-        MeasureExpr::Structured(node) => collect_node_columns(node, fallback_type, table, table_group, columns),
+        MeasureExpr::Structured(node) => collect_node_columns(node, fallback_type, table, dataset_group, columns),
     }
 }
 
@@ -782,30 +782,30 @@ fn collect_measure_columns(
 fn collect_node_columns(
     node: &ExprNode, 
     fallback_type: &DataType, 
-    table: &GroupTable,
-    table_group: &TableGroup,
+    table: &GroupDataset,
+    dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
     match node {
         ExprNode::Column(name) => {
-            let col_type = lookup_column_type(name, table, table_group, fallback_type);
+            let col_type = lookup_column_type(name, table, dataset_group, fallback_type);
             columns.entry(name.clone()).or_insert(col_type);
         }
         ExprNode::Literal(_) => {}
         ExprNode::Add(args) | ExprNode::Subtract(args) | ExprNode::Multiply(args) | ExprNode::Divide(args) => {
             for arg in args {
-                collect_arg_columns(arg, fallback_type, table, table_group, columns);
+                collect_arg_columns(arg, fallback_type, table, dataset_group, columns);
             }
         }
         ExprNode::Case(case_expr) => {
             // Collect columns from all WHEN branches
             for when_branch in &case_expr.when {
-                collect_condition_columns(&when_branch.condition, fallback_type, table, table_group, columns);
-                collect_arg_columns(&when_branch.then, fallback_type, table, table_group, columns);
+                collect_condition_columns(&when_branch.condition, fallback_type, table, dataset_group, columns);
+                collect_arg_columns(&when_branch.then, fallback_type, table, dataset_group, columns);
             }
             // Collect columns from ELSE if present
             if let Some(else_val) = &case_expr.else_value {
-                collect_arg_columns(else_val, fallback_type, table, table_group, columns);
+                collect_arg_columns(else_val, fallback_type, table, dataset_group, columns);
             }
         }
     }
@@ -815,8 +815,8 @@ fn collect_node_columns(
 fn collect_condition_columns(
     cond: &ConditionExpr, 
     fallback_type: &DataType, 
-    table: &GroupTable,
-    table_group: &TableGroup,
+    table: &GroupDataset,
+    dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
     match cond {
@@ -824,16 +824,16 @@ fn collect_condition_columns(
         ConditionExpr::Gt(args) | ConditionExpr::Gte(args) |
         ConditionExpr::Lt(args) | ConditionExpr::Lte(args) => {
             for arg in args {
-                collect_arg_columns(arg, fallback_type, table, table_group, columns);
+                collect_arg_columns(arg, fallback_type, table, dataset_group, columns);
             }
         }
         ConditionExpr::And(conds) | ConditionExpr::Or(conds) => {
             for c in conds {
-                collect_condition_columns(c, fallback_type, table, table_group, columns);
+                collect_condition_columns(c, fallback_type, table, dataset_group, columns);
             }
         }
         ConditionExpr::IsNull(name) | ConditionExpr::IsNotNull(name) => {
-            let col_type = lookup_column_type(name, table, table_group, fallback_type);
+            let col_type = lookup_column_type(name, table, dataset_group, fallback_type);
             columns.entry(name.clone()).or_insert(col_type);
         }
     }
@@ -843,8 +843,8 @@ fn collect_condition_columns(
 fn collect_arg_columns(
     arg: &ExprArg, 
     fallback_type: &DataType, 
-    table: &GroupTable,
-    table_group: &TableGroup,
+    table: &GroupDataset,
+    dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
     match arg {
@@ -852,17 +852,17 @@ fn collect_arg_columns(
             // Literals don't reference columns
         }
         ExprArg::ColumnName(name) => {
-            let col_type = lookup_column_type(name, table, table_group, fallback_type);
+            let col_type = lookup_column_type(name, table, dataset_group, fallback_type);
             columns.entry(name.clone()).or_insert(col_type);
         }
-        ExprArg::Node(node) => collect_node_columns(node, fallback_type, table, table_group, columns),
+        ExprArg::Node(node) => collect_node_columns(node, fallback_type, table, dataset_group, columns),
     }
 }
 
 /// Add column from an attribute reference to the appropriate collection
 fn add_attribute_column_with_type(
     attr: &AttributeRef<'_>,
-    table: &GroupTable,
+    table: &GroupDataset,
     fact_columns: &mut HashMap<String, String>,
     dimension_columns: &mut HashMap<String, HashMap<String, String>>,
 ) {
@@ -898,7 +898,7 @@ fn add_attribute_column_with_type(
 }
 
 // ============================================================================
-// Cross-TableGroup Query Planning
+// Cross-DatasetGroup Query Planning
 // ============================================================================
 
 // ============================================================================
@@ -909,12 +909,12 @@ fn add_attribute_column_with_type(
 // The hierarchy is:
 //
 //   Query
-//   └── Cross-TableGroup Layer (UNION for additive metrics)
-//       ├── TableGroup A Branch
+//   └── Cross-DatasetGroup Layer (UNION for additive metrics)
+//       ├── DatasetGroup A Branch
 //       │   └── Within-TG Layer (JOIN if measures spread across tables)
 //       │       ├── Table 1 (Scan → Aggregate)
 //       │       └── Table 2 (Scan → Aggregate)
-//       └── TableGroup B Branch
+//       └── DatasetGroup B Branch
 //           └── Single Table (Scan → Aggregate)
 //
 // The key principle: build_tablegroup_branch() is the ONLY function that
@@ -933,7 +933,7 @@ fn add_attribute_column_with_type(
 ///
 /// # Arguments
 /// * `model` - The semantic model
-/// * `table_group` - The tableGroup to build a branch for
+/// * `dataset_group` - The tableGroup to build a branch for
 /// * `dimension_attrs` - Dimension paths (e.g., ["dates.date", "campaign.name"])
 /// * `measure_aliases` - List of (output_alias, measure_name) pairs
 ///
@@ -941,7 +941,7 @@ fn add_attribute_column_with_type(
 /// An aggregated PlanNode. Does NOT include final projection - that's the caller's job.
 fn build_tablegroup_branch(
     model: &SemanticModel,
-    table_group: &TableGroup,
+    dataset_group: &DatasetGroup,
     dimension_attrs: &[String],
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
 ) -> Result<PlanNode, PlanError> {
@@ -977,16 +977,16 @@ fn build_tablegroup_branch(
         .collect();
     
     // Try to find a single table that has all required measures
-    let single_table = table_group.tables.iter()
+    let single_table = dataset_group.datasets.iter()
         .find(|t| measure_names.iter().all(|m| t.has_measure(m)));
     
     if let Some(table) = single_table {
         // Single table path - simpler and more efficient
         // No prefix needed since this result won't be JOINed with other sub-queries
-        build_single_table_aggregate(model, table_group, table, &physical_dims, measure_aliases, None)
+        build_single_table_aggregate(model, dataset_group, table, &physical_dims, measure_aliases, None)
     } else {
         // Multi-table path - need to JOIN tables
-        build_multi_table_aggregate(model, table_group, &physical_dims, measure_aliases)
+        build_multi_table_aggregate(model, dataset_group, &physical_dims, measure_aliases)
     }
 }
 
@@ -997,8 +997,8 @@ fn build_tablegroup_branch(
 ///                     Used when this sub-query will be JOINed with others
 fn build_single_table_aggregate(
     model: &SemanticModel,
-    table_group: &TableGroup,
-    table: &GroupTable,
+    dataset_group: &DatasetGroup,
+    table: &GroupDataset,
     physical_dims: &[(String, String)],  // (dim_name, attr_name)
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
     output_prefix: Option<&str>,
@@ -1010,7 +1010,7 @@ fn build_single_table_aggregate(
     
     // Add dimension columns
     for (dim_name, attr_name) in physical_dims {
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if group_dim.is_degenerate() {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     let col_name = attr.column_name().to_string();
@@ -1025,7 +1025,7 @@ fn build_single_table_aggregate(
     
     // Add measure columns
     for (_, measure_name) in measure_aliases {
-        if let Some(measure) = table_group.get_measure(measure_name) {
+        if let Some(measure) = dataset_group.get_measure(measure_name) {
             if let MeasureExpr::Column(col) = &measure.expr {
                 if !columns.contains(col) {
                     columns.push(col.clone());
@@ -1037,7 +1037,7 @@ fn build_single_table_aggregate(
     
     // Build scan
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.table)
+        Scan::new(&table.dataset)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -1048,7 +1048,7 @@ fn build_single_table_aggregate(
             continue;
         }
         
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if let Some(join_spec) = &group_dim.join {
                 if let Some(dimension) = model.get_dimension(dim_name) {
                     if needs_join_for_dimension(table, group_dim, dimension) {
@@ -1094,7 +1094,7 @@ fn build_single_table_aggregate(
     // Build GROUP BY columns
     let group_by: Vec<Column> = physical_dims.iter()
         .filter_map(|(dim_name, attr_name)| {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
                         return Some(Column::new(fact_alias, attr.column_name()));
@@ -1113,7 +1113,7 @@ fn build_single_table_aggregate(
     // Build aggregates
     let aggregates: Vec<AggregateExpr> = measure_aliases.iter()
         .filter_map(|(alias, measure_name)| {
-            table_group.get_measure(measure_name).map(|measure| {
+            dataset_group.get_measure(measure_name).map(|measure| {
                 AggregateExpr {
                     func: measure.aggregation,
                     expr: convert_measure_expr(&measure.expr),
@@ -1172,13 +1172,13 @@ fn build_single_table_aggregate(
 /// Build an aggregated plan by JOINing multiple tables
 fn build_multi_table_aggregate(
     model: &SemanticModel,
-    table_group: &TableGroup,
+    dataset_group: &DatasetGroup,
     physical_dims: &[(String, String)],  // (dim_name, attr_name)
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
 ) -> Result<PlanNode, PlanError> {
     // Find which tables have which measures
     // Use "smallest table first" heuristic (fewest attributes = most aggregated)
-    let mut tables_sorted: Vec<&GroupTable> = table_group.tables.iter().collect();
+    let mut tables_sorted: Vec<&GroupDataset> = dataset_group.datasets.iter().collect();
     tables_sorted.sort_by_key(|t| t.attribute_count());
     
     // Assign measures to tables (first table that has the measure wins)
@@ -1217,7 +1217,7 @@ fn build_multi_table_aggregate(
         
         let sub_plan = build_single_table_aggregate(
             model,
-            table_group,
+            dataset_group,
             table,
             physical_dims,
             measures,
@@ -1383,9 +1383,9 @@ fn plan_cross_tablegroup_union(
     let mut branches: Vec<PlanNode> = Vec::new();
     
     for (tg_name, metric_measure_pairs) in &tg_to_metric_measures {
-        let table_group = model.get_table_group(tg_name)
+        let dataset_group = model.get_dataset_group(tg_name)
             .ok_or_else(|| PlanError::InvalidQuery(
-                format!("TableGroup '{}' not found", tg_name)
+                format!("DatasetGroup '{}' not found", tg_name)
             ))?;
         
         // Convert to (alias, measure_name) format
@@ -1394,12 +1394,12 @@ fn plan_cross_tablegroup_union(
             .collect();
         
         // Build the aggregated branch
-        let branch = build_tablegroup_branch(model, table_group, dimension_attrs, &measure_aliases)?;
+        let branch = build_tablegroup_branch(model, dataset_group, dimension_attrs, &measure_aliases)?;
         
         // Project to common schema
         let projected = project_branch_for_union(
             model,
-            table_group,
+            dataset_group,
             branch,
             dimension_attrs,
             &metric_names,
@@ -1457,7 +1457,7 @@ fn plan_cross_tablegroup_union(
 /// Project a tableGroup branch to the common UNION schema
 fn project_branch_for_union(
     model: &SemanticModel,
-    table_group: &TableGroup,
+    dataset_group: &DatasetGroup,
     input: PlanNode,
     dimension_attrs: &[String],
     all_metric_names: &[&str],
@@ -1483,7 +1483,7 @@ fn project_branch_for_union(
         // Check if this is a virtual dimension
         if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
             // Virtual dimension: project as literal
-            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            let value = get_virtual_attribute_value(model, dataset_group, dim_name, attr_name);
             let expr = match value {
                 PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
                 PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
@@ -1497,7 +1497,7 @@ fn project_branch_for_union(
             });
         } else if let Some(qualifier) = tg_qualifier {
             // 3-part path: check if this tableGroup matches the qualifier
-            if qualifier == table_group.name {
+            if qualifier == dataset_group.name {
                 // This tableGroup owns this dimension path - output actual column
                 let semantic_name = format!("{}.{}", dim_name, attr_name);
                 projections.push(ProjectExpr {
@@ -1565,7 +1565,7 @@ fn plan_conformed_query(
     request: &QueryRequest,
     dimension_attrs: &[String],
 ) -> Result<PlanNode, PlanError> {
-    use crate::selector::SelectedTable;
+    use crate::selector::SelectedDataset;
     
     // Get physical dimensions (exclude virtual dimensions like _table.*)
     let physical_dims: Vec<String> = dimension_attrs.iter()
@@ -1619,9 +1619,9 @@ fn plan_conformed_query(
     let mut branches: Vec<PlanNode> = Vec::new();
     
     // Build a branch for each tableGroup that can serve the query
-    for table_group in &model.table_groups {
+    for dataset_group in &model.dataset_groups {
         // Find a table in this tableGroup that has all required dimensions and measures
-        let feasible_table = table_group.tables.iter().find(|table| {
+        let feasible_table = dataset_group.datasets.iter().find(|table| {
             // Check all required physical dimensions
             for dim_attr in &physical_dims {
                 let parts: Vec<&str> = dim_attr.split('.').collect();
@@ -1641,7 +1641,7 @@ fn plan_conformed_query(
             
             // Check all required measures exist in this tableGroup and table
             for measure_name in &required_measures {
-                if table_group.get_measure(measure_name).is_none() {
+                if dataset_group.get_measure(measure_name).is_none() {
                     return false;
                 }
                 if !table.has_measure(measure_name) {
@@ -1657,17 +1657,17 @@ fn plan_conformed_query(
             continue;
         };
         
-        // Create a SelectedTable for this branch
-        let selected = SelectedTable {
-            group: table_group,
-            table,
+        // Create a SelectedDataset for this branch
+        let selected = SelectedDataset {
+            group: dataset_group,
+            dataset: table,
         };
         
         // Resolve and plan this branch
         let resolved = resolve_query(schema, request, &selected)
             .map_err(|e| PlanError::InvalidQuery(format!(
                 "Query resolution error for tableGroup '{}': {:?}", 
-                table_group.name, e
+                dataset_group.name, e
             )))?;
         
         let branch = plan_query(&resolved)?;
@@ -1711,28 +1711,28 @@ fn plan_multi_tablegroup_query(
     let mut branches: Vec<PlanNode> = Vec::new();
     
     // Build a branch for each qualified tableGroup
-    for table_group in &model.table_groups {
+    for dataset_group in &model.dataset_groups {
         // Only process tableGroups mentioned in the qualified dimensions
-        if !qualified_groups.contains(table_group.name.as_str()) {
+        if !qualified_groups.contains(dataset_group.name.as_str()) {
             continue;
         }
         
         // Find a feasible table in this tableGroup
         let feasible_table = find_feasible_table_for_qualified(
-            model, table_group, dimension_attrs, &metric_names
+            model, dataset_group, dimension_attrs, &metric_names
         );
         
         let Some(table) = feasible_table else {
             return Err(PlanError::InvalidQuery(format!(
                 "No table in tableGroup '{}' can serve the qualified dimension query",
-                table_group.name
+                dataset_group.name
             )));
         };
         
         // Build the branch with NULL projection for other TG's qualified dimensions
         let branch = build_union_branch(
             model,
-            table_group,
+            dataset_group,
             table,
             dimension_attrs,
             &metric_names,
@@ -1767,20 +1767,20 @@ fn plan_single_tablegroup_query(
     dimension_attrs: &[String],
     target_group: &str,
 ) -> Result<PlanNode, PlanError> {
-    use crate::selector::SelectedTable;
+    use crate::selector::SelectedDataset;
     
     // Find the target tableGroup
-    let table_group = model.table_groups.iter()
+    let dataset_group = model.dataset_groups.iter()
         .find(|tg| tg.name == target_group)
         .ok_or_else(|| PlanError::InvalidQuery(format!(
-            "TableGroup '{}' not found in model", target_group
+            "DatasetGroup '{}' not found in model", target_group
         )))?;
     
     let metric_names: Vec<String> = request.metrics.clone().unwrap_or_default();
     
     // Find a feasible table
     let feasible_table = find_feasible_table_for_qualified(
-        model, table_group, dimension_attrs, &metric_names
+        model, dataset_group, dimension_attrs, &metric_names
     );
     
     let Some(table) = feasible_table else {
@@ -1836,7 +1836,7 @@ fn plan_single_tablegroup_query(
     };
     
     // Use standard resolve + plan path
-    let selected = SelectedTable { group: table_group, table };
+    let selected = SelectedDataset { group: dataset_group, dataset: table };
     
     let resolved = resolve_query(schema, &normalized_request, &selected)
         .map_err(|e| PlanError::InvalidQuery(format!(
@@ -1850,10 +1850,10 @@ fn plan_single_tablegroup_query(
 /// Find a feasible table in a tableGroup for qualified dimension queries.
 fn find_feasible_table_for_qualified<'a>(
     model: &SemanticModel,
-    table_group: &'a TableGroup,
+    dataset_group: &'a DatasetGroup,
     dimension_attrs: &[String],
     metric_names: &[String],
-) -> Option<&'a GroupTable> {
+) -> Option<&'a GroupDataset> {
     // Get required measures from metrics
     let required_measures: Vec<String> = metric_names
         .iter()
@@ -1867,7 +1867,7 @@ fn find_feasible_table_for_qualified<'a>(
         })
         .collect();
     
-    table_group.tables.iter().find(|table| {
+    dataset_group.datasets.iter().find(|table| {
         // Check dimensions qualified for THIS tableGroup
         for dim_attr in dimension_attrs {
             let parts: Vec<&str> = dim_attr.split('.').collect();
@@ -1877,7 +1877,7 @@ fn find_feasible_table_for_qualified<'a>(
                 let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
                 
                 // Skip if this dimension is for a different tableGroup
-                if tg_qualifier != table_group.name {
+                if tg_qualifier != dataset_group.name {
                     continue;
                 }
                 
@@ -1911,7 +1911,7 @@ fn find_feasible_table_for_qualified<'a>(
         
         // Check all required measures
         for measure_name in &required_measures {
-            if table_group.get_measure(measure_name).is_none() {
+            if dataset_group.get_measure(measure_name).is_none() {
                 return false;
             }
             if !table.has_measure(measure_name) {
@@ -1933,8 +1933,8 @@ fn find_feasible_table_for_qualified<'a>(
 /// - Optionally aggregates metrics
 fn build_union_branch(
     model: &SemanticModel,
-    table_group: &TableGroup,
-    table: &GroupTable,
+    dataset_group: &DatasetGroup,
+    table: &GroupDataset,
     dimension_attrs: &[String],
     metric_names: &[String],
 ) -> Result<PlanNode, PlanError> {
@@ -1947,7 +1947,7 @@ fn build_union_branch(
     // Multiple parsed paths might reference the same physical column (e.g., dates.date and adwords.dates.date)
     let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
         .filter(|(_, parsed)| {
-            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+            !parsed.is_virtual() && parsed.belongs_to_dataset_group(&dataset_group.name)
         })
         .collect();
     
@@ -1975,7 +1975,7 @@ fn build_union_branch(
     
     // Add dimension columns (for degenerate dimensions) - use unique_dim_attrs
     for (dim_name, attr_name) in &unique_dim_attrs {
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if group_dim.is_degenerate() {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     columns.push(attr.column_name().to_string());
@@ -1991,7 +1991,7 @@ fn build_union_branch(
             model.get_metric(metric_name).and_then(|m| {
                 match &m.expr {
                     MetricExpr::MeasureRef(measure_name) => {
-                        table_group.get_measure(measure_name)
+                        dataset_group.get_measure(measure_name)
                             .map(|measure| (metric_name.as_str(), measure))
                     }
                     MetricExpr::Structured(_) => None,
@@ -2008,7 +2008,7 @@ fn build_union_branch(
     }
     
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.table)
+        Scan::new(&table.dataset)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -2020,7 +2020,7 @@ fn build_union_branch(
             continue;
         }
         
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if let Some(join_spec) = &group_dim.join {
                 if let Some(dimension) = model.get_dimension(dim_name) {
                     if needs_join_for_dimension(table, group_dim, dimension) {
@@ -2066,7 +2066,7 @@ fn build_union_branch(
     // Build GROUP BY columns (using unique_dim_attrs)
     let group_by: Vec<Column> = unique_dim_attrs.iter()
         .filter_map(|(dim_name, attr_name)| {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
                         return Some(Column::new(fact_alias, attr.column_name()));
@@ -2111,7 +2111,7 @@ fn build_union_branch(
             // Virtual dimension: project as literal
             let dim_name = parsed.dim_name();
             let attr_name = parsed.attr_name();
-            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            let value = get_virtual_attribute_value(model, dataset_group, dim_name, attr_name);
             match value {
                 PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
                 PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
@@ -2120,7 +2120,7 @@ fn build_union_branch(
                 PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
                 _ => Expr::Literal(Literal::Null("string".to_string())),
             }
-        } else if parsed.belongs_to_table_group(&table_group.name) {
+        } else if parsed.belongs_to_dataset_group(&dataset_group.name) {
             // Physical dimension that belongs to this tableGroup
             // Look up the GROUP BY index using the (dim_name, attr_name) mapping
             let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
@@ -2195,10 +2195,10 @@ fn plan_virtual_only_query(
     // Build one row per tableGroup with the metadata values
     let mut rows: Vec<Vec<PlanLiteralValue>> = Vec::new();
     
-    for table_group in &model.table_groups {
+    for dataset_group in &model.dataset_groups {
         let row: Vec<PlanLiteralValue> = attrs.iter()
             .map(|(dim_name, attr_name)| {
-                get_virtual_attribute_value(model, table_group, dim_name, attr_name)
+                get_virtual_attribute_value(model, dataset_group, dim_name, attr_name)
             })
             .collect();
         rows.push(row);
@@ -2214,14 +2214,14 @@ fn plan_virtual_only_query(
 /// Get the literal value for a virtual dimension attribute
 fn get_virtual_attribute_value(
     model: &SemanticModel,
-    table_group: &TableGroup,
+    dataset_group: &DatasetGroup,
     dim_name: &str,
     attr_name: &str,
 ) -> PlanLiteralValue {
     // Currently we only support the _table virtual dimension
     if dim_name == "_table" {
         match attr_name {
-            "tableGroup" => PlanLiteralValue::String(table_group.name.clone()),
+            "tableGroup" => PlanLiteralValue::String(dataset_group.name.clone()),
             "model" => PlanLiteralValue::String(model.name.clone()),
             "namespace" => model.namespace.as_ref()
                 .map(|ns| PlanLiteralValue::String(ns.clone()))
@@ -2239,10 +2239,10 @@ fn get_virtual_attribute_value(
 /// A branch in a cross-tableGroup query
 /// Represents one tableGroup's contribution to the union
 #[derive(Debug)]
-pub struct CrossTableGroupBranch<'a> {
-    pub table_group: &'a TableGroup,
+pub struct CrossDatasetGroupBranch<'a> {
+    pub dataset_group: &'a DatasetGroup,
     pub measure: &'a Measure,
-    pub table: &'a GroupTable,
+    pub table: &'a GroupDataset,
 }
 
 /// Plan a cross-tableGroup query for multiple metrics that span multiple tableGroups
@@ -2260,7 +2260,7 @@ pub struct CrossTableGroupBranch<'a> {
 /// * `model` - The model containing the tableGroups and dimensions
 /// * `metrics` - The cross-tableGroup metrics to query
 /// * `dimension_attrs` - The dimension.attribute paths to GROUP BY
-pub fn plan_multi_cross_table_group_query<'a>(
+pub fn plan_multi_cross_dataset_group_query<'a>(
     _schema: &'a Schema,
     model: &'a SemanticModel,
     metrics: &[&'a Metric],
@@ -2271,9 +2271,9 @@ pub fn plan_multi_cross_table_group_query<'a>(
         let parts: Vec<&str> = attr_path.split('.').collect();
         if parts.len() == 3 {
             let tg_name = parts[0];
-            if model.get_table_group(tg_name).is_none() {
+            if model.get_dataset_group(tg_name).is_none() {
                 return Err(PlanError::InvalidQuery(
-                    format!("TableGroup '{}' not found in qualified dimension '{}'", tg_name, attr_path)
+                    format!("DatasetGroup '{}' not found in qualified dimension '{}'", tg_name, attr_path)
                 ));
             }
         }
@@ -2283,7 +2283,7 @@ pub fn plan_multi_cross_table_group_query<'a>(
     // [(metric_name, [(tg_name, measure_name)])]
     let metric_tg_measures: Vec<(String, Vec<(String, String)>)> = metrics.iter()
         .map(|metric| {
-            let mappings = metric.table_group_measures();
+            let mappings = metric.dataset_group_measures();
             (metric.name.clone(), mappings)
         })
         .collect();
@@ -2311,8 +2311,8 @@ pub fn plan_multi_cross_table_group_query<'a>(
 #[allow(dead_code)]
 fn build_multi_metric_branch(
     model: &SemanticModel,
-    table_group: &TableGroup,
-    table: &GroupTable,
+    dataset_group: &DatasetGroup,
+    table: &GroupDataset,
     measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
     dimension_attrs: &[String],
     all_metric_names: &[&str], // All metrics in query (for consistent schema)
@@ -2325,7 +2325,7 @@ fn build_multi_metric_branch(
     // Physical attrs that belong to this tableGroup
     let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
         .filter(|(_, parsed)| {
-            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+            !parsed.is_virtual() && parsed.belongs_to_dataset_group(&dataset_group.name)
         })
         .collect();
     
@@ -2352,7 +2352,7 @@ fn build_multi_metric_branch(
     
     // Add dimension columns (for degenerate dimensions)
     for (dim_name, attr_name) in &unique_dim_attrs {
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if group_dim.is_degenerate() {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     columns.push(attr.column_name().to_string());
@@ -2373,7 +2373,7 @@ fn build_multi_metric_branch(
     }
     
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.table)
+        Scan::new(&table.dataset)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -2384,7 +2384,7 @@ fn build_multi_metric_branch(
             continue;
         }
         
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if let Some(join_spec) = &group_dim.join {
                 if let Some(dimension) = model.get_dimension(dim_name) {
                     if needs_join_for_dimension(table, group_dim, dimension) {
@@ -2430,7 +2430,7 @@ fn build_multi_metric_branch(
     // Build GROUP BY columns
     let group_by: Vec<Column> = unique_dim_attrs.iter()
         .filter_map(|(dim_name, attr_name)| {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
                         return Some(Column::new(fact_alias, attr.column_name()));
@@ -2477,7 +2477,7 @@ fn build_multi_metric_branch(
         let expr = if parsed.is_virtual() {
             let dim_name = parsed.dim_name();
             let attr_name = parsed.attr_name();
-            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            let value = get_virtual_attribute_value(model, dataset_group, dim_name, attr_name);
             match value {
                 PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
                 PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
@@ -2486,7 +2486,7 @@ fn build_multi_metric_branch(
                 PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
                 _ => Expr::Literal(Literal::Null("string".to_string())),
             }
-        } else if parsed.belongs_to_table_group(&table_group.name) {
+        } else if parsed.belongs_to_dataset_group(&dataset_group.name) {
             let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
             if let Some(&idx) = dim_attr_to_group_idx.get(&key) {
                 let col = group_by.get(idx).cloned()
@@ -2541,8 +2541,8 @@ fn build_multi_metric_branch(
 #[allow(dead_code)]
 fn build_multi_table_metric_branch(
     model: &SemanticModel,
-    table_group: &TableGroup,
-    selection: &MultiTableSelection<'_>,
+    dataset_group: &DatasetGroup,
+    selection: &MultiDatasetSelection<'_>,
     measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
     dimension_attrs: &[String],
     all_metric_names: &[&str], // All metrics in query (for consistent schema)
@@ -2555,7 +2555,7 @@ fn build_multi_table_metric_branch(
     // Physical attrs that belong to this tableGroup
     let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
         .filter(|(_, parsed)| {
-            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+            !parsed.is_virtual() && parsed.belongs_to_dataset_group(&dataset_group.name)
         })
         .collect();
     
@@ -2576,8 +2576,8 @@ fn build_multi_table_metric_branch(
     // Build aggregated sub-queries for each table
     let mut table_subqueries: Vec<(String, PlanNode, Vec<String>)> = Vec::new(); // (alias, plan, measure_aliases)
     
-    for (idx, table_with_measures) in selection.tables.iter().enumerate() {
-        let table = table_with_measures.table;
+    for (idx, table_with_measures) in selection.datasets.iter().enumerate() {
+        let table = table_with_measures.dataset;
         let table_alias = format!("t{}", idx);
         
         // Build columns for scan
@@ -2586,7 +2586,7 @@ fn build_multi_table_metric_branch(
         
         // Add dimension columns
         for (dim_name, attr_name) in &unique_dim_attrs {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
                         let col_name = attr.column_name().to_string();
@@ -2602,7 +2602,7 @@ fn build_multi_table_metric_branch(
         // Add measure columns for this table
         let mut measure_aliases = Vec::new();
         for measure_name in &table_with_measures.measures {
-            if let Some(measure) = table_group.get_measure(measure_name) {
+            if let Some(measure) = dataset_group.get_measure(measure_name) {
                 if let MeasureExpr::Column(col) = &measure.expr {
                     if !columns.contains(col) {
                         columns.push(col.clone());
@@ -2619,7 +2619,7 @@ fn build_multi_table_metric_branch(
         
         // Build scan
         let scan = PlanNode::Scan(
-            Scan::new(&table.table)
+            Scan::new(&table.dataset)
                 .with_alias(&table_alias)
                 .with_columns(columns, types)
         );
@@ -2627,7 +2627,7 @@ fn build_multi_table_metric_branch(
         // Build GROUP BY columns
         let group_by: Vec<Column> = unique_dim_attrs.iter()
             .filter_map(|(dim_name, attr_name)| {
-                if let Some(group_dim) = table_group.get_dimension(dim_name) {
+                if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                     if group_dim.is_degenerate() {
                         if let Some(attr) = group_dim.get_attribute(attr_name) {
                             return Some(Column::new(&table_alias, attr.column_name()));
@@ -2641,7 +2641,7 @@ fn build_multi_table_metric_branch(
         // Build aggregates for this table's measures
         let aggregates: Vec<AggregateExpr> = table_with_measures.measures.iter()
             .filter_map(|measure_name| {
-                let measure = table_group.get_measure(measure_name)?;
+                let measure = dataset_group.get_measure(measure_name)?;
                 let alias = measure_to_metric.get(measure_name.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| measure_name.clone());
@@ -2671,7 +2671,7 @@ fn build_multi_table_metric_branch(
         
         // Join on the first dimension column (all tables share dimensions)
         let join_key = if let Some((dim_name, attr_name)) = unique_dim_attrs.first() {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     attr.column_name().to_string()
                 } else {
@@ -2706,7 +2706,7 @@ fn build_multi_table_metric_branch(
         let expr = if parsed.is_virtual() {
             let dim_name = parsed.dim_name();
             let attr_name = parsed.attr_name();
-            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            let value = get_virtual_attribute_value(model, dataset_group, dim_name, attr_name);
             match value {
                 PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
                 PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
@@ -2715,11 +2715,11 @@ fn build_multi_table_metric_branch(
                 PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
                 _ => Expr::Literal(Literal::Null("string".to_string())),
             }
-        } else if parsed.belongs_to_table_group(&table_group.name) {
+        } else if parsed.belongs_to_dataset_group(&dataset_group.name) {
             // Use COALESCE for dimension columns from joined tables
             let dim_name = parsed.dim_name();
             let attr_name = parsed.attr_name();
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     // Reference from first table (after aggregate, columns are unqualified)
                     Expr::Column(Column::unqualified(attr.column_name()))
@@ -2774,7 +2774,7 @@ fn build_multi_table_metric_branch(
 /// * `model` - The model containing the tableGroups and dimensions
 /// * `metric` - The cross-tableGroup metric (must have tableGroup.name conditions)
 /// * `dimension_attrs` - The dimension.attribute paths to GROUP BY (e.g., ["dates.date"])
-pub fn plan_cross_table_group_query<'a>(
+pub fn plan_cross_dataset_group_query<'a>(
     _schema: &'a Schema,
     model: &'a SemanticModel,
     metric: &'a Metric,
@@ -2785,16 +2785,16 @@ pub fn plan_cross_table_group_query<'a>(
         let parts: Vec<&str> = attr_path.split('.').collect();
         if parts.len() == 3 {
             let tg_name = parts[0];
-            if model.get_table_group(tg_name).is_none() {
+            if model.get_dataset_group(tg_name).is_none() {
                 return Err(PlanError::InvalidQuery(
-                    format!("TableGroup '{}' not found in qualified dimension '{}'", tg_name, attr_path)
+                    format!("DatasetGroup '{}' not found in qualified dimension '{}'", tg_name, attr_path)
                 ));
             }
         }
     }
     
     // Get the tableGroup-to-measure mappings from the metric
-    let mappings = metric.table_group_measures();
+    let mappings = metric.dataset_group_measures();
     if mappings.is_empty() {
         return Err(PlanError::InvalidQuery(
             format!("Metric '{}' is not a cross-tableGroup metric", metric.name)
@@ -2806,29 +2806,29 @@ pub fn plan_cross_table_group_query<'a>(
     
     for (tg_name, measure_name) in &mappings {
         // Get the tableGroup
-        let table_group = model.get_table_group(tg_name)
+        let dataset_group = model.get_dataset_group(tg_name)
             .ok_or_else(|| PlanError::InvalidQuery(
-                format!("TableGroup '{}' not found", tg_name)
+                format!("DatasetGroup '{}' not found", tg_name)
             ))?;
         
         // Get the measure from this tableGroup
-        let measure = table_group.get_measure(measure_name)
+        let measure = dataset_group.get_measure(measure_name)
             .ok_or_else(|| PlanError::InvalidQuery(
                 format!("Measure '{}' not found in tableGroup '{}'", measure_name, tg_name)
             ))?;
         
         // Find a suitable table in this tableGroup
         // For now, pick the first table that has the measure
-        let table = table_group.tables.iter()
+        let table = dataset_group.datasets.iter()
             .find(|t| t.has_measure(measure_name))
             .ok_or_else(|| PlanError::InvalidQuery(
                 format!("No table in tableGroup '{}' has measure '{}'", tg_name, measure_name)
             ))?;
         
         // Build a sub-plan for this branch
-        let branch = build_cross_table_group_branch(
+        let branch = build_cross_dataset_group_branch(
             model,
-            table_group,
+            dataset_group,
             table,
             measure,
             dimension_attrs,
@@ -2889,7 +2889,7 @@ pub fn plan_cross_table_group_query<'a>(
 enum ParsedDimensionAttr {
     /// Standard two-part: dimension.attribute
     Standard { dim_name: String, attr_name: String },
-    /// TableGroup-qualified three-part: tableGroup.dimension.attribute
+    /// DatasetGroup-qualified three-part: tableGroup.dimension.attribute
     Qualified { tg_name: String, dim_name: String, attr_name: String },
     /// Virtual dimension (like _table)
     Virtual { dim_name: String, attr_name: String },
@@ -2934,7 +2934,7 @@ impl ParsedDimensionAttr {
     }
     
     /// Check if this attribute belongs to the given tableGroup
-    fn belongs_to_table_group(&self, tg_name: &str) -> bool {
+    fn belongs_to_dataset_group(&self, tg_name: &str) -> bool {
         match self {
             ParsedDimensionAttr::Qualified { tg_name: qualified_tg, .. } => qualified_tg == tg_name,
             ParsedDimensionAttr::Standard { .. } => true, // Standard attrs belong to all
@@ -2982,10 +2982,10 @@ impl ParsedDimensionAttr {
 }
 
 /// Build a single branch of a cross-tableGroup query
-fn build_cross_table_group_branch(
+fn build_cross_dataset_group_branch(
     model: &SemanticModel,
-    table_group: &TableGroup,
-    table: &GroupTable,
+    dataset_group: &DatasetGroup,
+    table: &GroupDataset,
     measure: &Measure,
     dimension_attrs: &[String],
     output_alias: &str,
@@ -3001,7 +3001,7 @@ fn build_cross_table_group_branch(
     // - Qualified attrs for OTHER tableGroups (project as NULL)
     let physical_attrs: Vec<&(String, ParsedDimensionAttr)> = parsed_attrs.iter()
         .filter(|(_, parsed)| {
-            !parsed.is_virtual() && parsed.belongs_to_table_group(&table_group.name)
+            !parsed.is_virtual() && parsed.belongs_to_dataset_group(&dataset_group.name)
         })
         .collect();
     
@@ -3029,7 +3029,7 @@ fn build_cross_table_group_branch(
     
     // Add dimension columns (for degenerate dimensions) - use unique_dim_attrs
     for (dim_name, attr_name) in &unique_dim_attrs {
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if group_dim.is_degenerate() {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     columns.push(attr.column_name().to_string());
@@ -3046,7 +3046,7 @@ fn build_cross_table_group_branch(
     }
     
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.table)
+        Scan::new(&table.dataset)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -3058,7 +3058,7 @@ fn build_cross_table_group_branch(
             continue;
         }
         
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if let Some(join_spec) = &group_dim.join {
                 if let Some(dimension) = model.get_dimension(dim_name) {
                     if needs_join_for_dimension(table, group_dim, dimension) {
@@ -3106,7 +3106,7 @@ fn build_cross_table_group_branch(
     // Build GROUP BY columns (using unique_dim_attrs)
     let group_by: Vec<Column> = unique_dim_attrs.iter()
         .filter_map(|(dim_name, attr_name)| {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
                         return Some(Column::new(fact_alias, attr.column_name()));
@@ -3146,7 +3146,7 @@ fn build_cross_table_group_branch(
             // Virtual dimension: project as literal
             let dim_name = parsed.dim_name();
             let attr_name = parsed.attr_name();
-            let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+            let value = get_virtual_attribute_value(model, dataset_group, dim_name, attr_name);
             match value {
                 PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
                 PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
@@ -3155,7 +3155,7 @@ fn build_cross_table_group_branch(
                 PlanLiteralValue::Null => Expr::Literal(Literal::Null("string".to_string())),
                 _ => Expr::Literal(Literal::Null("string".to_string())),
             }
-        } else if parsed.belongs_to_table_group(&table_group.name) {
+        } else if parsed.belongs_to_dataset_group(&dataset_group.name) {
             // Physical dimension that belongs to this tableGroup
             // Look up the GROUP BY index using the (dim_name, attr_name) mapping
             let key = (parsed.dim_name().to_string(), parsed.attr_name().to_string());
@@ -3193,7 +3193,7 @@ fn build_cross_table_group_branch(
 }
 
 // ============================================================================
-// Same-TableGroup Multi-Table JOIN Planning
+// Same-DatasetGroup Multi-Table JOIN Planning
 // ============================================================================
 
 /// Plan a query that JOINs multiple tables within the same tableGroup
@@ -3216,11 +3216,11 @@ fn build_cross_table_group_branch(
 /// ```
 fn plan_same_tablegroup_join(
     model: &SemanticModel,
-    selection: &MultiTableSelection<'_>,
+    selection: &MultiDatasetSelection<'_>,
     dimension_attrs: &[String],
     metric_names: &[String],
 ) -> Result<PlanNode, PlanError> {
-    let table_group = selection.group;
+    let dataset_group = selection.group;
     
     // Parse dimension attributes (skip virtual dimensions)
     let physical_dims: Vec<(String, String)> = dimension_attrs.iter()
@@ -3246,21 +3246,21 @@ fn plan_same_tablegroup_join(
         })
         .collect();
     
-    if selection.tables.is_empty() {
+    if selection.datasets.is_empty() {
         return Err(PlanError::InvalidQuery("No tables selected for JOIN".to_string()));
     }
     
     // Build sub-query for each table
     let mut sub_queries: Vec<(PlanNode, String)> = Vec::new(); // (plan, alias)
     
-    for (idx, table_with_measures) in selection.tables.iter().enumerate() {
-        let table = table_with_measures.table;
+    for (idx, table_with_measures) in selection.datasets.iter().enumerate() {
+        let table = table_with_measures.dataset;
         let measures = &table_with_measures.measures;
         let table_alias = format!("t{}", idx);
         
         let sub_plan = build_table_subquery(
             model,
-            table_group,
+            dataset_group,
             table,
             &physical_dims,
             measures,
@@ -3281,7 +3281,7 @@ fn plan_same_tablegroup_join(
         // (all physical dimensions should work as join keys)
         if let Some((dim_name, attr_name)) = physical_dims.first() {
             // Get the column name for this dimension attribute
-            let col_name = get_dimension_column_name(table_group, dim_name, attr_name);
+            let col_name = get_dimension_column_name(dataset_group, dim_name, attr_name);
             
             let left_key = Column::new(&left_alias, &col_name);
             let right_key = Column::new(&right_alias, &col_name);
@@ -3311,11 +3311,11 @@ fn plan_same_tablegroup_join(
     
     // Project dimension attributes with COALESCE
     for (dim_name, attr_name) in &physical_dims {
-        let col_name = get_dimension_column_name(table_group, dim_name, attr_name);
+        let col_name = get_dimension_column_name(dataset_group, dim_name, attr_name);
         let semantic_name = format!("{}.{}", dim_name, attr_name);
         
         // Build COALESCE across all table aliases
-        let coalesce_args: Vec<Expr> = selection.tables.iter().enumerate()
+        let coalesce_args: Vec<Expr> = selection.datasets.iter().enumerate()
             .map(|(idx, _)| Expr::Column(Column::new(&format!("t{}", idx), &col_name)))
             .collect();
         
@@ -3338,7 +3338,7 @@ fn plan_same_tablegroup_join(
             let dim_name = parts[0];
             let attr_name = parts[1];
             if model.get_dimension(dim_name).map(|d| d.is_virtual()).unwrap_or(false) {
-                let value = get_virtual_attribute_value(model, table_group, dim_name, attr_name);
+                let value = get_virtual_attribute_value(model, dataset_group, dim_name, attr_name);
                 let expr = match value {
                     PlanLiteralValue::String(s) => Expr::Literal(Literal::String(s)),
                     PlanLiteralValue::Int64(i) => Expr::Literal(Literal::Int(i)),
@@ -3357,7 +3357,7 @@ fn plan_same_tablegroup_join(
     // Project metrics from their assigned tables
     for metric_name in metric_names {
         // Find which table has this metric's measure
-        let table_idx = selection.tables.iter().position(|twm| {
+        let table_idx = selection.datasets.iter().position(|twm| {
             twm.measures.iter().any(|m| {
                 // Check if this measure is used by this metric
                 if let Some(metric) = model.get_metric(metric_name) {
@@ -3407,8 +3407,8 @@ fn plan_same_tablegroup_join(
 /// Returns: Aggregate(Scan(table)) grouped by dimensions with measures aggregated
 fn build_table_subquery(
     model: &SemanticModel,
-    table_group: &TableGroup,
-    table: &GroupTable,
+    dataset_group: &DatasetGroup,
+    table: &GroupDataset,
     physical_dims: &[(String, String)], // (dim_name, attr_name)
     measures: &[String],
     alias: &str,
@@ -3419,7 +3419,7 @@ fn build_table_subquery(
     
     // Add dimension columns
     for (dim_name, attr_name) in physical_dims {
-        if let Some(group_dim) = table_group.get_dimension(dim_name) {
+        if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
             if group_dim.is_degenerate() {
                 if let Some(attr) = group_dim.get_attribute(attr_name) {
                     columns.push(attr.column_name().to_string());
@@ -3431,7 +3431,7 @@ fn build_table_subquery(
     
     // Add measure columns
     for measure_name in measures {
-        if let Some(measure) = table_group.get_measure(measure_name) {
+        if let Some(measure) = dataset_group.get_measure(measure_name) {
             if let MeasureExpr::Column(col) = &measure.expr {
                 columns.push(col.clone());
                 types.push(measure.data_type().to_string());
@@ -3441,7 +3441,7 @@ fn build_table_subquery(
     
     // Build scan
     let scan = PlanNode::Scan(
-        Scan::new(&table.table)
+        Scan::new(&table.dataset)
             .with_alias(alias)
             .with_columns(columns, types)
     );
@@ -3449,7 +3449,7 @@ fn build_table_subquery(
     // Build GROUP BY columns
     let group_by: Vec<Column> = physical_dims.iter()
         .filter_map(|(dim_name, attr_name)| {
-            if let Some(group_dim) = table_group.get_dimension(dim_name) {
+            if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
                 if group_dim.is_degenerate() {
                     if let Some(attr) = group_dim.get_attribute(attr_name) {
                         return Some(Column::new(alias, attr.column_name()));
@@ -3469,7 +3469,7 @@ fn build_table_subquery(
     // The aggregate alias should be the METRIC name (for projection later)
     let aggregates: Vec<AggregateExpr> = measures.iter()
         .filter_map(|measure_name| {
-            table_group.get_measure(measure_name).map(|measure| {
+            dataset_group.get_measure(measure_name).map(|measure| {
                 // Find the metric name that uses this measure
                 let metric_name = model.metrics.as_ref()
                     .and_then(|metrics| {
@@ -3494,7 +3494,7 @@ fn build_table_subquery(
     
     // Project dimensions with the column name (not semantic name) for JOIN
     for (dim_name, attr_name) in physical_dims {
-        let col_name = get_dimension_column_name(table_group, dim_name, attr_name);
+        let col_name = get_dimension_column_name(dataset_group, dim_name, attr_name);
         projections.push(ProjectExpr {
             expr: Expr::Column(Column::unqualified(&col_name)),
             alias: col_name.clone(),
@@ -3523,11 +3523,11 @@ fn build_table_subquery(
 
 /// Get the physical column name for a dimension attribute
 fn get_dimension_column_name(
-    table_group: &TableGroup,
+    dataset_group: &DatasetGroup,
     dim_name: &str,
     attr_name: &str,
 ) -> String {
-    if let Some(group_dim) = table_group.get_dimension(dim_name) {
+    if let Some(group_dim) = dataset_group.get_dimension(dim_name) {
         if group_dim.is_degenerate() {
             if let Some(attr) = group_dim.get_attribute(attr_name) {
                 return attr.column_name().to_string();
@@ -3544,16 +3544,16 @@ mod tests {
     use crate::semantic_model::Schema;
     use crate::query::QueryRequest;
     use crate::resolver::resolve_query;
-    use crate::selector::{select_tables, SelectedTable};
+    use crate::selector::{select_datasets, SelectedDataset};
 
     fn load_test_schema() -> Schema {
         Schema::from_file("test_data/steelwheels.yaml").unwrap()
     }
     
     /// Helper to get the first selected table from the model
-    fn get_first_selected<'a>(schema: &'a Schema, model_name: &str) -> SelectedTable<'a> {
+    fn get_first_selected<'a>(schema: &'a Schema, model_name: &str) -> SelectedDataset<'a> {
         let model = schema.get_model(model_name).unwrap();
-        select_tables(schema, model, &[], &[]).unwrap().into_iter().next().unwrap()
+        select_datasets(schema, model, &[], &[]).unwrap().into_iter().next().unwrap()
     }
 
     #[test]
@@ -3858,16 +3858,16 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_cross_table_group_query() {
+    fn test_plan_cross_dataset_group_query() {
         let schema = Schema::from_file("test_data/marketing.yaml").unwrap();
         let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
         let metric = model.get_metric("fun-cost").unwrap();
         
         // Verify this is a cross-tableGroup metric
-        assert!(metric.is_cross_table_group());
+        assert!(metric.is_cross_dataset_group());
         
         // Plan a cross-tableGroup query for dates.date
-        let plan = plan_cross_table_group_query(
+        let plan = plan_cross_dataset_group_query(
             &schema,
             model,
             metric,

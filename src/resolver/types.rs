@@ -1,35 +1,35 @@
 //! Types for resolved query components
 
-use crate::semantic_model::{Attribute, Dimension, Measure, Metric, SemanticModel, TableGroup, TableGroupDimension, GroupTable};
+use crate::semantic_model::{Attribute, Dimension, Measure, Metric, SemanticModel, DatasetGroup, DatasetGroupDimension, GroupDataset};
 
 /// A resolved attribute reference (dimension.attribute)
 /// 
 /// Can be either from a joined dimension table, a degenerate dimension
-/// where the columns live directly on the fact table, or a virtual
+/// where the columns live directly on the fact dataset, or a virtual
 /// metadata attribute from the `_table` dimension.
 #[derive(Debug, Clone)]
 pub enum AttributeRef<'a> {
     /// Attribute from a joined dimension table
     Joined {
-        group_dim: &'a TableGroupDimension,
+        group_dim: &'a DatasetGroupDimension,
         dimension: &'a Dimension,
         attribute: &'a Attribute,
-        /// Optional tableGroup qualifier (e.g., "adwords" in "adwords.campaign.name")
-        /// When set, this attribute is explicitly scoped to a specific tableGroup
-        table_group_qualifier: Option<String>,
+        /// Optional datasetGroup qualifier (e.g., "adwords" in "adwords.campaign.name")
+        /// When set, this attribute is explicitly scoped to a specific datasetGroup
+        dataset_group_qualifier: Option<String>,
     },
-    /// Attribute from a degenerate dimension (columns on fact table)
+    /// Attribute from a degenerate dimension (columns on fact dataset)
     Degenerate {
-        group_dim: &'a TableGroupDimension,
+        group_dim: &'a DatasetGroupDimension,
         attribute: &'a Attribute,
-        /// Optional tableGroup qualifier (e.g., "adwords" in "adwords.campaign.name")
-        /// When set, this attribute is explicitly scoped to a specific tableGroup
-        table_group_qualifier: Option<String>,
+        /// Optional datasetGroup qualifier (e.g., "adwords" in "adwords.campaign.name")
+        /// When set, this attribute is explicitly scoped to a specific datasetGroup
+        dataset_group_qualifier: Option<String>,
     },
     /// Virtual metadata attribute from the `_table` dimension
     /// Emits as a constant literal value, not a column reference
     Meta {
-        /// The attribute name (e.g., "tableGroup", "uuid", or a property key)
+        /// The attribute name (e.g., "datasetGroup", "uuid", or a property key)
         name: String,
         /// The resolved value to emit as a literal
         value: String,
@@ -37,8 +37,8 @@ pub enum AttributeRef<'a> {
 }
 
 impl<'a> AttributeRef<'a> {
-    /// Get the table group dimension reference (None for Meta)
-    pub fn group_dim(&self) -> Option<&'a TableGroupDimension> {
+    /// Get the dataset group dimension reference (None for Meta)
+    pub fn group_dim(&self) -> Option<&'a DatasetGroupDimension> {
         match self {
             Self::Joined { group_dim, .. } => Some(group_dim),
             Self::Degenerate { group_dim, .. } => Some(group_dim),
@@ -119,24 +119,24 @@ impl<'a> AttributeRef<'a> {
         }
     }
     
-    /// Get the tableGroup qualifier if this attribute is explicitly scoped
-    pub fn table_group_qualifier(&self) -> Option<&str> {
+    /// Get the datasetGroup qualifier if this attribute is explicitly scoped
+    pub fn dataset_group_qualifier(&self) -> Option<&str> {
         match self {
-            Self::Joined { table_group_qualifier, .. } => table_group_qualifier.as_deref(),
-            Self::Degenerate { table_group_qualifier, .. } => table_group_qualifier.as_deref(),
+            Self::Joined { dataset_group_qualifier, .. } => dataset_group_qualifier.as_deref(),
+            Self::Degenerate { dataset_group_qualifier, .. } => dataset_group_qualifier.as_deref(),
             Self::Meta { .. } => None,
         }
     }
     
-    /// Is this attribute qualified with a specific tableGroup?
-    pub fn is_table_group_qualified(&self) -> bool {
-        self.table_group_qualifier().is_some()
+    /// Is this attribute qualified with a specific datasetGroup?
+    pub fn is_dataset_group_qualified(&self) -> bool {
+        self.dataset_group_qualifier().is_some()
     }
     
     /// Get the semantic name for this attribute
-    /// Returns "tableGroup.dimension.attribute" if qualified, "dimension.attribute" otherwise
+    /// Returns "datasetGroup.dimension.attribute" if qualified, "dimension.attribute" otherwise
     pub fn semantic_name(&self) -> String {
-        match self.table_group_qualifier() {
+        match self.dataset_group_qualifier() {
             Some(tg) => format!("{}.{}.{}", tg, self.dimension_name(), self.attribute_name()),
             None => format!("{}.{}", self.dimension_name(), self.attribute_name()),
         }
@@ -156,10 +156,10 @@ pub struct ResolvedFilter<'a> {
 pub struct ResolvedQuery<'a> {
     /// The semantic model (for metrics and model-level config)
     pub model: &'a SemanticModel,
-    /// The selected table group (for dimensions and measures)
-    pub table_group: &'a TableGroup,
-    /// The selected table (for physical table name and columns)
-    pub table: &'a GroupTable,
+    /// The selected dataset group (for dimensions and measures)
+    pub dataset_group: &'a DatasetGroup,
+    /// The selected dataset (for physical dataset name and columns)
+    pub dataset: &'a GroupDataset,
     /// Dimensions needed for this query (from rows, columns, and filters)
     pub dimensions: Vec<ResolvedDimension<'a>>,
     /// Attributes for rows (GROUP BY, first axis)
@@ -180,12 +180,12 @@ impl<'a> ResolvedQuery<'a> {
     pub fn output_names(&self) -> Vec<String> {
         let mut names = Vec::new();
         
-        // Row attributes: "dimension.attribute", "_table.attribute", or "tableGroup.dimension.attribute"
+        // Row attributes: "dimension.attribute", "_table.attribute", or "datasetGroup.dimension.attribute"
         for attr in &self.row_attributes {
             names.push(attr.semantic_name());
         }
         
-        // Column attributes: "dimension.attribute", "_table.attribute", or "tableGroup.dimension.attribute"
+        // Column attributes: "dimension.attribute", "_table.attribute", or "datasetGroup.dimension.attribute"
         for attr in &self.column_attributes {
             names.push(attr.semantic_name());
         }
@@ -204,12 +204,12 @@ impl<'a> ResolvedQuery<'a> {
 pub enum ResolvedDimension<'a> {
     /// Dimension from a joined table
     Joined {
-        group_dim: &'a TableGroupDimension,
+        group_dim: &'a DatasetGroupDimension,
         dimension: &'a Dimension,
     },
-    /// Degenerate dimension (columns on fact table)
+    /// Degenerate dimension (columns on fact dataset)
     Degenerate {
-        group_dim: &'a TableGroupDimension,
+        group_dim: &'a DatasetGroupDimension,
     },
     /// Virtual `_table` metadata dimension
     /// No physical table - all attributes are constant literals
@@ -217,8 +217,8 @@ pub enum ResolvedDimension<'a> {
 }
 
 impl<'a> ResolvedDimension<'a> {
-    /// Get the table group dimension reference (None for Meta)
-    pub fn group_dim(&self) -> Option<&'a TableGroupDimension> {
+    /// Get the dataset group dimension reference (None for Meta)
+    pub fn group_dim(&self) -> Option<&'a DatasetGroupDimension> {
         match self {
             Self::Joined { group_dim, .. } => Some(group_dim),
             Self::Degenerate { group_dim } => Some(group_dim),

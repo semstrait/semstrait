@@ -53,7 +53,7 @@ semantic_models:
           divide: [cost, clicks]
         type: f64
     
-    tableGroups:
+    datasetGroups:
       - name: marketing
         
         # Dimensions (all degenerate - on fact tables)
@@ -99,9 +99,9 @@ semantic_models:
             type: i64
         
         # Two tables with DIFFERENT measure subsets
-        tables:
-          # Summary table: has impressions and clicks (more aggregated - fewer dims)
-          - table: "campaign_summary"
+        datasets:
+          # Summary dataset: has impressions and clicks (more aggregated - fewer dims)
+          - dataset: "campaign_summary"
             source:
               type: parquet
               path: /data/campaign_summary.parquet
@@ -111,8 +111,8 @@ semantic_models:
               _table: [model, tableGroup, table]
             measures: [impressions, clicks]
           
-          # Details table: has cost and conversions (less aggregated - more dims)
-          - table: "campaign_details"
+          # Details dataset: has cost and conversions (less aggregated - more dims)
+          - dataset: "campaign_details"
             source:
               type: parquet
               path: /data/campaign_details.parquet

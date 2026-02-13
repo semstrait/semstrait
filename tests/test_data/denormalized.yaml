@@ -17,7 +17,7 @@ semantic_models:
         expr: total_value
         type: f64
     
-    tableGroups:
+    datasetGroups:
       - name: user_events
         dimensions:
           # Degenerate dimension - no join spec, columns are on fact table
@@ -64,8 +64,8 @@ semantic_models:
             expr: value
             type: f64
 
-        tables:
-          - table: analytics.events_flat
+        datasets:
+          - dataset: analytics.events_flat
             source:
               type: parquet
               path: /data/analytics/events_flat.parquet

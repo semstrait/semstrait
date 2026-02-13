@@ -5,6 +5,5 @@
 mod build;
 mod error;
 
-pub use build::{plan_query, plan_semantic_query, plan_cross_table_group_query, CrossTableGroupBranch};
+pub use build::{plan_query, plan_semantic_query, plan_cross_dataset_group_query, CrossDatasetGroupBranch};
 pub use error::PlanError;
-

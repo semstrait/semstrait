@@ -29,7 +29,7 @@ pub fn run_pipeline(schema: &Schema, request: &QueryRequest) -> Result<Plan, Str
         .get_model(&request.model)
         .ok_or_else(|| format!("Model '{}' not found", request.model))?;
 
-    // Use plan_semantic_query which handles cross-tableGroup cases
+    // Use plan_semantic_query which handles cross-datasetGroup cases
     let plan_node = plan_semantic_query(schema, model, request)
         .map_err(|e| format!("Planning failed: {}", e))?;
 

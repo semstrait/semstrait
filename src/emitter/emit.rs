@@ -1092,7 +1092,7 @@ mod tests {
     use super::*;
     use crate::semantic_model::Schema;
     use crate::query::QueryRequest;
-    use crate::selector::select_tables;
+    use crate::selector::select_datasets;
     use crate::resolver::resolve_query;
     use crate::planner::plan_query;
 
@@ -1139,7 +1139,7 @@ mod tests {
             filter: None,
         };
 
-        let selected = select_tables(&schema, model, &["dates.year".to_string()], &["sales".to_string()])
+        let selected = select_datasets(&schema, model, &["dates.year".to_string()], &["sales".to_string()])
             .unwrap()
             .into_iter()
             .next()

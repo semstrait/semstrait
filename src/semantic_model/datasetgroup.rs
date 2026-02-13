@@ -1,8 +1,8 @@
-//! Table group types for aggregate awareness
+//! Dataset group types for aggregate awareness
 //!
-//! A TableGroup defines a set of tables that share dimension and measure definitions.
-//! Tables within a group declare which subset of fields they have, enabling
-//! automatic table selection (aggregate awareness).
+//! A DatasetGroup defines a set of datasets that share dimension and measure definitions.
+//! Datasets within a group declare which subset of fields they have, enabling
+//! automatic dataset selection (aggregate awareness).
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use super::column::Column;
 use super::dimension::{Attribute, Join};
 use super::measure::Measure;
 
-/// Data source configuration for a table
+/// Data source configuration for a dataset
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum Source {
@@ -24,14 +24,14 @@ pub enum Source {
 /// Supports the following variables:
 /// - `{model.name}` - Model name
 /// - `{model.namespace}` - Model namespace (errors if not set)
-/// - `{tableGroup.name}` - Table group name
-/// - `{table.name}` - Physical table name
-/// - `{table.uuid}` - Table UUID (errors if not set)
+/// - `{datasetGroup.name}` - Dataset group name
+/// - `{dataset.name}` - Physical dataset name
+/// - `{dataset.uuid}` - Dataset UUID (errors if not set)
 /// 
 /// # Example
 /// ```ignore
 /// let path = resolve_path_template(
-///     "{model.namespace}/{table.uuid}/data.parquet",
+///     "{model.namespace}/{dataset.uuid}/data.parquet",
 ///     "sales",
 ///     Some("tenant-123"),
 ///     "orders",
@@ -44,16 +44,20 @@ pub fn resolve_path_template(
     template: &str,
     model_name: &str,
     model_namespace: Option<&str>,
-    table_group_name: &str,
-    table_name: &str,
-    table_uuid: Option<&str>,
+    dataset_group_name: &str,
+    dataset_name: &str,
+    dataset_uuid: Option<&str>,
 ) -> Result<String, String> {
     let mut path = template.to_string();
     
     // Required variables (always available)
     path = path.replace("{model.name}", model_name);
-    path = path.replace("{tableGroup.name}", table_group_name);
-    path = path.replace("{table.name}", table_name);
+    path = path.replace("{datasetGroup.name}", dataset_group_name);
+    path = path.replace("{dataset.name}", dataset_name);
+    
+    // Backwards compatibility: also support old variable names
+    path = path.replace("{tableGroup.name}", dataset_group_name);
+    path = path.replace("{table.name}", dataset_name);
     
     // Optional variables - error if used but not present
     if path.contains("{model.namespace}") {
@@ -66,12 +70,23 @@ pub fn resolve_path_template(
         }
     }
     
+    if path.contains("{dataset.uuid}") {
+        match dataset_uuid {
+            Some(uuid) => path = path.replace("{dataset.uuid}", uuid),
+            None => return Err(format!(
+                "Path template uses {{dataset.uuid}} but dataset '{}' has no uuid defined",
+                dataset_name
+            )),
+        }
+    }
+    
+    // Backwards compatibility: also support old variable name
     if path.contains("{table.uuid}") {
-        match table_uuid {
+        match dataset_uuid {
             Some(uuid) => path = path.replace("{table.uuid}", uuid),
             None => return Err(format!(
-                "Path template uses {{table.uuid}} but table '{}' has no uuid defined",
-                table_name
+                "Path template uses {{table.uuid}} but dataset '{}' has no uuid defined",
+                dataset_name
             )),
         }
     }
@@ -142,25 +157,25 @@ pub fn resolve_dimension_path_template(
     Ok(path)
 }
 
-/// A table group - tables sharing dimension and measure definitions
+/// A dataset group - datasets sharing dimension and measure definitions
 #[derive(Debug, Deserialize)]
-pub struct TableGroup {
+pub struct DatasetGroup {
     pub name: String,
-    /// Dimensions available to tables in this group
-    pub dimensions: Vec<TableGroupDimension>,
-    /// Measures shared by all tables in this group
+    /// Dimensions available to datasets in this group
+    pub dimensions: Vec<DatasetGroupDimension>,
+    /// Measures shared by all datasets in this group
     pub measures: Vec<Measure>,
-    /// Physical tables, each declaring which subset of fields it has
-    pub tables: Vec<GroupTable>,
+    /// Physical datasets, each declaring which subset of fields it has
+    pub datasets: Vec<GroupDataset>,
 }
 
-/// A dimension reference within a table group
+/// A dimension reference within a dataset group
 /// 
 /// Can be either:
 /// - A reference to a top-level dimension (has join)
 /// - A degenerate dimension (no join, has inline attributes)
 #[derive(Debug, Deserialize, Clone)]
-pub struct TableGroupDimension {
+pub struct DatasetGroupDimension {
     pub name: String,
     pub label: Option<String>,
     /// Join specification - if None, this is a degenerate dimension
@@ -169,14 +184,15 @@ pub struct TableGroupDimension {
     pub attributes: Option<Vec<Attribute>>,
 }
 
-/// A physical table within a table group
+/// A physical dataset within a dataset group
 #[derive(Debug, Deserialize)]
-pub struct GroupTable {
-    /// Physical table name (e.g., "warehouse.orderfact")
-    pub table: String,
+pub struct GroupDataset {
+    /// Physical dataset name (e.g., "warehouse.orderfact")
+    #[serde(alias = "table")]
+    pub dataset: String,
     /// Data source configuration (parquet path, iceberg table, etc.)
     pub source: Source,
-    /// Unique identifier for this table (e.g., Iceberg table UUID)
+    /// Unique identifier for this dataset (e.g., Iceberg table UUID)
     pub uuid: Option<String>,
     /// Custom key-value properties (e.g., connectorType, sourceSystem)
     pub properties: Option<HashMap<String, String>>,
@@ -184,20 +200,20 @@ pub struct GroupTable {
     /// Join detection is now based on dimension attribute inclusion, not column presence
     #[serde(default)]
     pub columns: Option<Vec<Column>>,
-    /// Dimension attributes available on this table
+    /// Dimension attributes available on this dataset
     /// Map from dimension name to list of attribute names
     pub dimensions: HashMap<String, Vec<String>>,
-    /// Measure names available on this table (references group-level measures)
+    /// Measure names available on this dataset (references group-level measures)
     pub measures: Vec<String>,
-    /// Row filter for partitioned tables
-    /// e.g., { "dates.year": 2023 } means this table only contains 2023 data
+    /// Row filter for partitioned datasets
+    /// e.g., { "dates.year": 2023 } means this dataset only contains 2023 data
     #[serde(rename = "rowFilter")]
     pub row_filter: Option<HashMap<String, serde_yaml::Value>>,
 }
 
-impl TableGroup {
+impl DatasetGroup {
     /// Get a dimension by name
-    pub fn get_dimension(&self, name: &str) -> Option<&TableGroupDimension> {
+    pub fn get_dimension(&self, name: &str) -> Option<&DatasetGroupDimension> {
         self.dimensions.iter().find(|d| d.name == name)
     }
 
@@ -206,9 +222,9 @@ impl TableGroup {
         self.measures.iter().find(|m| m.name == name)
     }
 
-    /// Get a table by physical table name
-    pub fn get_table(&self, table_name: &str) -> Option<&GroupTable> {
-        self.tables.iter().find(|t| t.table == table_name)
+    /// Get a dataset by physical dataset name
+    pub fn get_dataset(&self, dataset_name: &str) -> Option<&GroupDataset> {
+        self.datasets.iter().find(|t| t.dataset == dataset_name)
     }
 
     /// Get all unique measure names
@@ -217,7 +233,7 @@ impl TableGroup {
     }
 }
 
-impl TableGroupDimension {
+impl DatasetGroupDimension {
     /// Returns true if this is a degenerate dimension (no join, has inline attributes)
     pub fn is_degenerate(&self) -> bool {
         self.join.is_none()
@@ -239,7 +255,7 @@ impl TableGroupDimension {
     }
 }
 
-impl GroupTable {
+impl GroupDataset {
     /// Get the parquet path if source is Parquet
     pub fn parquet_path(&self) -> Option<&str> {
         match &self.source {
@@ -252,7 +268,7 @@ impl GroupTable {
         self.columns.as_ref()?.iter().find(|c| c.name == name)
     }
 
-    /// Check if this table has a specific column in the explicit columns list
+    /// Check if this dataset has a specific column in the explicit columns list
     pub fn has_column(&self, name: &str) -> bool {
         self.columns.as_ref()
             .map(|cols| cols.iter().any(|c| c.name == name))
@@ -264,12 +280,12 @@ impl GroupTable {
         self.dimensions.get(dim_name)
     }
 
-    /// Check if this table has a dimension
+    /// Check if this dataset has a dimension
     pub fn has_dimension(&self, name: &str) -> bool {
         self.dimensions.contains_key(name)
     }
 
-    /// Check if this table has a measure (by name)
+    /// Check if this dataset has a measure (by name)
     pub fn has_measure(&self, name: &str) -> bool {
         self.measures.iter().any(|m| m == name)
     }
@@ -279,19 +295,19 @@ impl GroupTable {
         self.dimensions.values().map(|attrs| attrs.len()).sum()
     }
 
-    /// Check if a dimension needs a join on this table (legacy method)
+    /// Check if a dimension needs a join on this dataset (legacy method)
     /// 
-    /// If the join key column exists on this table, a join is needed.
+    /// If the join key column exists on this dataset, a join is needed.
     /// If the join key is absent, assume attributes are denormalized.
     #[deprecated(note = "Use needs_join_for_dimension instead, which uses attribute-based detection")]
-    pub fn needs_join(&self, dim: &TableGroupDimension) -> bool {
+    pub fn needs_join(&self, dim: &DatasetGroupDimension) -> bool {
         match dim.join_key() {
             Some(key) => self.has_column(key),
             None => false, // Degenerate dimensions never need joins
         }
     }
 
-    /// Check if this table has a specific attribute for a dimension
+    /// Check if this dataset has a specific attribute for a dimension
     pub fn has_dimension_attribute(&self, dim_name: &str, attr_name: &str) -> bool {
         self.dimensions
             .get(dim_name)
@@ -304,7 +320,7 @@ impl GroupTable {
 mod tests {
     use super::*;
 
-    fn sample_table_group() -> TableGroup {
+    fn sample_dataset_group() -> DatasetGroup {
         let yaml = r#"
 name: orders
 dimensions:
@@ -322,8 +338,8 @@ measures:
     aggregation: sum
     expr: totalprice
     type: f64
-tables:
-  - table: warehouse.orderfact
+datasets:
+  - dataset: warehouse.orderfact
     source:
       type: parquet
       path: /data/warehouse/orderfact.parquet
@@ -335,7 +351,7 @@ tables:
         serde_yaml::from_str(yaml).unwrap()
     }
 
-    fn sample_table_group_with_columns() -> TableGroup {
+    fn sample_dataset_group_with_columns() -> DatasetGroup {
         let yaml = r#"
 name: orders
 dimensions:
@@ -353,8 +369,8 @@ measures:
     aggregation: sum
     expr: totalprice
     type: f64
-tables:
-  - table: warehouse.orderfact
+datasets:
+  - dataset: warehouse.orderfact
     source:
       type: parquet
       path: /data/warehouse/orderfact.parquet
@@ -374,36 +390,36 @@ tables:
     }
 
     #[test]
-    fn test_parse_table_group() {
-        let group = sample_table_group();
+    fn test_parse_dataset_group() {
+        let group = sample_dataset_group();
         assert_eq!(group.name, "orders");
         assert_eq!(group.dimensions.len(), 2);
         assert_eq!(group.measures.len(), 1);
-        assert_eq!(group.tables.len(), 1);
+        assert_eq!(group.datasets.len(), 1);
     }
 
     #[test]
-    fn test_parse_table_group_without_columns() {
-        let group = sample_table_group();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+    fn test_parse_dataset_group_without_columns() {
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
         // columns should be None when not specified
-        assert!(table.columns.is_none());
+        assert!(dataset.columns.is_none());
     }
 
     #[test]
-    fn test_parse_table_group_with_columns() {
-        let group = sample_table_group_with_columns();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+    fn test_parse_dataset_group_with_columns() {
+        let group = sample_dataset_group_with_columns();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
         // columns should be Some when specified
-        assert!(table.columns.is_some());
-        assert_eq!(table.columns.as_ref().unwrap().len(), 3);
+        assert!(dataset.columns.is_some());
+        assert_eq!(dataset.columns.as_ref().unwrap().len(), 3);
     }
 
     #[test]
     fn test_dimension_types() {
-        let group = sample_table_group();
+        let group = sample_dataset_group();
         
         let dates = group.get_dimension("dates").unwrap();
         assert!(dates.is_reference());
@@ -417,74 +433,74 @@ tables:
     }
 
     #[test]
-    fn test_table_columns_optional() {
-        let group = sample_table_group();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+    fn test_dataset_columns_optional() {
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
         // Without explicit columns, has_column returns false
-        assert!(!table.has_column("time_id"));
-        assert!(!table.has_column("totalprice"));
-        assert!(!table.has_column("nonexistent"));
+        assert!(!dataset.has_column("time_id"));
+        assert!(!dataset.has_column("totalprice"));
+        assert!(!dataset.has_column("nonexistent"));
     }
 
     #[test]
-    fn test_table_columns_explicit() {
-        let group = sample_table_group_with_columns();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+    fn test_dataset_columns_explicit() {
+        let group = sample_dataset_group_with_columns();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
         // With explicit columns, has_column works
-        assert!(table.has_column("time_id"));
-        assert!(table.has_column("totalprice"));
-        assert!(!table.has_column("nonexistent"));
+        assert!(dataset.has_column("time_id"));
+        assert!(dataset.has_column("totalprice"));
+        assert!(!dataset.has_column("nonexistent"));
     }
 
     #[test]
-    fn test_table_dimensions() {
-        let group = sample_table_group();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+    fn test_dataset_dimensions() {
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
-        assert!(table.has_dimension("dates"));
-        assert!(table.has_dimension("flags"));
-        assert!(!table.has_dimension("markets"));
+        assert!(dataset.has_dimension("dates"));
+        assert!(dataset.has_dimension("flags"));
+        assert!(!dataset.has_dimension("markets"));
         
-        let attrs = table.get_dimension_attributes("dates").unwrap();
+        let attrs = dataset.get_dimension_attributes("dates").unwrap();
         assert_eq!(attrs, &vec!["year".to_string(), "month".to_string()]);
     }
 
     #[test]
     fn test_has_dimension_attribute() {
-        let group = sample_table_group();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
-        assert!(table.has_dimension_attribute("dates", "year"));
-        assert!(table.has_dimension_attribute("dates", "month"));
-        assert!(!table.has_dimension_attribute("dates", "quarter"));
-        assert!(table.has_dimension_attribute("flags", "is_premium"));
-        assert!(!table.has_dimension_attribute("nonexistent", "attr"));
+        assert!(dataset.has_dimension_attribute("dates", "year"));
+        assert!(dataset.has_dimension_attribute("dates", "month"));
+        assert!(!dataset.has_dimension_attribute("dates", "quarter"));
+        assert!(dataset.has_dimension_attribute("flags", "is_premium"));
+        assert!(!dataset.has_dimension_attribute("nonexistent", "attr"));
     }
 
     #[test]
-    fn test_table_measures() {
-        let group = sample_table_group();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+    fn test_dataset_measures() {
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
-        assert!(table.has_measure("sales"));
-        assert!(!table.has_measure("quantity"));
+        assert!(dataset.has_measure("sales"));
+        assert!(!dataset.has_measure("quantity"));
     }
 
     #[test]
     fn test_attribute_count() {
-        let group = sample_table_group();
-        let table = group.get_table("warehouse.orderfact").unwrap();
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
         
         // dates: [year, month] = 2, flags: [is_premium] = 1
-        assert_eq!(table.attribute_count(), 3);
+        assert_eq!(dataset.attribute_count(), 3);
     }
 
     #[test]
     fn test_resolve_path_template_all_variables() {
         let result = resolve_path_template(
-            "{model.namespace}/{table.uuid}/data.parquet",
+            "{model.namespace}/{dataset.uuid}/data.parquet",
             "sales",
             Some("tenant-123"),
             "orders",
@@ -497,7 +513,7 @@ tables:
     #[test]
     fn test_resolve_path_template_required_only() {
         let result = resolve_path_template(
-            "/data/{model.name}/{tableGroup.name}/{table.name}.parquet",
+            "/data/{model.name}/{datasetGroup.name}/{dataset.name}.parquet",
             "sales",
             None,
             "orders",
@@ -514,7 +530,7 @@ tables:
             "sales",
             Some("tenant"),
             "orders",
-            "table",
+            "dataset",
             Some("uuid"),
         );
         assert_eq!(result.unwrap(), "/static/path/data.parquet");
@@ -527,7 +543,7 @@ tables:
             "sales",
             None,  // namespace not set
             "orders",
-            "table",
+            "dataset",
             None,
         );
         assert!(result.is_err());
@@ -537,15 +553,15 @@ tables:
     #[test]
     fn test_resolve_path_template_missing_uuid() {
         let result = resolve_path_template(
-            "{table.uuid}/data.parquet",
+            "{dataset.uuid}/data.parquet",
             "sales",
             None,
             "orders",
-            "table",
+            "dataset",
             None,  // uuid not set
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("table.uuid"));
+        assert!(result.unwrap_err().contains("dataset.uuid"));
     }
 
     #[test]
@@ -555,10 +571,24 @@ tables:
             "sales",
             None,
             "orders",
-            "table",
+            "dataset",
             None,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown variable"));
+    }
+
+    // Backwards compatibility: old {table.*} and {tableGroup.*} variables still work
+    #[test]
+    fn test_resolve_path_template_backwards_compat() {
+        let result = resolve_path_template(
+            "/data/{model.name}/{tableGroup.name}/{table.name}.parquet",
+            "sales",
+            None,
+            "orders",
+            "warehouse.orderfact",
+            None,
+        );
+        assert_eq!(result.unwrap(), "/data/sales/orders/warehouse.orderfact.parquet");
     }
 }

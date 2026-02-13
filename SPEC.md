@@ -5,9 +5,9 @@
 ## Goals
 
 - **Engine-Agnostic**: Compile semantic models to Substrait compute plans executable on any compatible engine (DataFusion, DuckDB, Velox, etc.)
-- **Multi-Source**: Support multiple data sources (tableGroups) in a single model with automatic UNION handling
-- **Aggregate Awareness**: Automatically select optimal pre-aggregated tables based on query requirements
-- **Conformed Dimensions**: Query dimensions across tableGroups with simple two-part paths
+- **Multi-Source**: Support multiple data sources (datasetGroups) in a single model with automatic UNION handling
+- **Aggregate Awareness**: Automatically select optimal pre-aggregated datasets based on query requirements
+- **Conformed Dimensions**: Query dimensions across datasetGroups with simple two-part paths
 - **Metrics-First API**: Expose metrics as the public interface; measures are internal implementation details
 
 ## Table of Contents
@@ -15,7 +15,7 @@
 1. [Enumerations](#enumerations)
 2. [Semantic Model](#semantic-model)
 3. [Dimensions](#dimensions)
-4. [Table Groups](#table-groups)
+4. [Dataset Groups](#dataset-groups)
 5. [Measures](#measures)
 6. [Metrics](#metrics)
 7. [Query Request](#query-request)
@@ -84,7 +84,7 @@ The top-level container representing a complete semantic model.
 | `namespace` | string | No | Organization/tenant identifier |
 | `dimensions` | array | No | Model-level dimensions (queryable with 2-part paths) |
 | `metrics` | array | No | Derived calculations (model-level) |
-| `tableGroups` | array | Yes | Groups of tables sharing field definitions |
+| `datasetGroups` | array | Yes | Groups of datasets sharing field definitions |
 | `dataFilter` | array | No | Row-level security filters |
 
 ### Example
@@ -95,7 +95,7 @@ semantic_models:
     namespace: "tenant-123"
     dimensions: []
     metrics: []
-    tableGroups: []
+    datasetGroups: []
 ```
 
 ---
@@ -169,13 +169,13 @@ dimensions:
   # Virtual dimension (metadata)
   - name: _table
     virtual: true
-    label: Table Metadata
+    label: Dataset Metadata
     attributes:
       - name: model
         type: string
-      - name: tableGroup
+      - name: datasetGroup
         type: string
-      - name: table
+      - name: dataset
         type: string
 ```
 
@@ -187,30 +187,30 @@ The location where a dimension is defined determines how it can be queried:
 
 | Defined At | Path Format | Example | Behavior |
 |------------|-------------|---------|----------|
-| Model-level `dimensions` | Two-part | `dates.year` | UNION across all tableGroups |
-| Inline in tableGroup | Three-part | `adwords.campaign.name` | Single tableGroup only |
-| Virtual (model-level) | Two-part | `_table.tableGroup` | Literal values across all tableGroups |
+| Model-level `dimensions` | Two-part | `dates.year` | UNION across all datasetGroups |
+| Inline in datasetGroup | Three-part | `adwords.campaign.name` | Single datasetGroup only |
+| Virtual (model-level) | Two-part | `_table.datasetGroup` | Literal values across all datasetGroups |
 
-**Model-level dimensions** are shared concepts that can be queried across tableGroups. The planner automatically UNIONs results from all tableGroups that reference the dimension.
+**Model-level dimensions** are shared concepts that can be queried across datasetGroups. The planner automatically UNIONs results from all datasetGroups that reference the dimension.
 
-**Inline dimensions** are tableGroup-specific and must be queried with the three-part path `tableGroup.dimension.attribute`.
+**Inline dimensions** are datasetGroup-specific and must be queried with the three-part path `datasetGroup.dimension.attribute`.
 
 ---
 
-## Table Groups
+## Dataset Groups
 
-A tableGroup defines a collection of tables sharing dimension and measure definitions. Multiple tableGroups enable multi-source analytics (e.g., Google Ads + Facebook Ads).
+A datasetGroup defines a collection of datasets sharing dimension and measure definitions. Multiple datasetGroups enable multi-source analytics (e.g., Google Ads + Facebook Ads).
 
-### TableGroup Schema
+### DatasetGroup Schema
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Unique identifier for the tableGroup |
+| `name` | string | Yes | Unique identifier for the datasetGroup |
 | `dimensions` | array | Yes | Dimension references available in this group |
-| `measures` | array | Yes | Measure definitions shared by tables |
-| `tables` | array | Yes | Physical tables in this group |
+| `measures` | array | Yes | Measure definitions shared by datasets |
+| `datasets` | array | Yes | Physical datasets in this group |
 
-### TableGroup Dimension Reference
+### DatasetGroup Dimension Reference
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -226,22 +226,22 @@ A tableGroup defines a collection of tables sharing dimension and measure defini
 | `rightKey` | string | Yes | Column on dimension table |
 | `rightAlias` | string | No | Alias for dimension table in query |
 
-### Table Schema
+### Dataset Schema
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `table` | string | Yes | Physical table name |
+| `dataset` | string | Yes | Physical dataset name |
 | `source` | object | Yes | Data source configuration |
 | `uuid` | string | No | Unique identifier (e.g., Iceberg UUID) |
 | `properties` | map | No | Custom key-value metadata |
 | `dimensions` | map | Yes | Dimension → attributes mapping |
 | `measures` | array | Yes | Available measures |
-| `rowFilter` | object | No | Partition filter for this table |
+| `rowFilter` | object | No | Partition filter for this dataset |
 
 ### Example
 
 ```yaml
-tableGroups:
+datasetGroups:
   - name: orders
     dimensions:
       - name: dates
@@ -260,11 +260,11 @@ tableGroups:
         expr: totalprice
         type: f64
     
-    tables:
-      - table: orderfact
+    datasets:
+      - dataset: orderfact
         source:
           type: parquet
-          path: "{model.namespace}/{table.name}.parquet"
+          path: "{model.namespace}/{dataset.name}.parquet"
         uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         dimensions:
           dates: [date, month, year]
@@ -276,7 +276,7 @@ tableGroups:
 
 ## Measures
 
-Measures are aggregated calculations defined at the tableGroup level. They are internal implementation details—users query metrics, not measures directly.
+Measures are aggregated calculations defined at the datasetGroup level. They are internal implementation details—users query metrics, not measures directly.
 
 ### Measure Schema
 
@@ -350,7 +350,7 @@ Metrics are the public query interface. They can be pass-through (exposing a mea
   type: f64
 ```
 
-**Cross-TableGroup Metric:**
+**Cross-DatasetGroup Metric:**
 ```yaml
 - name: unified_cost
   type: f64
@@ -358,10 +358,10 @@ Metrics are the public query interface. They can be pass-through (exposing a mea
     case:
       when:
         - condition:
-            eq: [tableGroup.name, "google_ads"]
+            eq: [datasetGroup.name, "google_ads"]
           then: ad_cost
         - condition:
-            eq: [tableGroup.name, "meta_ads"]
+            eq: [datasetGroup.name, "meta_ads"]
           then: media_spend
       else: 0
 ```
@@ -427,14 +427,14 @@ semantic_models:
       - name: _table
         virtual: true
         attributes:
-          - { name: tableGroup, type: string }
+          - { name: datasetGroup, type: string }
     
     metrics:
       - name: total_cost
         expr: cost
         type: f64
     
-    tableGroups:
+    datasetGroups:
       - name: adwords
         dimensions:
           - name: dates
@@ -452,8 +452,8 @@ semantic_models:
             expr: spend
             type: f64
         
-        tables:
-          - table: adwords_daily
+        datasets:
+          - dataset: adwords_daily
             source:
               type: parquet
               path: "{model.namespace}/adwords/daily.parquet"
@@ -479,8 +479,8 @@ semantic_models:
             expr: amount_spent
             type: f64
         
-        tables:
-          - table: facebook_daily
+        datasets:
+          - dataset: facebook_daily
             source:
               type: parquet
               path: "{model.namespace}/facebook/daily.parquet"
@@ -509,10 +509,10 @@ semstrait supports metadata fields for AI consumption:
 
 - **1.0** (2026-01): Initial specification
   - Core semantic model structure
-  - Table groups with aggregate awareness
+  - Dataset groups with aggregate awareness
   - Conformed and virtual dimensions
-  - TableGroup-qualified dimension paths
-  - Cross-tableGroup UNION with typed NULLs
+  - DatasetGroup-qualified dimension paths
+  - Cross-datasetGroup UNION with typed NULLs
   - Metrics as public API
 
 ---

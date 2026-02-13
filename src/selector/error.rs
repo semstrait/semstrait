@@ -2,41 +2,41 @@
 
 use std::fmt;
 
-/// Errors that can occur during table selection
+/// Errors that can occur during dataset selection
 #[derive(Debug)]
 pub enum SelectError {
-    /// No table can serve the requested query
-    NoFeasibleTable {
+    /// No dataset can serve the requested query
+    NoFeasibleDataset {
         model: String,
         reason: String,
     },
-    /// Model has no tables defined
-    NoTablesInModel {
+    /// Model has no datasets defined
+    NoDatasetsInModel {
         model: String,
     },
-    /// Multiple tableGroups can serve the query - ambiguous
-    /// Use a cross-tableGroup metric to disambiguate
-    AmbiguousTableGroup {
+    /// Multiple datasetGroups can serve the query - ambiguous
+    /// Use a cross-datasetGroup metric to disambiguate
+    AmbiguousDatasetGroup {
         model: String,
-        table_groups: Vec<String>,
+        dataset_groups: Vec<String>,
     },
 }
 
 impl fmt::Display for SelectError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoFeasibleTable { model, reason } => {
-                write!(f, "No table in model '{}' can serve the query: {}", model, reason)
+            Self::NoFeasibleDataset { model, reason } => {
+                write!(f, "No dataset in model '{}' can serve the query: {}", model, reason)
             }
-            Self::NoTablesInModel { model } => {
-                write!(f, "Model '{}' has no tables defined", model)
+            Self::NoDatasetsInModel { model } => {
+                write!(f, "Model '{}' has no datasets defined", model)
             }
-            Self::AmbiguousTableGroup { model, table_groups } => {
+            Self::AmbiguousDatasetGroup { model, dataset_groups } => {
                 write!(
                     f, 
-                    "Query for model '{}' matches multiple tableGroups: [{}]. Use a cross-tableGroup metric to combine data from multiple sources.",
+                    "Query for model '{}' matches multiple datasetGroups: [{}]. Use a cross-datasetGroup metric to combine data from multiple sources.",
                     model,
-                    table_groups.join(", ")
+                    dataset_groups.join(", ")
                 )
             }
         }

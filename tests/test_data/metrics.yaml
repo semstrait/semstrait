@@ -20,7 +20,7 @@ semantic_models:
           - name: table
             type: string
 
-    tableGroups:
+    datasetGroups:
       - name: transactions
         dimensions:
           - name: dates
@@ -61,8 +61,8 @@ semantic_models:
             expr: transaction_id
             type: i64
 
-        tables:
-          - table: finance.transactions
+        datasets:
+          - dataset: finance.transactions
             source:
               type: parquet
               path: /data/finance/transactions.parquet

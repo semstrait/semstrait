@@ -22,7 +22,7 @@ semantic_models:
           - name: table
             type: string
     
-    tableGroups:
+    datasetGroups:
       # ============================================
       # ADWORDS
       # ============================================
@@ -87,8 +87,8 @@ semantic_models:
             expr: adwords-impressions
             type: f64
         
-        tables:
-          - table: "95f9b0c3-b116-46c5-849e-b7e901e5d7c1"  # Geo Performance | Campaign | Postal code
+        datasets:
+          - dataset: "95f9b0c3-b116-46c5-849e-b7e901e5d7c1"  # Geo Performance | Campaign | Postal code
             source:
               type: parquet
               path: /data/adwords/geo_performance.parquet
@@ -99,7 +99,7 @@ semantic_models:
               _table: [model, namespace, tableGroup, table]
             measures: [cost, views, clicks, impressions]
           
-          - table: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
+          - dataset: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
             source:
               type: parquet
               path: /data/adwords/ad_group_device.parquet
@@ -151,8 +151,8 @@ semantic_models:
             expr: impressions
             type: i64
         
-        tables:
-          - table: "facebook-campaign-daily"
+        datasets:
+          - dataset: "facebook-campaign-daily"
             source:
               type: parquet
               path: /data/facebookads/campaign_daily.parquet

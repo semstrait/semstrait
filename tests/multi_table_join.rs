@@ -1,10 +1,10 @@
-//! Integration tests for multi-table JOIN within same tableGroup
+//! Integration tests for multi-dataset JOIN within same datasetGroup
 //!
-//! Tests the scenario where a query requires measures from multiple tables
+//! Tests the scenario where a query requires measures from multiple datasets
 //! that share common dimensions, resulting in a JOIN plan.
 
 use semstrait::semantic_model::Schema;
-use semstrait::selector::{select_tables, select_tables_for_join};
+use semstrait::selector::{select_datasets, select_datasets_for_join};
 use semstrait::planner::plan_semantic_query;
 use semstrait::query::QueryRequest;
 use semstrait::plan::PlanNode;
@@ -14,77 +14,76 @@ fn load_schema() -> Schema {
 }
 
 #[test]
-fn test_single_table_selection_when_possible() {
+fn test_single_dataset_selection_when_possible() {
     let schema = load_schema();
     let model = schema.get_model("multi-table-test").unwrap();
     
     // Query for impressions + clicks - both on campaign_summary
-    let result = select_tables(
+    let result = select_datasets(
         &schema,
         model,
         &["campaign.name".to_string(), "dates.date".to_string()],
         &["impressions".to_string(), "clicks".to_string()],
     );
     
-    // Should succeed with single table selection
+    // Should succeed with single dataset selection
     assert!(result.is_ok());
-    let tables = result.unwrap();
-    assert_eq!(tables.len(), 1);
-    assert_eq!(tables[0].table.table, "campaign_summary");
+    let datasets = result.unwrap();
+    assert_eq!(datasets.len(), 1);
+    assert_eq!(datasets[0].dataset.dataset, "campaign_summary");
 }
 
 #[test]
-fn test_single_table_selection_fails_for_cross_table_measures() {
+fn test_single_dataset_selection_fails_for_cross_dataset_measures() {
     let schema = load_schema();
     let model = schema.get_model("multi-table-test").unwrap();
     
     // Query for clicks + cost - clicks on summary, cost on details
-    let result = select_tables(
+    let result = select_datasets(
         &schema,
         model,
         &["campaign.name".to_string()],
         &["clicks".to_string(), "cost".to_string()],
     );
     
-    // Should fail - no single table has both measures
+    // Should fail - no single dataset has both measures
     assert!(result.is_err());
 }
 
 #[test]
-fn test_multi_table_selection_for_cross_table_measures() {
+fn test_multi_dataset_selection_for_cross_dataset_measures() {
     let schema = load_schema();
     let model = schema.get_model("multi-table-test").unwrap();
     
     // Query for clicks + cost - clicks on summary, cost on details
-    let result = select_tables_for_join(
+    let result = select_datasets_for_join(
         &schema,
         model,
         &["campaign.name".to_string()],
         &["clicks".to_string(), "cost".to_string()],
     );
     
-    // Should succeed with multi-table selection
+    // Should succeed with multi-dataset selection
     assert!(result.is_ok());
     let selection = result.unwrap();
-    assert_eq!(selection.tables.len(), 2);
+    assert_eq!(selection.datasets.len(), 2);
     
-    // Verify measure assignments (smallest table first wins)
-    // campaign_summary has fewer dimensions (attribute_count), so clicks should be assigned to it
-    let summary_table = selection.tables.iter()
-        .find(|t| t.table.table == "campaign_summary");
-    let details_table = selection.tables.iter()
-        .find(|t| t.table.table == "campaign_details");
+    // Verify measure assignments (smallest dataset first wins)
+    let summary_dataset = selection.datasets.iter()
+        .find(|t| t.dataset.dataset == "campaign_summary");
+    let details_dataset = selection.datasets.iter()
+        .find(|t| t.dataset.dataset == "campaign_details");
     
-    assert!(summary_table.is_some());
-    assert!(details_table.is_some());
+    assert!(summary_dataset.is_some());
+    assert!(details_dataset.is_some());
     
     // Verify measure assignments
-    assert!(summary_table.unwrap().measures.contains(&"clicks".to_string()));
-    assert!(details_table.unwrap().measures.contains(&"cost".to_string()));
+    assert!(summary_dataset.unwrap().measures.contains(&"clicks".to_string()));
+    assert!(details_dataset.unwrap().measures.contains(&"cost".to_string()));
 }
 
 #[test]
-fn test_multi_table_join_plan_structure() {
+fn test_multi_dataset_join_plan_structure() {
     let schema = load_schema();
     let model = schema.get_model("multi-table-test").unwrap();
     
@@ -124,14 +123,12 @@ fn test_multi_table_join_plan_structure() {
 }
 
 #[test]
-fn test_smallest_table_first_assignment() {
+fn test_smallest_dataset_first_assignment() {
     let schema = load_schema();
     let model = schema.get_model("multi-table-test").unwrap();
     
     // Query for impressions + cost
-    // impressions is on campaign_summary (smaller)
-    // cost is on campaign_details (larger)
-    let result = select_tables_for_join(
+    let result = select_datasets_for_join(
         &schema,
         model,
         &["campaign.name".to_string()],
@@ -140,11 +137,11 @@ fn test_smallest_table_first_assignment() {
     
     let selection = result.unwrap();
     
-    // campaign_summary should come first (smaller table)
-    assert_eq!(selection.tables[0].table.table, "campaign_summary");
-    assert!(selection.tables[0].measures.contains(&"impressions".to_string()));
+    // campaign_summary should come first (smaller dataset)
+    assert_eq!(selection.datasets[0].dataset.dataset, "campaign_summary");
+    assert!(selection.datasets[0].measures.contains(&"impressions".to_string()));
     
-    // campaign_details should come second (larger table)  
-    assert_eq!(selection.tables[1].table.table, "campaign_details");
-    assert!(selection.tables[1].measures.contains(&"cost".to_string()));
+    // campaign_details should come second (larger dataset)  
+    assert_eq!(selection.datasets[1].dataset.dataset, "campaign_details");
+    assert!(selection.datasets[1].measures.contains(&"cost".to_string()));
 }

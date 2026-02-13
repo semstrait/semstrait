@@ -29,7 +29,7 @@ semantic_models:
           - name: year
             type: i32
 
-    tableGroups:
+    datasetGroups:
       # Google Ads data
       - name: google_ads
         dimensions:
@@ -66,8 +66,8 @@ semantic_models:
             expr: impressions
             type: i64
 
-        tables:
-          - table: marketing.google_ads_daily
+        datasets:
+          - dataset: marketing.google_ads_daily
             source:
               type: parquet
               path: /data/marketing/google_ads_daily.parquet
@@ -113,8 +113,8 @@ semantic_models:
             expr: impressions
             type: i64
 
-        tables:
-          - table: marketing.meta_ads_daily
+        datasets:
+          - dataset: marketing.meta_ads_daily
             source:
               type: parquet
               path: /data/marketing/meta_ads_daily.parquet

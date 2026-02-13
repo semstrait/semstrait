@@ -47,12 +47,12 @@ pub enum MetricExprNode {
     Multiply(Vec<MetricExprArg>),
     /// Division
     Divide(Vec<MetricExprArg>),
-    /// CASE WHEN expression - for cross-tableGroup metrics
+    /// CASE WHEN expression - for cross-datasetGroup metrics
     Case(MetricCaseExpr),
 }
 
 /// CASE WHEN expression for metrics
-/// Used for cross-tableGroup metrics that select different measures based on tableGroup
+/// Used for cross-datasetGroup metrics that select different measures based on datasetGroup
 #[derive(Debug, Clone, Deserialize)]
 pub struct MetricCaseExpr {
     /// List of WHEN...THEN branches
@@ -72,7 +72,7 @@ pub struct MetricCaseWhen {
 }
 
 /// Condition expression for metric CASE WHEN
-/// Currently supports tableGroup.name comparisons for cross-tableGroup metrics
+/// Currently supports datasetGroup.name comparisons for cross-datasetGroup metrics
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MetricCondition {
@@ -86,7 +86,7 @@ pub enum MetricCondition {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum MetricConditionArg {
-    /// String value (e.g., "tableGroup.name" or "adwords")
+    /// String value (e.g., "datasetGroup.name" or "adwords")
     String(String),
     /// Literal number
     Number(f64),
@@ -110,63 +110,77 @@ impl Metric {
         self.data_type.clone().unwrap_or(DataType::F64)
     }
 
-    /// Check if this metric is a cross-tableGroup metric
+    /// Check if this metric is a cross-datasetGroup metric
     /// 
-    /// A cross-tableGroup metric uses `tableGroup.name` in CASE conditions
-    /// to select different measures based on the active tableGroup.
-    pub fn is_cross_table_group(&self) -> bool {
+    /// A cross-datasetGroup metric uses `datasetGroup.name` (or legacy `tableGroup.name`)
+    /// in CASE conditions to select different measures based on the active datasetGroup.
+    pub fn is_cross_dataset_group(&self) -> bool {
         match &self.expr {
             MetricExpr::Structured(MetricExprNode::Case(case_expr)) => {
-                case_expr.when.iter().any(|w| w.condition.references_table_group())
+                case_expr.when.iter().any(|w| w.condition.references_dataset_group())
             }
             _ => false,
         }
     }
 
-    /// Extract tableGroup-to-measure mappings from a cross-tableGroup metric
+    /// Extract datasetGroup-to-measure mappings from a cross-datasetGroup metric
     /// 
-    /// Returns a vec of (tableGroup_name, measure_name) tuples.
-    /// Returns empty vec if not a cross-tableGroup metric.
-    pub fn table_group_measures(&self) -> Vec<(String, String)> {
+    /// Returns a vec of (datasetGroup_name, measure_name) tuples.
+    /// Returns empty vec if not a cross-datasetGroup metric.
+    pub fn dataset_group_measures(&self) -> Vec<(String, String)> {
         match &self.expr {
             MetricExpr::Structured(MetricExprNode::Case(case_expr)) => {
                 case_expr.when.iter()
                     .filter_map(|w| {
-                        let table_group = w.condition.table_group_value()?;
+                        let dataset_group = w.condition.dataset_group_value()?;
                         let measure = w.then.measure_name()?;
-                        Some((table_group, measure))
+                        Some((dataset_group, measure))
                     })
                     .collect()
             }
             _ => vec![],
         }
     }
+
+    // Backwards compatibility aliases
+    
+    /// Check if this metric is a cross-datasetGroup metric (legacy alias)
+    #[deprecated(note = "Use is_cross_dataset_group instead")]
+    pub fn is_cross_table_group(&self) -> bool {
+        self.is_cross_dataset_group()
+    }
+
+    /// Extract datasetGroup-to-measure mappings (legacy alias)
+    #[deprecated(note = "Use dataset_group_measures instead")]
+    pub fn table_group_measures(&self) -> Vec<(String, String)> {
+        self.dataset_group_measures()
+    }
 }
 
 impl MetricCondition {
-    /// Check if this condition references tableGroup.name
-    pub fn references_table_group(&self) -> bool {
+    /// Check if this condition references datasetGroup.name (or legacy tableGroup.name)
+    pub fn references_dataset_group(&self) -> bool {
         match self {
             MetricCondition::Eq(args) | MetricCondition::Ne(args) => {
                 args.iter().any(|arg| {
-                    matches!(arg, MetricConditionArg::String(s) if s == "tableGroup.name")
+                    matches!(arg, MetricConditionArg::String(s) if s == "datasetGroup.name" || s == "tableGroup.name")
                 })
             }
         }
     }
 
-    /// Extract the tableGroup name value from a condition like eq: [tableGroup.name, "adwords"]
-    pub fn table_group_value(&self) -> Option<String> {
+    /// Extract the datasetGroup name value from a condition like eq: [datasetGroup.name, "adwords"]
+    pub fn dataset_group_value(&self) -> Option<String> {
         match self {
             MetricCondition::Eq(args) if args.len() == 2 => {
-                // Check if one arg is "tableGroup.name" and get the other
-                let has_table_group = args.iter().any(|a| {
-                    matches!(a, MetricConditionArg::String(s) if s == "tableGroup.name")
+                // Check if one arg is "datasetGroup.name" or legacy "tableGroup.name" and get the other
+                let has_dataset_group = args.iter().any(|a| {
+                    matches!(a, MetricConditionArg::String(s) if s == "datasetGroup.name" || s == "tableGroup.name")
                 });
-                if has_table_group {
+                if has_dataset_group {
                     args.iter().find_map(|a| {
                         match a {
-                            MetricConditionArg::String(s) if s != "tableGroup.name" => Some(s.clone()),
+                            MetricConditionArg::String(s) if s != "datasetGroup.name" && s != "tableGroup.name" => Some(s.clone()),
                             _ => None,
                         }
                     })
@@ -176,6 +190,20 @@ impl MetricCondition {
             }
             _ => None,
         }
+    }
+
+    // Backwards compatibility aliases
+
+    /// Check if this condition references datasetGroup.name (legacy alias)
+    #[deprecated(note = "Use references_dataset_group instead")]
+    pub fn references_table_group(&self) -> bool {
+        self.references_dataset_group()
+    }
+
+    /// Extract the datasetGroup name value (legacy alias)
+    #[deprecated(note = "Use dataset_group_value instead")]
+    pub fn table_group_value(&self) -> Option<String> {
+        self.dataset_group_value()
     }
 }
 

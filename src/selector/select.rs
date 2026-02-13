@@ -1,81 +1,81 @@
-//! Table selection logic
+//! Dataset selection logic
 //!
-//! Selects the optimal table(s) from a model to serve a query based on:
+//! Selects the optimal dataset(s) from a model to serve a query based on:
 //! - Dimension/attribute availability (feasibility)
 //! - Measure availability (feasibility)
-//! - Table size heuristic: fewer attributes = likely smaller/more aggregated (selection)
+//! - Dataset size heuristic: fewer attributes = likely smaller/more aggregated (selection)
 //!
-//! Aggregate awareness is scoped to a single tableGroup. If multiple tableGroups
-//! can serve the query, an error is returned - use a cross-tableGroup metric instead.
+//! Aggregate awareness is scoped to a single datasetGroup. If multiple datasetGroups
+//! can serve the query, an error is returned - use a cross-datasetGroup metric instead.
 //!
-//! Multi-table JOIN support:
-//! When no single table has all required measures, multiple tables can be selected
-//! and joined on their common dimensions. Uses "smallest table first" heuristic
-//! to assign measures to the most aggregated tables.
+//! Multi-dataset JOIN support:
+//! When no single dataset has all required measures, multiple datasets can be selected
+//! and joined on their common dimensions. Uses "smallest dataset first" heuristic
+//! to assign measures to the most aggregated datasets.
 
 use std::collections::{HashMap, HashSet};
-use crate::semantic_model::{SemanticModel, TableGroup, GroupTable, Schema};
+use crate::semantic_model::{SemanticModel, DatasetGroup, GroupDataset, Schema};
 use super::error::SelectError;
 
-/// Result of table selection - includes both the group and table
+/// Result of dataset selection - includes both the group and dataset
 #[derive(Debug, Clone)]
-pub struct SelectedTable<'a> {
-    /// The table group containing the selected table
-    pub group: &'a TableGroup,
-    /// The selected table
-    pub table: &'a GroupTable,
+pub struct SelectedDataset<'a> {
+    /// The dataset group containing the selected dataset
+    pub group: &'a DatasetGroup,
+    /// The selected dataset
+    pub dataset: &'a GroupDataset,
 }
 
-/// Result of multi-table selection for JOIN scenarios
+/// Result of multi-dataset selection for JOIN scenarios
 /// 
-/// When no single table has all required measures, multiple tables are selected
-/// and joined on common dimensions. Each table is assigned specific measures.
+/// When no single dataset has all required measures, multiple datasets are selected
+/// and joined on common dimensions. Each dataset is assigned specific measures.
 #[derive(Debug)]
-pub struct MultiTableSelection<'a> {
-    /// The table group containing all selected tables
-    pub group: &'a TableGroup,
-    /// Selected tables with their assigned measures
-    pub tables: Vec<TableWithMeasures<'a>>,
+pub struct MultiDatasetSelection<'a> {
+    /// The dataset group containing all selected datasets
+    pub group: &'a DatasetGroup,
+    /// Selected datasets with their assigned measures
+    pub datasets: Vec<DatasetWithMeasures<'a>>,
 }
 
-/// A selected table with its assigned measures
+/// A selected dataset with its assigned measures
 #[derive(Debug, Clone)]
-pub struct TableWithMeasures<'a> {
-    /// The selected table
-    pub table: &'a GroupTable,
-    /// Measures assigned to this table (using "first smallest wins" strategy)
+pub struct DatasetWithMeasures<'a> {
+    /// The selected dataset
+    pub dataset: &'a GroupDataset,
+    /// Measures assigned to this dataset (using "first smallest wins" strategy)
     pub measures: Vec<String>,
 }
 
-/// Select the optimal table(s) to serve a query
+/// Select the optimal dataset(s) to serve a query
 /// 
-/// Aggregate awareness is scoped to a single tableGroup:
-/// - Finds which tableGroup(s) can serve the query
-/// - If exactly one tableGroup matches, selects the optimal table within it
-/// - If multiple tableGroups match, returns an error (use cross-tableGroup metric)
+/// Aggregate awareness is scoped to a single datasetGroup:
+/// - Finds which datasetGroup(s) can serve the query
+/// - If exactly one datasetGroup matches, selects the optimal dataset within it
+/// - If multiple datasetGroups match, returns an error (use cross-datasetGroup metric)
 /// 
 /// # Arguments
 /// * `schema` - The schema containing dimension definitions
-/// * `model` - The model to select tables from
+/// * `model` - The model to select datasets from
 /// * `required_dimensions` - Dimension.attribute paths needed (e.g., "dates.year")
 /// * `required_measures` - Measure names needed
 /// 
 /// # Returns
-/// A vector of SelectedTable (usually 1, but may be multiple
-/// for partitioned/sharded tables in the future)
-pub fn select_tables<'a>(
+/// A vector of SelectedDataset (usually 1, but may be multiple
+/// for partitioned/sharded datasets in the future)
+pub fn select_datasets<'a>(
     schema: &'a Schema,
     model: &'a SemanticModel,
     required_dimensions: &[String],
     required_measures: &[String],
-) -> Result<Vec<SelectedTable<'a>>, SelectError> {
-    if model.table_groups.is_empty() {
-        return Err(SelectError::NoTablesInModel {
+) -> Result<Vec<SelectedDataset<'a>>, SelectError> {
+    if model.dataset_groups.is_empty() {
+        return Err(SelectError::NoDatasetsInModel {
             model: model.name.clone(),
         });
     }
     
-    // Extract tableGroup qualifiers from three-part dimension paths
+    // Extract datasetGroup qualifiers from three-part dimension paths
     // e.g., "adwords.dates.year" -> "adwords"
     let qualified_groups: HashSet<&str> = required_dimensions.iter()
         .filter_map(|path| {
@@ -84,90 +84,90 @@ pub fn select_tables<'a>(
         })
         .collect();
     
-    // If there are qualified dimensions, only consider those specific tableGroups
-    // Otherwise, consider all tableGroups
-    let groups_to_check: Vec<&TableGroup> = if qualified_groups.is_empty() {
-        model.table_groups.iter().collect()
+    // If there are qualified dimensions, only consider those specific datasetGroups
+    // Otherwise, consider all datasetGroups
+    let groups_to_check: Vec<&DatasetGroup> = if qualified_groups.is_empty() {
+        model.dataset_groups.iter().collect()
     } else {
-        model.table_groups.iter()
+        model.dataset_groups.iter()
             .filter(|g| qualified_groups.contains(g.name.as_str()))
             .collect()
     };
     
-    // Find all feasible tables, grouped by their tableGroup
-    let mut feasible_by_group: HashMap<&str, Vec<SelectedTable>> = HashMap::new();
+    // Find all feasible datasets, grouped by their datasetGroup
+    let mut feasible_by_group: HashMap<&str, Vec<SelectedDataset>> = HashMap::new();
     
     for group in groups_to_check {
-        for table in &group.tables {
-            if is_feasible(model, group, table, required_dimensions, required_measures) {
+        for dataset in &group.datasets {
+            if is_feasible(model, group, dataset, required_dimensions, required_measures) {
                 feasible_by_group
                     .entry(&group.name)
                     .or_default()
-                    .push(SelectedTable { group, table });
+                    .push(SelectedDataset { group, dataset });
             }
         }
     }
     
     if feasible_by_group.is_empty() {
         let missing = find_missing_requirements(schema, model, required_dimensions, required_measures);
-        return Err(SelectError::NoFeasibleTable {
+        return Err(SelectError::NoFeasibleDataset {
             model: model.name.clone(),
             reason: missing,
         });
     }
     
-    // Check if multiple tableGroups can serve the query
+    // Check if multiple datasetGroups can serve the query
     if feasible_by_group.len() > 1 {
         let group_names: Vec<String> = feasible_by_group.keys().map(|s| s.to_string()).collect();
-        return Err(SelectError::AmbiguousTableGroup {
+        return Err(SelectError::AmbiguousDatasetGroup {
             model: model.name.clone(),
-            table_groups: group_names,
+            dataset_groups: group_names,
         });
     }
     
-    // Exactly one tableGroup - apply aggregate awareness within it
+    // Exactly one datasetGroup - apply aggregate awareness within it
     let (_, feasible) = feasible_by_group.into_iter().next().unwrap();
     
-    // Select the best table (fewest dimensions = likely more aggregated = smaller)
-    // For now, return single best. Future: return multiple for partitioned tables.
+    // Select the best dataset (fewest dimensions = likely more aggregated = smaller)
+    // For now, return single best. Future: return multiple for partitioned datasets.
     let best = feasible
         .into_iter()
-        .min_by_key(|st| st.table.attribute_count())
+        .min_by_key(|st| st.dataset.attribute_count())
         .unwrap();
     
     Ok(vec![best])
 }
 
-/// Select multiple tables for a JOIN when no single table has all measures
+/// Select multiple datasets for a JOIN when no single dataset has all measures
 /// 
 /// This is used when:
-/// 1. Query requires measures that exist in different tables within the same tableGroup
-/// 2. All tables share the required common dimensions (JOIN keys)
+/// 1. Query requires measures that exist in different datasets within the same datasetGroup
+/// 2. All datasets share the required common dimensions (JOIN keys)
 /// 
-/// Uses "smallest table first" strategy: measures are assigned to the smallest
-/// (most aggregated) table that has them. This minimizes data scanned.
+/// Uses "smallest dataset first" strategy: measures are assigned to the smallest
+/// (most aggregated) dataset that has them. This minimizes data scanned.
 /// 
 /// # Arguments
 /// * `schema` - The schema containing dimension definitions
-/// * `model` - The model to select tables from
+/// * `model` - The model to select datasets from
 /// * `required_dimensions` - Dimension.attribute paths needed for JOIN keys
-/// * `required_measures` - Measure names needed (may span multiple tables)
+/// * `required_measures` - Measure names needed (may span multiple datasets)
 /// 
 /// # Returns
-/// A `MultiTableSelection` with tables and their assigned measures, or an error
-pub fn select_tables_for_join<'a>(
+/// A `MultiDatasetSelection` with datasets and their assigned measures, or an error
+pub fn select_datasets_for_join<'a>(
     _schema: &'a Schema,
     model: &'a SemanticModel,
     required_dimensions: &[String],
     required_measures: &[String],
-) -> Result<MultiTableSelection<'a>, SelectError> {
-    if model.table_groups.is_empty() {
-        return Err(SelectError::NoTablesInModel {
+) -> Result<MultiDatasetSelection<'a>, SelectError> {
+    if model.dataset_groups.is_empty() {
+        return Err(SelectError::NoDatasetsInModel {
             model: model.name.clone(),
         });
     }
     
-    // Extract tableGroup qualifiers from three-part dimension paths
+    // Extract datasetGroup qualifiers from three-part dimension paths
     let qualified_groups: HashSet<&str> = required_dimensions.iter()
         .filter_map(|path| {
             let parts: Vec<&str> = path.split('.').collect();
@@ -175,100 +175,100 @@ pub fn select_tables_for_join<'a>(
         })
         .collect();
     
-    // Determine which tableGroup to use
+    // Determine which datasetGroup to use
     // If qualified, use that specific one; otherwise find the one with all measures
     let target_group = if qualified_groups.len() == 1 {
         let group_name = *qualified_groups.iter().next().unwrap();
-        model.table_groups.iter()
+        model.dataset_groups.iter()
             .find(|g| g.name == group_name)
-            .ok_or_else(|| SelectError::NoFeasibleTable {
+            .ok_or_else(|| SelectError::NoFeasibleDataset {
                 model: model.name.clone(),
-                reason: format!("TableGroup '{}' not found", group_name),
+                reason: format!("DatasetGroup '{}' not found", group_name),
             })?
     } else if qualified_groups.len() > 1 {
-        return Err(SelectError::AmbiguousTableGroup {
+        return Err(SelectError::AmbiguousDatasetGroup {
             model: model.name.clone(),
-            table_groups: qualified_groups.iter().map(|s| s.to_string()).collect(),
+            dataset_groups: qualified_groups.iter().map(|s| s.to_string()).collect(),
         });
     } else {
-        // Find tableGroup that has all required measures (across any of its tables)
-        model.table_groups.iter()
+        // Find datasetGroup that has all required measures (across any of its datasets)
+        model.dataset_groups.iter()
             .find(|g| {
                 required_measures.iter().all(|m| {
-                    g.get_measure(m).is_some() && g.tables.iter().any(|t| t.has_measure(m))
+                    g.get_measure(m).is_some() && g.datasets.iter().any(|t| t.has_measure(m))
                 })
             })
-            .ok_or_else(|| SelectError::NoFeasibleTable {
+            .ok_or_else(|| SelectError::NoFeasibleDataset {
                 model: model.name.clone(),
-                reason: "No tableGroup has all required measures".to_string(),
+                reason: "No datasetGroup has all required measures".to_string(),
             })?
     };
     
-    // Find all tables that have the required dimensions (can participate in JOIN)
-    let dimension_feasible: Vec<&GroupTable> = target_group.tables.iter()
-        .filter(|table| has_all_dimensions(model, target_group, table, required_dimensions))
+    // Find all datasets that have the required dimensions (can participate in JOIN)
+    let dimension_feasible: Vec<&GroupDataset> = target_group.datasets.iter()
+        .filter(|dataset| has_all_dimensions(model, target_group, dataset, required_dimensions))
         .collect();
     
     if dimension_feasible.is_empty() {
-        return Err(SelectError::NoFeasibleTable {
+        return Err(SelectError::NoFeasibleDataset {
             model: model.name.clone(),
-            reason: "No table has all required dimensions".to_string(),
+            reason: "No dataset has all required dimensions".to_string(),
         });
     }
     
-    // Sort tables by attribute count (smallest/most aggregated first)
-    let mut sorted_tables: Vec<&GroupTable> = dimension_feasible;
-    sorted_tables.sort_by_key(|t| t.attribute_count());
+    // Sort datasets by attribute count (smallest/most aggregated first)
+    let mut sorted_datasets: Vec<&GroupDataset> = dimension_feasible;
+    sorted_datasets.sort_by_key(|t| t.attribute_count());
     
-    // Assign measures to tables using "first smallest wins" strategy
-    let mut measure_assignments: HashMap<String, &GroupTable> = HashMap::new();
-    let mut tables_used: HashSet<String> = HashSet::new();
+    // Assign measures to datasets using "first smallest wins" strategy
+    let mut measure_assignments: HashMap<String, &GroupDataset> = HashMap::new();
+    let mut datasets_used: HashSet<String> = HashSet::new();
     
     for measure_name in required_measures {
-        // Find the smallest table that has this measure
-        if let Some(table) = sorted_tables.iter()
+        // Find the smallest dataset that has this measure
+        if let Some(dataset) = sorted_datasets.iter()
             .find(|t| t.has_measure(measure_name))
         {
-            measure_assignments.insert(measure_name.clone(), *table);
-            tables_used.insert(table.table.clone());
+            measure_assignments.insert(measure_name.clone(), *dataset);
+            datasets_used.insert(dataset.dataset.clone());
         } else {
-            return Err(SelectError::NoFeasibleTable {
+            return Err(SelectError::NoFeasibleDataset {
                 model: model.name.clone(),
-                reason: format!("No table has measure '{}'", measure_name),
+                reason: format!("No dataset has measure '{}'", measure_name),
             });
         }
     }
     
-    // Build the result: group tables by table, preserving smallest-first order
-    let mut tables_with_measures: Vec<TableWithMeasures> = Vec::new();
+    // Build the result: group datasets by dataset, preserving smallest-first order
+    let mut datasets_with_measures: Vec<DatasetWithMeasures> = Vec::new();
     
-    for table in &sorted_tables {
-        if tables_used.contains(&table.table) {
+    for dataset in &sorted_datasets {
+        if datasets_used.contains(&dataset.dataset) {
             let measures: Vec<String> = measure_assignments.iter()
-                .filter(|(_, t)| t.table == table.table)
+                .filter(|(_, t)| t.dataset == dataset.dataset)
                 .map(|(m, _)| m.clone())
                 .collect();
             
             if !measures.is_empty() {
-                tables_with_measures.push(TableWithMeasures {
-                    table,
+                datasets_with_measures.push(DatasetWithMeasures {
+                    dataset,
                     measures,
                 });
             }
         }
     }
     
-    Ok(MultiTableSelection {
+    Ok(MultiDatasetSelection {
         group: target_group,
-        tables: tables_with_measures,
+        datasets: datasets_with_measures,
     })
 }
 
-/// Check if a table has all required dimensions (for JOIN participation)
+/// Check if a dataset has all required dimensions (for JOIN participation)
 fn has_all_dimensions(
     model: &SemanticModel,
-    group: &TableGroup,
-    table: &GroupTable,
+    group: &DatasetGroup,
+    dataset: &GroupDataset,
     required_dimensions: &[String],
 ) -> bool {
     for dim_attr in required_dimensions {
@@ -279,18 +279,18 @@ fn has_all_dimensions(
         
         let parts: Vec<&str> = dim_attr.split('.').collect();
         if parts.len() == 3 {
-            // Three-part: tableGroup.dimension.attribute
+            // Three-part: datasetGroup.dimension.attribute
             let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
             if tg_qualifier != group.name {
-                continue; // Different tableGroup, not required from this group
+                continue; // Different datasetGroup, not required from this group
             }
             let two_part = format!("{}.{}", dim_name, attr_name);
-            if !table_has_attribute(model, group, table, &two_part) {
+            if !dataset_has_attribute(model, group, dataset, &two_part) {
                 return false;
             }
         } else if parts.len() == 2 {
             // Two-part: dimension.attribute
-            if !table_has_attribute(model, group, table, dim_attr) {
+            if !dataset_has_attribute(model, group, dataset, dim_attr) {
                 return false;
             }
         }
@@ -298,52 +298,52 @@ fn has_all_dimensions(
     true
 }
 
-/// Check if a table can serve a query with the given requirements
+/// Check if a dataset can serve a query with the given requirements
 fn is_feasible(
     model: &SemanticModel,
-    group: &TableGroup,
-    table: &GroupTable,
+    group: &DatasetGroup,
+    dataset: &GroupDataset,
     required_dimensions: &[String],
     required_measures: &[String],
 ) -> bool {
     // Check all required dimension.attribute paths exist
     for dim_attr in required_dimensions {
-        // Skip virtual _table dimension - it's available on all tables
-        // and shouldn't affect table selection
+        // Skip virtual _table dimension - it's available on all datasets
+        // and shouldn't affect dataset selection
         if dim_attr.starts_with("_table.") {
             continue;
         }
         
-        // Handle tableGroup-qualified paths (e.g., "adwords.dates.year")
+        // Handle datasetGroup-qualified paths (e.g., "adwords.dates.year")
         let parts: Vec<&str> = dim_attr.split('.').collect();
         if parts.len() == 3 {
             let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
-            // If this dimension is qualified for a DIFFERENT tableGroup, skip it
+            // If this dimension is qualified for a DIFFERENT datasetGroup, skip it
             // (it's not required from this group)
             if tg_qualifier != group.name {
                 continue;
             }
-            // Check if this table has the dimension.attribute
+            // Check if this dataset has the dimension.attribute
             let two_part = format!("{}.{}", dim_name, attr_name);
-            if !table_has_attribute(model, group, table, &two_part) {
+            if !dataset_has_attribute(model, group, dataset, &two_part) {
                 return false;
             }
         } else {
             // Two-part path: check normally
-            if !table_has_attribute(model, group, table, dim_attr) {
+            if !dataset_has_attribute(model, group, dataset, dim_attr) {
                 return false;
             }
         }
     }
     
-    // Check all required measures exist in the group and are available on this table
+    // Check all required measures exist in the group and are available on this dataset
     for measure_name in required_measures {
         // Measure must be defined in the group
         if group.get_measure(measure_name).is_none() {
             return false;
         }
-        // Table must support this measure
-        if !table.has_measure(measure_name) {
+        // Dataset must support this measure
+        if !dataset.has_measure(measure_name) {
             return false;
         }
     }
@@ -351,11 +351,11 @@ fn is_feasible(
     true
 }
 
-/// Check if a table has access to a dimension.attribute path
-fn table_has_attribute(
+/// Check if a dataset has access to a dimension.attribute path
+fn dataset_has_attribute(
     model: &SemanticModel,
-    group: &TableGroup,
-    table: &GroupTable,
+    group: &DatasetGroup,
+    dataset: &GroupDataset,
     dim_attr_path: &str,
 ) -> bool {
     let parts: Vec<&str> = dim_attr_path.split('.').collect();
@@ -364,13 +364,13 @@ fn table_has_attribute(
     }
     let (dim_name, attr_name) = (parts[0], parts[1]);
     
-    // Check if table has this dimension
-    let Some(table_attrs) = table.get_dimension_attributes(dim_name) else {
+    // Check if dataset has this dimension
+    let Some(dataset_attrs) = dataset.get_dimension_attributes(dim_name) else {
         return false;
     };
     
-    // Check if the attribute is in the table's list
-    if !table_attrs.iter().any(|a| a == attr_name) {
+    // Check if the attribute is in the dataset's list
+    if !dataset_attrs.iter().any(|a| a == attr_name) {
         return false;
     }
     
@@ -408,45 +408,45 @@ fn find_missing_requirements(
             continue;
         }
         
-        // Handle tableGroup-qualified paths (e.g., "adwords.dates.year")
+        // Handle datasetGroup-qualified paths (e.g., "adwords.dates.year")
         let parts: Vec<&str> = dim_attr.split('.').collect();
         let available_in_any = if parts.len() == 3 {
             let (tg_qualifier, dim_name, attr_name) = (parts[0], parts[1], parts[2]);
             let two_part = format!("{}.{}", dim_name, attr_name);
-            // Only check the specified tableGroup
-            model.table_groups.iter()
+            // Only check the specified datasetGroup
+            model.dataset_groups.iter()
                 .filter(|group| group.name == tg_qualifier)
                 .any(|group| {
-                    group.tables.iter().any(|table| {
-                        table_has_attribute(model, group, table, &two_part)
+                    group.datasets.iter().any(|dataset| {
+                        dataset_has_attribute(model, group, dataset, &two_part)
                     })
                 })
         } else {
-            // Two-part path: check all tableGroups
-            model.table_groups.iter().any(|group| {
-                group.tables.iter().any(|table| {
-                    table_has_attribute(model, group, table, dim_attr)
+            // Two-part path: check all datasetGroups
+            model.dataset_groups.iter().any(|group| {
+                group.datasets.iter().any(|dataset| {
+                    dataset_has_attribute(model, group, dataset, dim_attr)
                 })
             })
         };
         
         if !available_in_any {
-            missing.push(format!("dimension '{}' not available in any table", dim_attr));
+            missing.push(format!("dimension '{}' not available in any dataset", dim_attr));
         }
     }
     
     for measure_name in required_measures {
-        let available_in_any = model.table_groups.iter().any(|group| {
+        let available_in_any = model.dataset_groups.iter().any(|group| {
             group.get_measure(measure_name).is_some() &&
-            group.tables.iter().any(|table| table.has_measure(measure_name))
+            group.datasets.iter().any(|dataset| dataset.has_measure(measure_name))
         });
         if !available_in_any {
-            missing.push(format!("measure '{}' not available in any table", measure_name));
+            missing.push(format!("measure '{}' not available in any dataset", measure_name));
         }
     }
     
     if missing.is_empty() {
-        "no single table has all required dimensions and measures".to_string()
+        "no single dataset has all required dimensions and measures".to_string()
     } else {
         missing.join("; ")
     }
@@ -465,18 +465,18 @@ mod tests {
     }
     
     #[test]
-    fn test_select_single_table() {
+    fn test_select_single_dataset() {
         let schema = load_test_schema();
         let model = schema.get_model("steelwheels").unwrap();
         
-        let tables = select_tables(
+        let datasets = select_datasets(
             &schema,
             model,
             &["dates.year".to_string()],
             &["sales".to_string()],
         ).unwrap();
         
-        assert_eq!(tables.len(), 1);
+        assert_eq!(datasets.len(), 1);
     }
     
     #[test]
@@ -484,7 +484,7 @@ mod tests {
         let schema = load_test_schema();
         let model = schema.get_model("steelwheels").unwrap();
         
-        let result = select_tables(
+        let result = select_datasets(
             &schema,
             model,
             &["nonexistent.attr".to_string()],
@@ -499,7 +499,7 @@ mod tests {
         let schema = load_test_schema();
         let model = schema.get_model("steelwheels").unwrap();
         
-        let result = select_tables(
+        let result = select_datasets(
             &schema,
             model,
             &["dates.year".to_string()],
@@ -510,58 +510,58 @@ mod tests {
     }
     
     #[test]
-    fn test_ambiguous_measure_across_tablegroups() {
-        // marketing.yaml has both adwords and facebookads tableGroups
+    fn test_ambiguous_measure_across_datasetgroups() {
+        // marketing.yaml has both adwords and facebookads datasetGroups
         // Both have "clicks" and "impressions" measures
         let schema = load_marketing_schema();
         let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
         
-        // Query for "clicks" which exists in both tableGroups
-        let result = select_tables(
+        // Query for "clicks" which exists in both datasetGroups
+        let result = select_datasets(
             &schema,
             model,
             &["dates.date".to_string()],
             &["clicks".to_string()],
         );
         
-        // Should error because multiple tableGroups can serve this query
+        // Should error because multiple datasetGroups can serve this query
         assert!(result.is_err());
         match result.unwrap_err() {
-            SelectError::AmbiguousTableGroup { table_groups, .. } => {
-                assert_eq!(table_groups.len(), 2);
-                assert!(table_groups.contains(&"adwords".to_string()));
-                assert!(table_groups.contains(&"facebookads".to_string()));
+            SelectError::AmbiguousDatasetGroup { dataset_groups, .. } => {
+                assert_eq!(dataset_groups.len(), 2);
+                assert!(dataset_groups.contains(&"adwords".to_string()));
+                assert!(dataset_groups.contains(&"facebookads".to_string()));
             }
-            other => panic!("Expected AmbiguousTableGroup error, got: {:?}", other),
+            other => panic!("Expected AmbiguousDatasetGroup error, got: {:?}", other),
         }
     }
     
     #[test]
-    fn test_unique_measure_selects_correct_tablegroup() {
+    fn test_unique_measure_selects_correct_datasetgroup() {
         // marketing.yaml: "cost" only exists in adwords, "spend" only in facebookads
         let schema = load_marketing_schema();
         let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
         
         // Query for "cost" which only exists in adwords
-        let tables = select_tables(
+        let datasets = select_datasets(
             &schema,
             model,
             &["dates.date".to_string()],
             &["cost".to_string()],
         ).unwrap();
         
-        assert_eq!(tables.len(), 1);
-        assert_eq!(tables[0].group.name, "adwords");
+        assert_eq!(datasets.len(), 1);
+        assert_eq!(datasets[0].group.name, "adwords");
         
         // Query for "spend" which only exists in facebookads
-        let tables = select_tables(
+        let datasets = select_datasets(
             &schema,
             model,
             &["dates.date".to_string()],
             &["spend".to_string()],
         ).unwrap();
         
-        assert_eq!(tables.len(), 1);
-        assert_eq!(tables[0].group.name, "facebookads");
+        assert_eq!(datasets.len(), 1);
+        assert_eq!(datasets[0].group.name, "facebookads");
     }
 }

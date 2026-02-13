@@ -34,15 +34,15 @@ mod tests {
         assert_eq!(schema.semantic_models.len(), 1);
         let model = schema.get_model("steelwheels").unwrap();
         
-        // Check table groups
-        assert_eq!(model.table_groups.len(), 1);
-        let group = model.first_table_group().unwrap();
+        // Check dataset groups
+        assert_eq!(model.dataset_groups.len(), 1);
+        let group = model.first_dataset_group().unwrap();
         assert_eq!(group.name, "orders");
         
-        // Check tables within group
-        assert_eq!(group.tables.len(), 1);
-        let table = group.get_table("steelwheels.orderfact").unwrap();
-        assert_eq!(table.table, "steelwheels.orderfact");
+        // Check datasets within group
+        assert_eq!(group.datasets.len(), 1);
+        let dataset = group.get_dataset("steelwheels.orderfact").unwrap();
+        assert_eq!(dataset.dataset, "steelwheels.orderfact");
         
         // Check dimensions (now on model) - includes _table virtual dimension
         assert_eq!(model.dimensions.len(), 3);
@@ -81,21 +81,21 @@ mod tests {
         assert!(matches!(&metric.expr, MetricExpr::Structured(_)));
         
         // Columns are now optional - join detection is based on attribute inclusion
-        // The table should NOT have explicit columns defined (they're inferred)
-        assert!(table.columns.is_none());
+        // The dataset should NOT have explicit columns defined (they're inferred)
+        assert!(dataset.columns.is_none());
         
-        // Check table's dimension and measure references
-        assert!(table.has_dimension("dates"));
-        assert!(table.has_dimension("markets"));
-        assert!(table.has_dimension("flags"));
-        assert!(table.has_measure("sales"));
-        assert!(table.has_measure("quantity"));
+        // Check dataset's dimension and measure references
+        assert!(dataset.has_dimension("dates"));
+        assert!(dataset.has_dimension("markets"));
+        assert!(dataset.has_dimension("flags"));
+        assert!(dataset.has_measure("sales"));
+        assert!(dataset.has_measure("quantity"));
         
         // Check attribute-based join detection:
         // - dates: [date, year, quarter, month] includes 'date' (key attr) → needs join
         // - markets: [customer, ...] includes 'customer' (key attr) → needs join
-        assert!(table.has_dimension_attribute("dates", "date"));  // Key attr present → JOIN
-        assert!(table.has_dimension_attribute("markets", "customer"));  // Key attr present → JOIN
+        assert!(dataset.has_dimension_attribute("dates", "date"));  // Key attr present → JOIN
+        assert!(dataset.has_dimension_attribute("markets", "customer"));  // Key attr present → JOIN
     }
 
     #[test]
@@ -105,32 +105,32 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_marketing_cross_table_group_metric() {
+    fn test_parse_marketing_cross_dataset_group_metric() {
         let schema = parse_file("test_data/marketing.yaml").unwrap();
         
         // Check models
         assert_eq!(schema.semantic_models.len(), 1);
         let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
         
-        // Check table groups (should have adwords and facebookads)
-        assert_eq!(model.table_groups.len(), 2);
+        // Check dataset groups (should have adwords and facebookads)
+        assert_eq!(model.dataset_groups.len(), 2);
         
         // Check adwords group
-        let adwords = model.get_table_group("adwords").unwrap();
+        let adwords = model.get_dataset_group("adwords").unwrap();
         assert!(adwords.get_measure("cost").is_some());
         
         // Check facebookads group
-        let facebookads = model.get_table_group("facebookads").unwrap();
+        let facebookads = model.get_dataset_group("facebookads").unwrap();
         assert!(facebookads.get_measure("spend").is_some());
         
-        // Check cross-tableGroup metric
+        // Check cross-datasetGroup metric
         let fun_cost = model.get_metric("fun-cost").unwrap();
         
-        // Verify it's detected as a cross-tableGroup metric
-        assert!(fun_cost.is_cross_table_group());
+        // Verify it's detected as a cross-datasetGroup metric
+        assert!(fun_cost.is_cross_dataset_group());
         
-        // Verify tableGroup-to-measure mappings
-        let mappings = fun_cost.table_group_measures();
+        // Verify datasetGroup-to-measure mappings
+        let mappings = fun_cost.dataset_group_measures();
         assert_eq!(mappings.len(), 2);
         assert!(mappings.iter().any(|(tg, m)| tg == "adwords" && m == "cost"));
         assert!(mappings.iter().any(|(tg, m)| tg == "facebookads" && m == "spend"));
