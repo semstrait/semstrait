@@ -1,1 +1,34 @@
-/target
+# Rust build artifacts
+/target/
+/Cargo.lock
+
+# IDE and editor files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Demo and generated files
+.semstrait_demo/
+*.log
+*.tmp
+*.parquet
+*.csv
+*.json
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
