@@ -20,7 +20,7 @@ fn test_simple_metric_reference() {
     };
 
     let plan = run_pipeline(&schema, &request).expect("Pipeline should succeed");
-
+   
     // Plan should compile successfully
     assert!(!plan.relations.is_empty());
 }

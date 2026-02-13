@@ -1502,7 +1502,7 @@ fn project_branch_for_union(
                 let semantic_name = format!("{}.{}", dim_name, attr_name);
                 projections.push(ProjectExpr {
                     expr: Expr::Column(Column::unqualified(&semantic_name)),
-                    alias: attr_path.clone(),
+                    alias: attr_path.to_lowercase(),
                 });
             } else {
                 // Different tableGroup - output typed NULL
@@ -1512,7 +1512,7 @@ fn project_branch_for_union(
                     .unwrap_or_else(|| "string".to_string());
                 projections.push(ProjectExpr {
                     expr: Expr::Literal(Literal::Null(data_type)),
-                    alias: attr_path.clone(),
+                    alias: attr_path.to_lowercase(),
                 });
             }
         } else {
@@ -1520,7 +1520,7 @@ fn project_branch_for_union(
             let semantic_name = format!("{}.{}", dim_name, attr_name);
             projections.push(ProjectExpr {
                 expr: Expr::Column(Column::unqualified(&semantic_name)),
-                alias: attr_path.clone(),
+                alias: attr_path.to_lowercase(),
             });
         }
     }
@@ -2141,7 +2141,7 @@ fn build_union_branch(
         
         projections.push(ProjectExpr {
             expr,
-            alias: attr_path.clone(),
+            alias: attr_path.to_lowercase(),
         });
     }
     
@@ -2503,7 +2503,7 @@ fn build_multi_metric_branch(
         
         projections.push(ProjectExpr {
             expr,
-            alias: attr_path.clone(),
+            alias: attr_path.to_lowercase(),
         });
     }
     
@@ -2736,7 +2736,7 @@ fn build_multi_table_metric_branch(
         
         projections.push(ProjectExpr {
             expr,
-            alias: attr_path.clone(),
+            alias: attr_path.to_lowercase(),
         });
     }
     
@@ -3176,7 +3176,7 @@ fn build_cross_table_group_branch(
         
         projections.push(ProjectExpr {
             expr,
-            alias: attr_path.clone(),
+            alias: attr_path.to_lowercase(),
         });
     }
     
@@ -3348,7 +3348,7 @@ fn plan_same_tablegroup_join(
                 };
                 projections.push(ProjectExpr {
                     expr,
-                    alias: attr_path.clone(),
+                    alias: attr_path.to_lowercase(),
                 });
             }
         }

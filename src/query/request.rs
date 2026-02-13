@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Filter for analytics queries
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct DataFilter {
     pub field: String,
     /// Optional operator, defaults to "in" for array values or "eq" for single values
@@ -14,7 +14,7 @@ pub struct DataFilter {
 /// 
 /// Queries are expressed in terms of dimensions (for grouping) and metrics (for values).
 /// Metrics are the public API - measures are internal implementation details.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone, Serialize)]
 pub struct QueryRequest {
     #[serde(default)]
     pub model: String,
