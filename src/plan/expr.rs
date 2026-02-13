@@ -1,6 +1,6 @@
 //! Expression types for the logical plan
 
-use crate::model::Aggregation;
+use crate::semantic_model::Aggregation;
 
 /// A column reference
 #[derive(Debug, Clone, PartialEq)]

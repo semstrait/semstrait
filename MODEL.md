@@ -56,7 +56,7 @@ This design ensures:
 ## High-Level Structure
 
 ```yaml
-models:
+semantic_models:
   - name: <model_name>
     namespace: <namespace>          # Optional namespace/organization identifier
     dimensions: [...]               # Model-level dimensions (queryable with 2-part paths)
@@ -172,7 +172,7 @@ A `tableGroup` defines:
 ## Complete Example
 
 ```yaml
-models:
+semantic_models:
   - name: steelwheels
     namespace: "a908ff91-c951-4d65-b054-d246d2e8cae1"  # tenant id
     
@@ -480,7 +480,7 @@ Both filters match query → UNION both tables
 Metrics can span multiple tableGroups using `tableGroup.name` conditions. This enables unified metrics across data sources with different measure names:
 
 ```yaml
-models:
+semantic_models:
   - name: marketing
     tableGroups:
       - name: google_ads
@@ -562,7 +562,7 @@ No `join` = degenerate dimension. Attributes are columns on the fact table itsel
 Models can have optional metadata:
 
 ```yaml
-models:
+semantic_models:
   - name: sales_analytics
     namespace: "com.example.analytics"  # Organization/project identifier
 ```
@@ -700,7 +700,7 @@ Unlike regular dimensions, virtual dimensions have no physical table - they are 
 The `_table` dimension must be explicitly declared in the model's `dimensions` list:
 
 ```yaml
-models:
+semantic_models:
   - name: steelwheels
     namespace: "tenant-123"
     

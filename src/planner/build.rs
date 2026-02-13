@@ -1,7 +1,7 @@
 //! Plan building logic
 
 use std::collections::{HashMap, HashSet};
-use crate::model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupTable, Dimension, TableGroupDimension, TableGroup, Schema, Model, Metric, Aggregation, Measure};
+use crate::semantic_model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupTable, Dimension, TableGroupDimension, TableGroup, Schema, SemanticModel, Metric, Aggregation, Measure};
 use crate::plan::{
     Aggregate, AggregateExpr, Column, Expr, Filter, Join, JoinType, 
     Literal, PlanNode, Scan, BinaryOperator, Project, ProjectExpr, Sort, SortKey, SortDirection, Union,
@@ -207,7 +207,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
 /// A `PlanNode` that can be emitted to Substrait
 pub fn plan_semantic_query(
     schema: &Schema,
-    model: &Model,
+    model: &SemanticModel,
     request: &QueryRequest,
 ) -> Result<PlanNode, PlanError> {
     // Build dimension list from rows + columns
@@ -940,7 +940,7 @@ fn add_attribute_column_with_type(
 /// # Returns
 /// An aggregated PlanNode. Does NOT include final projection - that's the caller's job.
 fn build_tablegroup_branch(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     dimension_attrs: &[String],
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
@@ -996,7 +996,7 @@ fn build_tablegroup_branch(
 /// * `output_prefix` - Optional prefix to add to output column names (e.g., "t0" -> "t0.dates.date")
 ///                     Used when this sub-query will be JOINed with others
 fn build_single_table_aggregate(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     table: &GroupTable,
     physical_dims: &[(String, String)],  // (dim_name, attr_name)
@@ -1171,7 +1171,7 @@ fn build_single_table_aggregate(
 
 /// Build an aggregated plan by JOINing multiple tables
 fn build_multi_table_aggregate(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     physical_dims: &[(String, String)],  // (dim_name, attr_name)
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
@@ -1358,7 +1358,7 @@ fn build_multi_table_aggregate(
 /// * `dimension_attrs` - Dimension paths
 /// * `metric_tg_measures` - For each metric: (metric_name, [(tg_name, measure_name)])
 fn plan_cross_tablegroup_union(
-    model: &Model,
+    model: &SemanticModel,
     dimension_attrs: &[String],
     metric_tg_measures: &[(String, Vec<(String, String)>)],  // [(metric_name, [(tg_name, measure_name)])]
 ) -> Result<PlanNode, PlanError> {
@@ -1456,7 +1456,7 @@ fn plan_cross_tablegroup_union(
 
 /// Project a tableGroup branch to the common UNION schema
 fn project_branch_for_union(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     input: PlanNode,
     dimension_attrs: &[String],
@@ -1561,7 +1561,7 @@ fn project_branch_for_union(
 /// NO metrics, we generate a VirtualTable (VALUES clause) instead of scanning tables.
 fn plan_conformed_query(
     schema: &Schema,
-    model: &Model,
+    model: &SemanticModel,
     request: &QueryRequest,
     dimension_attrs: &[String],
 ) -> Result<PlanNode, PlanError> {
@@ -1701,7 +1701,7 @@ fn plan_conformed_query(
 /// - Multi-TG qualified: Each branch projects NULLs for other TG's qualified dimensions
 fn plan_multi_tablegroup_query(
     _schema: &Schema,
-    model: &Model,
+    model: &SemanticModel,
     request: &QueryRequest,
     dimension_attrs: &[String],
     qualified_groups: &HashSet<&str>,
@@ -1762,7 +1762,7 @@ fn plan_multi_tablegroup_query(
 /// target the same tableGroup.
 fn plan_single_tablegroup_query(
     schema: &Schema,
-    model: &Model,
+    model: &SemanticModel,
     request: &QueryRequest,
     dimension_attrs: &[String],
     target_group: &str,
@@ -1849,7 +1849,7 @@ fn plan_single_tablegroup_query(
 
 /// Find a feasible table in a tableGroup for qualified dimension queries.
 fn find_feasible_table_for_qualified<'a>(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &'a TableGroup,
     dimension_attrs: &[String],
     metric_names: &[String],
@@ -1932,7 +1932,7 @@ fn find_feasible_table_for_qualified<'a>(
 /// - Projects virtual dimension values as literals
 /// - Optionally aggregates metrics
 fn build_union_branch(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     table: &GroupTable,
     dimension_attrs: &[String],
@@ -2165,7 +2165,7 @@ fn build_union_branch(
 /// and no metrics, we generate a VirtualTable with one row per tableGroup containing
 /// the literal metadata values.
 fn plan_virtual_only_query(
-    model: &Model,
+    model: &SemanticModel,
     virtual_dims: &[String],
 ) -> Result<PlanNode, PlanError> {
     // Parse virtual dimension attributes
@@ -2213,7 +2213,7 @@ fn plan_virtual_only_query(
 
 /// Get the literal value for a virtual dimension attribute
 fn get_virtual_attribute_value(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     dim_name: &str,
     attr_name: &str,
@@ -2262,7 +2262,7 @@ pub struct CrossTableGroupBranch<'a> {
 /// * `dimension_attrs` - The dimension.attribute paths to GROUP BY
 pub fn plan_multi_cross_table_group_query<'a>(
     _schema: &'a Schema,
-    model: &'a Model,
+    model: &'a SemanticModel,
     metrics: &[&'a Metric],
     dimension_attrs: &[String],
 ) -> Result<PlanNode, PlanError> {
@@ -2310,7 +2310,7 @@ pub fn plan_multi_cross_table_group_query<'a>(
 /// Kept for reference; will be removed in a future version.
 #[allow(dead_code)]
 fn build_multi_metric_branch(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     table: &GroupTable,
     measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
@@ -2540,7 +2540,7 @@ fn build_multi_metric_branch(
 /// Kept for reference; will be removed in a future version.
 #[allow(dead_code)]
 fn build_multi_table_metric_branch(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     selection: &MultiTableSelection<'_>,
     measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
@@ -2776,7 +2776,7 @@ fn build_multi_table_metric_branch(
 /// * `dimension_attrs` - The dimension.attribute paths to GROUP BY (e.g., ["dates.date"])
 pub fn plan_cross_table_group_query<'a>(
     _schema: &'a Schema,
-    model: &'a Model,
+    model: &'a SemanticModel,
     metric: &'a Metric,
     dimension_attrs: &[String],
 ) -> Result<PlanNode, PlanError> {
@@ -2896,7 +2896,7 @@ enum ParsedDimensionAttr {
 }
 
 impl ParsedDimensionAttr {
-    fn parse(attr_path: &str, model: &Model) -> Self {
+    fn parse(attr_path: &str, model: &SemanticModel) -> Self {
         let parts: Vec<&str> = attr_path.split('.').collect();
         
         match parts.len() {
@@ -2963,7 +2963,7 @@ impl ParsedDimensionAttr {
     }
     
     /// Get the data type of this dimension attribute from the model
-    fn get_data_type(&self, model: &Model) -> String {
+    fn get_data_type(&self, model: &SemanticModel) -> String {
         // For virtual dimensions, return string
         if self.is_virtual() {
             return "string".to_string();
@@ -2983,7 +2983,7 @@ impl ParsedDimensionAttr {
 
 /// Build a single branch of a cross-tableGroup query
 fn build_cross_table_group_branch(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     table: &GroupTable,
     measure: &Measure,
@@ -3215,7 +3215,7 @@ fn build_cross_table_group_branch(
 ///               └─ ...
 /// ```
 fn plan_same_tablegroup_join(
-    model: &Model,
+    model: &SemanticModel,
     selection: &MultiTableSelection<'_>,
     dimension_attrs: &[String],
     metric_names: &[String],
@@ -3406,7 +3406,7 @@ fn plan_same_tablegroup_join(
 /// 
 /// Returns: Aggregate(Scan(table)) grouped by dimensions with measures aggregated
 fn build_table_subquery(
-    model: &Model,
+    model: &SemanticModel,
     table_group: &TableGroup,
     table: &GroupTable,
     physical_dims: &[(String, String)], // (dim_name, attr_name)
@@ -3541,7 +3541,7 @@ fn get_dimension_column_name(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Schema;
+    use crate::semantic_model::Schema;
     use crate::query::QueryRequest;
     use crate::resolver::resolve_query;
     use crate::selector::{select_tables, SelectedTable};

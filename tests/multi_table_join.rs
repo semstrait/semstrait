@@ -3,7 +3,7 @@
 //! Tests the scenario where a query requires measures from multiple tables
 //! that share common dimensions, resulting in a JOIN plan.
 
-use semstrait::model::Schema;
+use semstrait::semantic_model::Schema;
 use semstrait::selector::{select_tables, select_tables_for_join};
 use semstrait::planner::plan_semantic_query;
 use semstrait::query::QueryRequest;

@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use crate::error::ParseError;
-use crate::model::Schema;
+use crate::semantic_model::Schema;
 
 /// Parse a schema from a YAML file
 pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<Schema, ParseError> {
@@ -24,14 +24,14 @@ pub fn parse_str(yaml: &str) -> Result<Schema, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{MeasureExpr, MetricExpr, ExprNode, Aggregation};
+    use crate::semantic_model::{MeasureExpr, MetricExpr, ExprNode, Aggregation};
 
     #[test]
     fn test_parse_steelwheels() {
         let schema = parse_file("test_data/steelwheels.yaml").unwrap();
         
         // Check models
-        assert_eq!(schema.models.len(), 1);
+        assert_eq!(schema.semantic_models.len(), 1);
         let model = schema.get_model("steelwheels").unwrap();
         
         // Check table groups
@@ -109,7 +109,7 @@ mod tests {
         let schema = parse_file("test_data/marketing.yaml").unwrap();
         
         // Check models
-        assert_eq!(schema.models.len(), 1);
+        assert_eq!(schema.semantic_models.len(), 1);
         let model = schema.get_model("-ObDoDFVQGxxCGa5vw_Z").unwrap();
         
         // Check table groups (should have adwords and facebookads)

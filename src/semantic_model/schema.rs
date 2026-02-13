@@ -8,18 +8,18 @@ use super::metric::Metric;
 use super::tablegroup::{TableGroup, GroupTable};
 use crate::error::ParseError;
 
-/// The root semantic schema containing models
+/// The root semantic schema containing semantic models
 #[derive(Debug, Deserialize)]
 pub struct Schema {
-    pub models: Vec<Model>,
+    pub semantic_models: Vec<SemanticModel>,
 }
 
-/// A model - the queryable business entity
+/// A semantic model - the queryable business entity
 /// 
 /// Contains one or more table groups that share dimension and measure definitions.
 /// The selector picks the optimal table based on query requirements.
 #[derive(Debug, Deserialize)]
-pub struct Model {
+pub struct SemanticModel {
     pub name: String,
     /// Namespace for the model (e.g., organization or project identifier)
     pub namespace: Option<String>,
@@ -55,9 +55,9 @@ impl Schema {
         serde_yaml::from_str(&contents).map_err(ParseError::from)
     }
 
-    /// Get a model by name
-    pub fn get_model(&self, name: &str) -> Option<&Model> {
-        self.models.iter().find(|m| m.name == name)
+    /// Get a semantic model by name
+    pub fn get_model(&self, name: &str) -> Option<&SemanticModel> {
+        self.semantic_models.iter().find(|m| m.name == name)
     }
 
     /// Get all unique table names referenced in the schema.
@@ -67,7 +67,7 @@ impl Schema {
     pub fn tables(&self) -> Vec<String> {
         let mut tables = Vec::new();
 
-        for model in &self.models {
+        for model in &self.semantic_models {
             // Fact tables from table groups
             for group in &model.table_groups {
                 for table in &group.tables {
@@ -93,7 +93,7 @@ impl Schema {
     /// 
     /// Returns references to GroupTable structs with full source configuration.
     pub fn all_tables(&self) -> Vec<&GroupTable> {
-        self.models
+        self.semantic_models
             .iter()
             .flat_map(|m| m.table_groups.iter())
             .flat_map(|g| g.tables.iter())
@@ -101,7 +101,7 @@ impl Schema {
     }
 }
 
-impl Model {
+impl SemanticModel {
     /// Get a dimension by name
     pub fn get_dimension(&self, name: &str) -> Option<&Dimension> {
         self.dimensions.iter().find(|d| d.name == name)

@@ -1,6 +1,6 @@
 //! Types for resolved query components
 
-use crate::model::{Attribute, Dimension, Measure, Metric, Model, TableGroup, TableGroupDimension, GroupTable};
+use crate::semantic_model::{Attribute, Dimension, Measure, Metric, SemanticModel, TableGroup, TableGroupDimension, GroupTable};
 
 /// A resolved attribute reference (dimension.attribute)
 /// 
@@ -154,8 +154,8 @@ pub struct ResolvedFilter<'a> {
 /// The result of resolving an analytics query against a schema
 #[derive(Debug)]
 pub struct ResolvedQuery<'a> {
-    /// The model (for metrics and model-level config)
-    pub model: &'a Model,
+    /// The semantic model (for metrics and model-level config)
+    pub model: &'a SemanticModel,
     /// The selected table group (for dimensions and measures)
     pub table_group: &'a TableGroup,
     /// The selected table (for physical table name and columns)

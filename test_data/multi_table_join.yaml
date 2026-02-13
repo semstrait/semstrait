@@ -10,7 +10,7 @@
 #
 # Query: campaign.name + clicks + cost -> requires JOIN of both tables
 
-models:
+semantic_models:
   - name: multi-table-test
     namespace: "test-namespace"
     

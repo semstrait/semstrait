@@ -6,7 +6,7 @@
 # - Query with products.category should produce a JOIN to the products dimension
 # - Multiple dimensions should produce multiple JOINs
 
-models:
+semantic_models:
   - name: sales
     dimensions:
       - name: dates

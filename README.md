@@ -59,7 +59,7 @@ let substrait = emit_plan(&plan, Some(resolved.output_names()))?;
 ## YAML Schema Example
 
 ```yaml
-models:
+semantic_models:
   - name: sales
     table: warehouse.order_fact
     columns:
@@ -198,7 +198,7 @@ dimensions:
 ┌─────────────────────────────────────────────────────────────┐
 │                        semstrait                            │
 ├─────────────────────────────────────────────────────────────┤
-│  model/     │ Schema, Model, Dimension, Measure, Metric     │
+│  semantic_model/ │ Schema, SemanticModel, Dimension, Measure, Metric │
 │  query/     │ QueryRequest, DataFilter                      │
 │  parser/    │ YAML → Schema                                 │
 │  resolver/  │ Schema + QueryRequest → ResolvedQuery         │

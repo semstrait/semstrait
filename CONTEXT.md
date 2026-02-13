@@ -26,12 +26,12 @@ The semantic model is the single source of truth: define once, use for both UX g
 ## Architecture
 
 **Noun modules** (data structures):
-- `model/` - Semantic IR: Schema, Model, Dimension, Measure, Metric (format-agnostic)
+- `semantic_model/` - Semantic IR: Schema, SemanticModel, Dimension, Measure, Metric (format-agnostic)
 - `query/` - Query request types (what the user wants to compute)
 - `plan/` - Relational algebra: PlanNode, Expr, Column (close to Substrait)
 
 **Verb modules** (transformations):
-- `parser/` - Input format → `model::Schema` (YAML built-in, extensible)
+- `parser/` - Input format → `semantic_model::Schema` (YAML built-in, extensible)
 - `selector/` - Selects optimal table from tableGroups based on query requirements
 - `resolver/` - Validates query against schema, resolves attribute references
 - `planner/` - Semantic query → relational algebra plan
@@ -39,10 +39,10 @@ The semantic model is the single source of truth: define once, use for both UX g
 
 ## Key Design Decisions
 
-- **`model/` IS the semantic IR** - all input parsers produce these types
+- **`semantic_model/` IS the semantic IR** - all input parsers produce these types
 - **`plan/` is relational algebra** - not semantic concepts, close to Substrait
 - **Type-safe enums** - `DataType`, `Aggregation` validate at parse time, not runtime
-- **Enums shared across layers** - e.g., `model::Aggregation` used directly in `plan::AggregateExpr`
+- **Enums shared across layers** - e.g., `semantic_model::Aggregation` used directly in `plan::AggregateExpr`
 - **Serde with aliases** - YAML strings like "count_distinct" deserialize to enum variants
 - **Virtual dimensions** - Dimensions with `virtual: true` have no physical table and emit constant literal values (e.g., `_table` for metadata)
 - **Model-level dimensions** - Defined at model level, queryable with two-part paths, UNION across tableGroups
@@ -58,7 +58,7 @@ expr:
   multiply: [quantity, priceeach]
 ```
 
-→ `ExprNode::Multiply(vec![...])` in `model/measure.rs`
+→ `ExprNode::Multiply(vec![...])` in `semantic_model/measure.rs`
 
 Supported: `add`, `subtract`, `multiply`, `divide`, `case` (CASE WHEN), `column`, `literal`
 

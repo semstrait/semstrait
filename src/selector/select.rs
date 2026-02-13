@@ -14,7 +14,7 @@
 //! to assign measures to the most aggregated tables.
 
 use std::collections::{HashMap, HashSet};
-use crate::model::{Model, TableGroup, GroupTable, Schema};
+use crate::semantic_model::{SemanticModel, TableGroup, GroupTable, Schema};
 use super::error::SelectError;
 
 /// Result of table selection - includes both the group and table
@@ -65,7 +65,7 @@ pub struct TableWithMeasures<'a> {
 /// for partitioned/sharded tables in the future)
 pub fn select_tables<'a>(
     schema: &'a Schema,
-    model: &'a Model,
+    model: &'a SemanticModel,
     required_dimensions: &[String],
     required_measures: &[String],
 ) -> Result<Vec<SelectedTable<'a>>, SelectError> {
@@ -157,7 +157,7 @@ pub fn select_tables<'a>(
 /// A `MultiTableSelection` with tables and their assigned measures, or an error
 pub fn select_tables_for_join<'a>(
     _schema: &'a Schema,
-    model: &'a Model,
+    model: &'a SemanticModel,
     required_dimensions: &[String],
     required_measures: &[String],
 ) -> Result<MultiTableSelection<'a>, SelectError> {
@@ -266,7 +266,7 @@ pub fn select_tables_for_join<'a>(
 
 /// Check if a table has all required dimensions (for JOIN participation)
 fn has_all_dimensions(
-    model: &Model,
+    model: &SemanticModel,
     group: &TableGroup,
     table: &GroupTable,
     required_dimensions: &[String],
@@ -300,7 +300,7 @@ fn has_all_dimensions(
 
 /// Check if a table can serve a query with the given requirements
 fn is_feasible(
-    model: &Model,
+    model: &SemanticModel,
     group: &TableGroup,
     table: &GroupTable,
     required_dimensions: &[String],
@@ -353,7 +353,7 @@ fn is_feasible(
 
 /// Check if a table has access to a dimension.attribute path
 fn table_has_attribute(
-    model: &Model,
+    model: &SemanticModel,
     group: &TableGroup,
     table: &GroupTable,
     dim_attr_path: &str,
@@ -396,7 +396,7 @@ fn table_has_attribute(
 /// Build a helpful error message about what's missing
 fn find_missing_requirements(
     _schema: &Schema,
-    model: &Model,
+    model: &SemanticModel,
     required_dimensions: &[String],
     required_measures: &[String],
 ) -> String {

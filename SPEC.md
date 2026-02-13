@@ -90,7 +90,7 @@ The top-level container representing a complete semantic model.
 ### Example
 
 ```yaml
-models:
+semantic_models:
   - name: sales_analytics
     namespace: "tenant-123"
     dimensions: []
@@ -410,7 +410,7 @@ filter:
 ## Complete Example
 
 ```yaml
-models:
+semantic_models:
   - name: marketing
     namespace: "tenant-123"
     

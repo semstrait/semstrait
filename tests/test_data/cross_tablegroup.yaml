@@ -7,7 +7,7 @@
 # - Final result should re-aggregate the unioned data
 # - Model-level dimensions (dates) can be queried with 2-part paths across tableGroups
 
-models:
+semantic_models:
   - name: marketing
     # Model-level dimensions - queryable with 2-part paths across all tableGroups
     dimensions:

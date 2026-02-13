@@ -7,7 +7,7 @@
 # - Query for dates.day + revenue → select daily_detail (most granular)
 # - Query for all dimensions → select daily_detail
 
-models:
+semantic_models:
   - name: sales_multi
     tableGroups:
       - name: sales_agg

@@ -7,7 +7,7 @@
 # - Query for dates.year should NOT join
 # - Query for customers.name should JOIN
 
-models:
+semantic_models:
   - name: orders
     dimensions:
       # Only customers is a shared dimension table

@@ -1,4 +1,4 @@
-models:
+semantic_models:
   - name: steelwheels
     namespace: "a908ff91-c951-4d65-b054-d246d2e8cae1" # tenant id
     

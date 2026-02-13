@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use crate::model::{Schema, Model, TableGroup, GroupTable, Metric, MetricExpr, MetricExprNode, MetricExprArg};
+use crate::semantic_model::{Schema, SemanticModel, TableGroup, GroupTable, Metric, MetricExpr, MetricExprNode, MetricExprArg};
 use crate::query::{DataFilter, QueryRequest};
 use crate::selector::SelectedTable;
 use super::error::ResolveError;
@@ -60,7 +60,7 @@ pub fn resolve_query<'a>(
 
 /// Resolve filters to ResolvedFilter objects
 fn resolve_filters<'a>(
-    model: &'a Model,
+    model: &'a SemanticModel,
     group: &'a TableGroup,
     table: &'a GroupTable,
     filters: Option<&Vec<DataFilter>>,
@@ -88,7 +88,7 @@ fn resolve_filters<'a>(
 
 /// Resolve a list of "dimension.attribute" strings to AttributeRef objects
 fn resolve_attributes<'a>(
-    model: &'a Model,
+    model: &'a SemanticModel,
     group: &'a TableGroup,
     table: &'a GroupTable,
     attributes: Option<&Vec<String>>,
@@ -109,7 +109,7 @@ fn resolve_attributes<'a>(
 /// - "dimension.attribute" - resolved against the selected tableGroup
 /// - "tableGroup.dimension.attribute" - resolved against a specific tableGroup
 fn resolve_attribute<'a>(
-    model: &'a Model,
+    model: &'a SemanticModel,
     group: &'a TableGroup,
     table: &'a GroupTable,
     attr_str: &str,
@@ -134,7 +134,7 @@ fn resolve_attribute<'a>(
 
 /// Resolve a tableGroup-qualified attribute (e.g., "adwords.campaign.name")
 fn resolve_table_group_qualified_attribute<'a>(
-    model: &'a Model,
+    model: &'a SemanticModel,
     tg_name: &str,
     dim_name: &str,
     attr_name: &str,
@@ -163,7 +163,7 @@ fn resolve_table_group_qualified_attribute<'a>(
 
 /// Resolve an attribute within a specific tableGroup
 fn resolve_attribute_in_group<'a>(
-    model: &'a Model,
+    model: &'a SemanticModel,
     group: &'a TableGroup,
     table: &'a GroupTable,
     dim_name: &str,
@@ -243,7 +243,7 @@ fn resolve_attribute_in_group<'a>(
 /// - `_table.uuid` - Table UUID (e.g., from Iceberg catalog)
 /// - `_table.{key}` - Any key from table.properties
 fn resolve_meta_attribute<'a>(
-    model: &'a Model,
+    model: &'a SemanticModel,
     group: &'a TableGroup,
     table: &'a GroupTable,
     attr_name: &str,
@@ -285,7 +285,7 @@ fn resolve_meta_attribute<'a>(
 
 /// Get the actual value for a _table metadata attribute
 fn resolve_meta_value(
-    model: &Model,
+    model: &SemanticModel,
     group: &TableGroup,
     table: &GroupTable,
     attr_name: &str,
@@ -322,7 +322,7 @@ fn resolve_meta_value(
 
 /// Resolve metric names to Metric objects
 fn resolve_metrics<'a>(
-    model: &'a crate::model::Model,
+    model: &'a crate::semantic_model::SemanticModel,
     metrics: Option<&Vec<String>>,
 ) -> Result<Vec<&'a Metric>, ResolveError> {
     let Some(metric_names) = metrics else {
@@ -343,7 +343,7 @@ fn collect_metric_measures<'a>(
     group: &'a TableGroup,
     table: &'a GroupTable,
     metrics: &[&'a Metric],
-) -> Result<Vec<&'a crate::model::Measure>, ResolveError> {
+) -> Result<Vec<&'a crate::semantic_model::Measure>, ResolveError> {
     let mut measure_names: HashSet<&str> = HashSet::new();
     
     // Extract measures required by metrics

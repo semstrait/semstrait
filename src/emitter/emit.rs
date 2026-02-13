@@ -29,7 +29,7 @@ use crate::plan::{
     VirtualTable, LiteralValue,
     Expr, Column, Literal, BinaryOperator, AggregateExpr,
 };
-use crate::model::Aggregation;
+use crate::semantic_model::Aggregation;
 use super::error::EmitError;
 
 // Extension URI anchors
@@ -1090,7 +1090,7 @@ fn emit_in(expr: &Expr, values: &[Expr], ctx: &SchemaContext) -> Result<proto::E
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Schema;
+    use crate::semantic_model::Schema;
     use crate::query::QueryRequest;
     use crate::selector::select_tables;
     use crate::resolver::resolve_query;
@@ -1287,7 +1287,7 @@ mod tests {
     #[test]
     fn test_emit_project_with_literals() {
         use crate::plan::{Aggregate, AggregateExpr, Project, ProjectExpr, Literal};
-        use crate::model::Aggregation;
+        use crate::semantic_model::Aggregation;
         
         // Build a plan: Scan -> Aggregate -> Project with a literal
         // Use alias "fact" so Column references match

@@ -6,7 +6,7 @@
 # - Arithmetic metric (avg_price) should generate divide expression
 # - Metric with multiple measures should include all in aggregation
 
-models:
+semantic_models:
   - name: financial
     # Virtual _table dimension for metadata
     dimensions:

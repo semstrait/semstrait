@@ -6,7 +6,7 @@
 # - All columns come from a single table scan
 # - Degenerate dimensions (no join spec) should work correctly
 
-models:
+semantic_models:
   - name: events
     # Metrics are the public query interface
     metrics:
