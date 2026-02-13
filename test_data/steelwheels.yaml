@@ -57,7 +57,7 @@ semantic_models:
             type: string
 
       # Virtual dimension for table/model metadata
-      - name: _table
+      - name: _dataset
         virtual: true
         label: Table Metadata
         description: Metadata about the table and model, emitted as constant literals
@@ -70,7 +70,7 @@ semantic_models:
             label: Model Namespace
             description: The model namespace (e.g., tenant ID)
             type: string
-          - name: tableGroup
+          - name: datasetGroup
             label: Table Group
             description: The table group name
             type: string
@@ -163,7 +163,7 @@ semantic_models:
                 type: string
           
           # Virtual dimension for metadata (no join, values from model/table config)
-          - name: _table
+          - name: _dataset
         
         # ------------------------------------------
         # MEASURES shared by all tables in group
@@ -220,5 +220,5 @@ semantic_models:
               dates: [date, year, quarter, month]
               markets: [customer, territory, country, state, city]
               flags: [is_premium, status]
-              _table: [model, namespace, tableGroup, table, uuid, sourceSystem, dataOwner, connectorType]
+              _dataset: [model, namespace, datasetGroup, dataset, uuid, sourceSystem, dataOwner, connectorType]
             measures: [quantity, sales, revenue, premium_sales]

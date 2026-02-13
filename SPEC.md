@@ -105,7 +105,7 @@ semantic_models:
 Dimensions represent business entities used for grouping and filtering. They can be:
 - **Joined dimensions**: Separate tables joined to fact tables
 - **Degenerate dimensions**: Columns directly on fact tables
-- **Virtual dimensions**: No physical table, emit literal values (e.g., `_table` metadata)
+- **Virtual dimensions**: No physical table, emit literal values (e.g., `_dataset` metadata)
 
 ### Dimension Schema
 
@@ -167,7 +167,7 @@ dimensions:
         type: i32
   
   # Virtual dimension (metadata)
-  - name: _table
+  - name: _dataset
     virtual: true
     label: Dataset Metadata
     attributes:
@@ -189,7 +189,7 @@ The location where a dimension is defined determines how it can be queried:
 |------------|-------------|---------|----------|
 | Model-level `dimensions` | Two-part | `dates.year` | UNION across all datasetGroups |
 | Inline in datasetGroup | Three-part | `adwords.campaign.name` | Single datasetGroup only |
-| Virtual (model-level) | Two-part | `_table.datasetGroup` | Literal values across all datasetGroups |
+| Virtual (model-level) | Two-part | `_dataset.datasetGroup` | Literal values across all datasetGroups |
 
 **Model-level dimensions** are shared concepts that can be queried across datasetGroups. The planner automatically UNIONs results from all datasetGroups that reference the dimension.
 
@@ -424,7 +424,7 @@ semantic_models:
           - { name: date, type: date }
           - { name: year, type: i32 }
       
-      - name: _table
+      - name: _dataset
         virtual: true
         attributes:
           - { name: datasetGroup, type: string }

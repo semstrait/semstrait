@@ -15,7 +15,7 @@ use super::error::PlanError;
 /// Determine if a table needs a join for a given dimension
 /// 
 /// New logic based on attribute inclusion:
-/// - If the tableGroup dimension has no join spec → no join (degenerate dimension)
+/// - If the datasetGroup dimension has no join spec → no join (degenerate dimension)
 /// - If the table's attribute list includes the "key attribute" → needs join
 /// - If the table's attribute list excludes the key attribute → denormalized, no join
 /// 
@@ -191,7 +191,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     Ok(plan)
 }
 
-/// Plan a semantic query, automatically handling both single-tableGroup and cross-tableGroup cases
+/// Plan a semantic query, automatically handling both single-datasetGroup and cross-datasetGroup cases
 /// 
 /// This is the main entry point for query planning. It:
 /// 1. Analyzes the requested metrics to detect cross-tableGroup metrics
@@ -219,8 +219,8 @@ pub fn plan_semantic_query(
         dimension_attrs.extend(cols.clone());
     }
     
-    // Check if any requested metric is cross-tableGroup
-    let cross_table_metrics: Vec<&Metric> = request.metrics
+    // Check if any requested metric is cross-datasetGroup
+    let cross_dataset_metrics: Vec<&Metric> = request.metrics
         .as_ref()
         .map(|names| {
             names.iter()
@@ -240,12 +240,12 @@ pub fn plan_semantic_query(
     
     let is_conformed = model.is_conformed_query(&dimension_attrs);
     
-    if cross_table_metrics.len() == 1 {
-        // Single cross-tableGroup metric - use the proven path
-        plan_cross_dataset_group_query(schema, model, cross_table_metrics[0], &dimension_attrs)
-    } else if cross_table_metrics.len() > 1 {
+    if cross_dataset_metrics.len() == 1 {
+        // Single cross-datasetGroup metric - use the proven path
+        plan_cross_dataset_group_query(schema, model, cross_dataset_metrics[0], &dimension_attrs)
+    } else if cross_dataset_metrics.len() > 1 {
         // Multiple cross-tableGroup metrics - use multi-metric path
-        plan_multi_cross_dataset_group_query(schema, model, &cross_table_metrics, &dimension_attrs)
+        plan_multi_cross_dataset_group_query(schema, model, &cross_dataset_metrics, &dimension_attrs)
     } else if qualified_groups.len() > 1 {
         // Multi-tableGroup qualified dimensions - UNION across the specified tableGroups
         // e.g., "adwords.dates.year" + "facebookads.dates.year" → UNION with NULL projection
@@ -2218,17 +2218,17 @@ fn get_virtual_attribute_value(
     dim_name: &str,
     attr_name: &str,
 ) -> PlanLiteralValue {
-    // Currently we only support the _table virtual dimension
-    if dim_name == "_table" {
+    // Currently we only support the _dataset virtual dimension
+    if dim_name == "_dataset" {
         match attr_name {
-            "tableGroup" => PlanLiteralValue::String(dataset_group.name.clone()),
+            "datasetGroup" => PlanLiteralValue::String(dataset_group.name.clone()),
             "model" => PlanLiteralValue::String(model.name.clone()),
             "namespace" => model.namespace.as_ref()
                 .map(|ns| PlanLiteralValue::String(ns.clone()))
                 .unwrap_or(PlanLiteralValue::Null),
-            // For "table" attribute, we don't have a specific table context here
-            // In virtual-only queries, we just return the tableGroup name
-            "table" => PlanLiteralValue::Null,
+            // For "dataset" attribute, we don't have a specific dataset context here
+            // In virtual-only queries, we just return null
+            "dataset" => PlanLiteralValue::Null,
             _ => PlanLiteralValue::Null,
         }
     } else {
@@ -2236,8 +2236,8 @@ fn get_virtual_attribute_value(
     }
 }
 
-/// A branch in a cross-tableGroup query
-/// Represents one tableGroup's contribution to the union
+/// A branch in a cross-datasetGroup query
+/// Represents one datasetGroup's contribution to the union
 #[derive(Debug)]
 pub struct CrossDatasetGroupBranch<'a> {
     pub dataset_group: &'a DatasetGroup,
@@ -2771,8 +2771,8 @@ fn build_multi_table_metric_branch(
 /// 
 /// # Arguments
 /// * `schema` - The schema (unused, kept for API compatibility)
-/// * `model` - The model containing the tableGroups and dimensions
-/// * `metric` - The cross-tableGroup metric (must have tableGroup.name conditions)
+/// * `model` - The model containing the datasetGroups and dimensions
+/// * `metric` - The cross-datasetGroup metric (must have datasetGroup.name conditions)
 /// * `dimension_attrs` - The dimension.attribute paths to GROUP BY (e.g., ["dates.date"])
 pub fn plan_cross_dataset_group_query<'a>(
     _schema: &'a Schema,
@@ -3924,7 +3924,7 @@ mod tests {
             dimensions: None,
             rows: Some(vec![
                 "dates.year".to_string(),
-                "_table.tableGroup".to_string(),
+                "_dataset.datasetGroup".to_string(),
             ]),
             columns: None,
             metrics: Some(vec!["sales".to_string()]),
@@ -3940,7 +3940,7 @@ mod tests {
             PlanNode::Sort(sort) => {
                 assert_eq!(sort.sort_keys.len(), 2);
                 assert_eq!(sort.sort_keys[0].column, "dates.year");
-                assert_eq!(sort.sort_keys[1].column, "_table.tableGroup");
+                assert_eq!(sort.sort_keys[1].column, "_dataset.datasetGroup");
                 match *sort.input {
                     PlanNode::Project(proj) => proj,
                     _ => panic!("Expected Project node inside Sort"),
@@ -3952,7 +3952,7 @@ mod tests {
         // Project should have 3 expressions: dates.year, _table.tableGroup, sales
         assert_eq!(proj.expressions.len(), 3);
         assert_eq!(proj.expressions[0].alias, "dates.year");
-        assert_eq!(proj.expressions[1].alias, "_table.tableGroup");
+        assert_eq!(proj.expressions[1].alias, "_dataset.datasetGroup");
         assert_eq!(proj.expressions[2].alias, "sales");
         
         // The _table.tableGroup should be a literal
@@ -3981,8 +3981,8 @@ mod tests {
             model: "steelwheels".to_string(),
             dimensions: None,
             rows: Some(vec![
-                "_table.model".to_string(),
-                "_table.tableGroup".to_string(),
+                "_dataset.model".to_string(),
+                "_dataset.datasetGroup".to_string(),
             ]),
             columns: None,
             metrics: Some(vec!["sales".to_string()]),

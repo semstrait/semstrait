@@ -24,7 +24,7 @@ YAML Schema → semstrait → Substrait Plan → Any Engine
 - **Substrait Output** — Emit portable compute plans for any Substrait-compatible engine
 - **Dataset Groups** — Multiple data sources (e.g., Google Ads, Facebook Ads) in one model
 - **Cross-DatasetGroup Queries** — Model-level dimensions automatically UNION across datasetGroups
-- **Virtual Dimensions** — Metadata dimensions (like `_table`) with no physical table
+- **Virtual Dimensions** — Metadata dimensions (like `_dataset`) with no physical table
 - **Degenerate Dimensions** — Support for fact table columns as dimension attributes
 - **Metrics** — Derived calculations from measures (e.g., `revenue / quantity`)
 - **Lightweight** — Pure Rust library, no runtime server required
@@ -222,7 +222,7 @@ dimensions:
 - ✅ LLM-friendly metadata (description, synonyms, examples)
 - ✅ Dataset groups with aggregate awareness
 - ✅ Model-level dimensions (cross-datasetGroup UNION)
-- ✅ Virtual dimensions (`_table` metadata)
+- ✅ Virtual dimensions (`_dataset` metadata)
 - ✅ DatasetGroup-qualified dimension paths (3-part)
 - ✅ Cross-datasetGroup UNION with typed NULLs
 - 🔲 Schema validation

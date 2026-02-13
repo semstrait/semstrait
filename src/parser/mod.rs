@@ -44,15 +44,15 @@ mod tests {
         let dataset = group.get_dataset("steelwheels.orderfact").unwrap();
         assert_eq!(dataset.dataset, "steelwheels.orderfact");
         
-        // Check dimensions (now on model) - includes _table virtual dimension
+        // Check dimensions (now on model) - includes _dataset virtual dimension
         assert_eq!(model.dimensions.len(), 3);
         let dates = model.get_dimension("dates").unwrap();
         assert_eq!(dates.table, Some("steelwheels.dates".to_string()));
         assert!(!dates.is_virtual());
         assert_eq!(dates.attributes.len(), 4);
         
-        // Check _table virtual dimension
-        let table_dim = model.get_dimension("_table").unwrap();
+        // Check _dataset virtual dimension
+        let table_dim = model.get_dimension("_dataset").unwrap();
         assert!(table_dim.is_virtual());
         assert!(table_dim.table.is_none());
         

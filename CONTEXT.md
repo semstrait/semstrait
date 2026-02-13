@@ -32,7 +32,7 @@ The semantic model is the single source of truth: define once, use for both UX g
 
 **Verb modules** (transformations):
 - `parser/` - Input format → `semantic_model::Schema` (YAML built-in, extensible)
-- `selector/` - Selects optimal table from tableGroups based on query requirements
+- `selector/` - Selects optimal dataset from datasetGroups based on query requirements
 - `resolver/` - Validates query against schema, resolves attribute references
 - `planner/` - Semantic query → relational algebra plan
 - `emitter/` - Plan → Substrait protobuf
@@ -44,10 +44,10 @@ The semantic model is the single source of truth: define once, use for both UX g
 - **Type-safe enums** - `DataType`, `Aggregation` validate at parse time, not runtime
 - **Enums shared across layers** - e.g., `semantic_model::Aggregation` used directly in `plan::AggregateExpr`
 - **Serde with aliases** - YAML strings like "count_distinct" deserialize to enum variants
-- **Virtual dimensions** - Dimensions with `virtual: true` have no physical table and emit constant literal values (e.g., `_table` for metadata)
-- **Model-level dimensions** - Defined at model level, queryable with two-part paths, UNION across tableGroups
-- **Inline dimensions** - Defined in tableGroups, queryable only with three-part paths (`tableGroup.dimension.attribute`)
-- **Typed NULLs in UNION** - When combining dimensions from different tableGroups, NULLs carry the correct type for schema compatibility
+- **Virtual dimensions** - Dimensions with `virtual: true` have no physical table and emit constant literal values (e.g., `_dataset` for metadata)
+- **Model-level dimensions** - Defined at model level, queryable with two-part paths, UNION across datasetGroups
+- **Inline dimensions** - Defined in datasetGroups, queryable only with three-part paths (`datasetGroup.dimension.attribute`)
+- **Typed NULLs in UNION** - When combining dimensions from different datasetGroups, NULLs carry the correct type for schema compatibility
 
 ## Expressions
 
@@ -79,18 +79,18 @@ To add a new expression type: add variant to `ExprNode` enum, serde handles dese
 | Add aggregation | `model/types.rs` - add to `Aggregation` enum, update `FromStr` |
 | Add input format | Create parser crate that produces `model::Schema` |
 | Add plan node | `plan/node.rs` + update `planner/` and `emitter/` |
-| Add `_table` attribute | 1) Add to model's `_table` dimension attributes, 2) Add to table's `_table` list |
-| Add table property | 1) Add to `table.properties`, 2) Declare in `_table` dimension, 3) Add to table's `_table` list |
+| Add `_dataset` attribute | 1) Add to model's `_dataset` dimension attributes, 2) Add to dataset's `_dataset` list |
+| Add dataset property | 1) Add to `dataset.properties`, 2) Declare in `_dataset` dimension, 3) Add to dataset's `_dataset` list |
 | Add shared dimension | Define at model-level `dimensions` (queryable with 2-part path) |
-| Add tableGroup-specific dimension | Define inline in tableGroup (queryable with 3-part path) |
+| Add datasetGroup-specific dimension | Define inline in datasetGroup (queryable with 3-part path) |
 
 ## Dimension Path Types
 
 | Defined At | Path Format | Example | Behavior |
 |------------|-------------|---------|----------|
-| Model-level | Two-part | `dates.year` | UNION across all tableGroups |
-| Inline in tableGroup | Three-part | `adwords.campaign.name` | Single tableGroup only |
-| Virtual (model-level) | Two-part | `_table.tableGroup` | Literal values across all tableGroups |
+| Model-level | Two-part | `dates.year` | UNION across all datasetGroups |
+| Inline in datasetGroup | Three-part | `adwords.campaign.name` | Single datasetGroup only |
+| Virtual (model-level) | Two-part | `_dataset.datasetGroup` | Literal values across all datasetGroups |
 
 ## Testing
 

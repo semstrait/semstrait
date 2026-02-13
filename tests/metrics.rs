@@ -112,12 +112,12 @@ fn test_multiple_metrics() {
 fn test_meta_attributes_with_metrics() {
     let schema = load_fixture("metrics.yaml");
 
-    // Query with virtual _table attributes alongside regular dimensions and metrics
+    // Query with virtual _dataset attributes alongside regular dimensions and metrics
     let request = QueryRequest {
         model: "financial".to_string(),
         rows: Some(vec![
             "dates.year".to_string(),
-            "_table.tableGroup".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: Some(vec!["total_revenue".to_string()]),
         ..Default::default()
@@ -133,12 +133,12 @@ fn test_meta_attributes_with_metrics() {
 fn test_meta_attributes_only_with_metrics() {
     let schema = load_fixture("metrics.yaml");
 
-    // Query with only _table attributes (no physical dimensions) and metrics
+    // Query with only _dataset attributes (no physical dimensions) and metrics
     let request = QueryRequest {
         model: "financial".to_string(),
         rows: Some(vec![
-            "_table.model".to_string(),
-            "_table.tableGroup".to_string(),
+            "_dataset.model".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: Some(vec!["revenue".to_string()]),
         ..Default::default()
@@ -151,18 +151,18 @@ fn test_meta_attributes_only_with_metrics() {
 }
 
 #[test]
-fn test_meta_with_metrics_multiple_tablegroups_requires_model_metric() {
-    // Test model with virtual _table dimension at model level
-    // Virtual dimensions are implicitly conformed, so querying _table.tableGroup
+fn test_meta_with_metrics_multiple_datasetgroups_requires_model_metric() {
+    // Test model with virtual _dataset dimension at model level
+    // Virtual dimensions are implicitly conformed, so querying _dataset.datasetGroup
     // triggers the UNION path, which requires model-level metrics
     let schema = load_fixture("marketing.yaml");
 
-    // Query with _table.tableGroup + clicks metric
-    // "clicks" exists as a measure in tableGroups but NOT as a model-level metric
+    // Query with _dataset.datasetGroup + clicks metric
+    // "clicks" exists as a measure in datasetGroups but NOT as a model-level metric
     let request = QueryRequest {
         model: "-ObDoDFVQGxxCGa5vw_Z".to_string(),
         rows: Some(vec![
-            "_table.tableGroup".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: Some(vec!["clicks".to_string()]),
         ..Default::default()
@@ -171,9 +171,9 @@ fn test_meta_with_metrics_multiple_tablegroups_requires_model_metric() {
     let result = run_pipeline(&schema, &request);
     
     // Should fail because:
-    // 1. Virtual _table is implicitly conformed → takes UNION path
+    // 1. Virtual _dataset is implicitly conformed → takes UNION path
     // 2. UNION path requires model-level metrics
-    // 3. "clicks" is not a model-level metric (only a tableGroup measure)
+    // 3. "clicks" is not a model-level metric (only a datasetGroup measure)
     assert!(result.is_err(), "Expected error when metric not defined at model level");
     let err = result.unwrap_err();
     assert!(

@@ -2,13 +2,13 @@ semantic_models:
   - name: "-ObDoDFVQGxxCGa5vw_Z"
     namespace: 6fc5b53e-cfc9-4c24-86a5-98348d9bcd1f
     
-    # Note: common-cost metric uses cross-tableGroup logic (CASE WHEN connectorType)
+    # Note: common-cost metric uses cross-datasetGroup logic (CASE WHEN connectorType)
     # This requires cross-group query support which isn't implemented yet.
     # For now, query each group separately and union in application layer.
     
-    # Virtual dimension for table metadata (shared across all tableGroups)
+    # Virtual dimension for dataset metadata (shared across all datasetGroups)
     dimensions:
-      - name: _table
+      - name: _dataset
         virtual: true
         label: Table Metadata
         description: Metadata about the table and model
@@ -17,7 +17,7 @@ semantic_models:
             type: string
           - name: namespace
             type: string
-          - name: tableGroup
+          - name: datasetGroup
             type: string
           - name: table
             type: string
@@ -64,7 +64,7 @@ semantic_models:
                 type: string
           
           # Virtual dimension for metadata
-          - name: _table
+          - name: _dataset
         
         measures:
           - name: cost
@@ -96,7 +96,7 @@ semantic_models:
               dates: [date]
               account: [currency, accountName, accountId]
               campaign: [campaign, campaignID]
-              _table: [model, namespace, tableGroup, table]
+              _dataset: [model, namespace, datasetGroup, dataset]
             measures: [cost, views, clicks, impressions]
           
           - dataset: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
@@ -108,7 +108,7 @@ semantic_models:
               account: [currency, accountName, accountId]
               campaign: [campaign, campaignID]
               ad_group: [ad_group_id, ad_group_name]
-              _table: [model, namespace, tableGroup, table]
+              _dataset: [model, namespace, datasetGroup, dataset]
             measures: [cost, views, clicks, impressions]
 
       # ============================================
@@ -133,7 +133,7 @@ semantic_models:
                 type: string
           
           # Virtual dimension for metadata
-          - name: _table
+          - name: _dataset
         
         measures:
           - name: spend
@@ -160,7 +160,7 @@ semantic_models:
               dates: [date]
               account: [currency]
               campaign: [campaign]
-              _table: [model, namespace, tableGroup, table]
+              _dataset: [model, namespace, datasetGroup, dataset]
             measures: [spend, clicks, impressions]
 
     metrics:
@@ -170,10 +170,10 @@ semantic_models:
           case:
             when:
               - condition:
-                  eq: [tableGroup.name, "adwords"]
+                  eq: [datasetGroup.name, "adwords"]
                 then: cost
               - condition:
-                  eq: [tableGroup.name, "facebookads"]
+                  eq: [datasetGroup.name, "facebookads"]
                 then: spend
             else: 0
       
@@ -183,10 +183,10 @@ semantic_models:
           case:
             when:
               - condition:
-                  eq: [tableGroup.name, "adwords"]
+                  eq: [datasetGroup.name, "adwords"]
                 then: impressions
               - condition:
-                  eq: [tableGroup.name, "facebookads"]
+                  eq: [datasetGroup.name, "facebookads"]
                 then: impressions
             else: 0
 

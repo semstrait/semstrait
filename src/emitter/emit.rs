@@ -1318,7 +1318,7 @@ mod tests {
                 },
                 ProjectExpr {
                     expr: Expr::Literal(Literal::String("test_group".to_string())),
-                    alias: "_table.tableGroup".to_string(),
+                    alias: "_dataset.datasetGroup".to_string(),
                 },
                 ProjectExpr {
                     expr: Expr::Column(Column::unqualified("total")),

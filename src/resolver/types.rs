@@ -6,7 +6,7 @@ use crate::semantic_model::{Attribute, Dimension, Measure, Metric, SemanticModel
 /// 
 /// Can be either from a joined dimension table, a degenerate dimension
 /// where the columns live directly on the fact dataset, or a virtual
-/// metadata attribute from the `_table` dimension.
+/// metadata attribute from the `_dataset` dimension.
 #[derive(Debug, Clone)]
 pub enum AttributeRef<'a> {
     /// Attribute from a joined dimension table
@@ -26,7 +26,7 @@ pub enum AttributeRef<'a> {
         /// When set, this attribute is explicitly scoped to a specific datasetGroup
         dataset_group_qualifier: Option<String>,
     },
-    /// Virtual metadata attribute from the `_table` dimension
+    /// Virtual metadata attribute from the `_dataset` dimension
     /// Emits as a constant literal value, not a column reference
     Meta {
         /// The attribute name (e.g., "datasetGroup", "uuid", or a property key)
@@ -69,7 +69,7 @@ impl<'a> AttributeRef<'a> {
         match self {
             Self::Joined { dimension, .. } => &dimension.name,
             Self::Degenerate { group_dim, .. } => &group_dim.name,
-            Self::Meta { .. } => "_table",
+            Self::Meta { .. } => "_dataset",
         }
     }
     
@@ -180,12 +180,12 @@ impl<'a> ResolvedQuery<'a> {
     pub fn output_names(&self) -> Vec<String> {
         let mut names = Vec::new();
         
-        // Row attributes: "dimension.attribute", "_table.attribute", or "datasetGroup.dimension.attribute"
+        // Row attributes: "dimension.attribute", "_dataset.attribute", or "datasetGroup.dimension.attribute"
         for attr in &self.row_attributes {
             names.push(attr.semantic_name());
         }
         
-        // Column attributes: "dimension.attribute", "_table.attribute", or "datasetGroup.dimension.attribute"
+        // Column attributes: "dimension.attribute", "_dataset.attribute", or "datasetGroup.dimension.attribute"
         for attr in &self.column_attributes {
             names.push(attr.semantic_name());
         }
@@ -211,7 +211,7 @@ pub enum ResolvedDimension<'a> {
     Degenerate {
         group_dim: &'a DatasetGroupDimension,
     },
-    /// Virtual `_table` metadata dimension
+    /// Virtual `_dataset` metadata dimension
     /// No physical table - all attributes are constant literals
     Meta,
 }
@@ -231,7 +231,7 @@ impl<'a> ResolvedDimension<'a> {
         match self {
             Self::Joined { group_dim, .. } => &group_dim.name,
             Self::Degenerate { group_dim } => &group_dim.name,
-            Self::Meta => "_table",
+            Self::Meta => "_dataset",
         }
     }
     

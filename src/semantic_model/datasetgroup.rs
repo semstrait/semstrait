@@ -55,9 +55,6 @@ pub fn resolve_path_template(
     path = path.replace("{datasetGroup.name}", dataset_group_name);
     path = path.replace("{dataset.name}", dataset_name);
     
-    // Backwards compatibility: also support old variable names
-    path = path.replace("{tableGroup.name}", dataset_group_name);
-    path = path.replace("{table.name}", dataset_name);
     
     // Optional variables - error if used but not present
     if path.contains("{model.namespace}") {
@@ -75,17 +72,6 @@ pub fn resolve_path_template(
             Some(uuid) => path = path.replace("{dataset.uuid}", uuid),
             None => return Err(format!(
                 "Path template uses {{dataset.uuid}} but dataset '{}' has no uuid defined",
-                dataset_name
-            )),
-        }
-    }
-    
-    // Backwards compatibility: also support old variable name
-    if path.contains("{table.uuid}") {
-        match dataset_uuid {
-            Some(uuid) => path = path.replace("{table.uuid}", uuid),
-            None => return Err(format!(
-                "Path template uses {{table.uuid}} but dataset '{}' has no uuid defined",
                 dataset_name
             )),
         }
@@ -188,7 +174,6 @@ pub struct DatasetGroupDimension {
 #[derive(Debug, Deserialize)]
 pub struct GroupDataset {
     /// Physical dataset name (e.g., "warehouse.orderfact")
-    #[serde(alias = "table")]
     pub dataset: String,
     /// Data source configuration (parquet path, iceberg table, etc.)
     pub source: Source,
@@ -578,17 +563,4 @@ datasets:
         assert!(result.unwrap_err().contains("Unknown variable"));
     }
 
-    // Backwards compatibility: old {table.*} and {tableGroup.*} variables still work
-    #[test]
-    fn test_resolve_path_template_backwards_compat() {
-        let result = resolve_path_template(
-            "/data/{model.name}/{tableGroup.name}/{table.name}.parquet",
-            "sales",
-            None,
-            "orders",
-            "warehouse.orderfact",
-            None,
-        );
-        assert_eq!(result.unwrap(), "/data/sales/orders/warehouse.orderfact.parquet");
-    }
 }

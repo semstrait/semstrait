@@ -170,8 +170,8 @@ fn resolve_attribute_in_group<'a>(
     attr_name: &str,
     dataset_group_qualifier: Option<String>,
 ) -> Result<AttributeRef<'a>, ResolveError> {
-    // Handle virtual _table dimension for metadata attributes
-    if dim_name == "_table" {
+    // Handle virtual _dataset dimension for metadata attributes
+    if dim_name == "_dataset" {
         return resolve_meta_attribute(model, group, dataset, attr_name);
     }
 
@@ -229,49 +229,49 @@ fn resolve_attribute_in_group<'a>(
     })
 }
 
-/// Resolve a virtual _table metadata attribute
+/// Resolve a virtual _dataset metadata attribute
 /// 
 /// The attribute must be:
-/// 1. Declared in the model's `_table` dimension (if explicit _table dimension exists)
-/// 2. Declared as available on the dataset (in dataset.dimensions._table)
+/// 1. Declared in the model's `_dataset` dimension (if explicit _dataset dimension exists)
+/// 2. Declared as available on the dataset (in dataset.dimensions._dataset)
 /// 
 /// Supported built-in attributes:
-/// - `_table.model` - Model name
-/// - `_table.namespace` - Model namespace  
-/// - `_table.datasetGroup` - DatasetGroup name (also supports legacy `_table.tableGroup`)
-/// - `_table.dataset` - Physical dataset name (also supports legacy `_table.table`)
-/// - `_table.uuid` - Dataset UUID (e.g., from Iceberg catalog)
-/// - `_table.{key}` - Any key from dataset.properties
+/// - `_dataset.model` - Model name
+/// - `_dataset.namespace` - Model namespace  
+/// - `_dataset.datasetGroup` - DatasetGroup name
+/// - `_dataset.dataset` - Physical dataset name
+/// - `_dataset.uuid` - Dataset UUID (e.g., from Iceberg catalog)
+/// - `_dataset.{key}` - Any key from dataset.properties
 fn resolve_meta_attribute<'a>(
     model: &'a SemanticModel,
     group: &'a DatasetGroup,
     dataset: &'a GroupDataset,
     attr_name: &str,
 ) -> Result<AttributeRef<'a>, ResolveError> {
-    // 1. Check if _table dimension is declared in the model
-    let table_dim = model.get_dimension("_table");
+    // 1. Check if _dataset dimension is declared in the model
+    let table_dim = model.get_dimension("_dataset");
     
     // 2. If declared, validate the attribute exists in the dimension definition
     if let Some(dim) = table_dim {
         if dim.get_attribute(attr_name).is_none() {
             return Err(ResolveError::AttributeNotFound {
-                dimension: "_table".to_string(),
+                dimension: "_dataset".to_string(),
                 attribute: attr_name.to_string(),
             });
         }
     }
     
-    // 3. Check if this dataset declares this _table attribute as available
-    if let Some(dataset_attrs) = dataset.get_dimension_attributes("_table") {
+    // 3. Check if this dataset declares this _dataset attribute as available
+    if let Some(dataset_attrs) = dataset.get_dimension_attributes("_dataset") {
         if !dataset_attrs.iter().any(|a| a == attr_name) {
             return Err(ResolveError::AttributeNotFound {
-                dimension: "_table".to_string(),
+                dimension: "_dataset".to_string(),
                 attribute: attr_name.to_string(),
             });
         }
     } else if table_dim.is_some() {
-        // _table dimension declared but dataset doesn't list any _table attributes
-        return Err(ResolveError::DimensionNotFound("_table".to_string()));
+        // _dataset dimension declared but dataset doesn't list any _dataset attributes
+        return Err(ResolveError::DimensionNotFound("_dataset".to_string()));
     }
     
     // 4. Resolve the actual value
@@ -283,7 +283,7 @@ fn resolve_meta_attribute<'a>(
     })
 }
 
-/// Get the actual value for a _table metadata attribute
+/// Get the actual value for a _dataset metadata attribute
 fn resolve_meta_value(
     model: &SemanticModel,
     group: &DatasetGroup,
@@ -298,9 +298,8 @@ fn resolve_meta_value(
                 reason: "model does not have a namespace defined".to_string(),
             }
         }),
-        // Support both new and legacy names
-        "datasetGroup" | "tableGroup" => Ok(group.name.clone()),
-        "dataset" | "table" => Ok(dataset.dataset.clone()),
+        "datasetGroup" => Ok(group.name.clone()),
+        "dataset" => Ok(dataset.dataset.clone()),
         "uuid" => dataset.uuid.clone().ok_or_else(|| {
             ResolveError::MetaAttributeNotSet {
                 attribute: "uuid".to_string(),
@@ -720,7 +719,7 @@ mod tests {
             dimensions: None,
             rows: Some(vec![
                 "dates.year".to_string(),
-                "_table.tableGroup".to_string(),
+                "_dataset.datasetGroup".to_string(),
             ]),
             columns: None,
             metrics: Some(vec!["sales".to_string()]),
@@ -737,15 +736,15 @@ mod tests {
         assert!(!resolved.row_attributes[0].is_meta());
         
         // Second is meta attribute
-        assert_eq!(resolved.row_attributes[1].dimension_name(), "_table");
+        assert_eq!(resolved.row_attributes[1].dimension_name(), "_dataset");
         assert!(resolved.row_attributes[1].is_meta());
-        assert_eq!(resolved.row_attributes[1].attribute_name(), "tableGroup");
+        assert_eq!(resolved.row_attributes[1].attribute_name(), "datasetGroup");
         assert_eq!(resolved.row_attributes[1].meta_value(), Some("orders"));
         
         // Output names should include both
         let output_names = resolved.output_names();
         assert!(output_names.contains(&"dates.year".to_string()));
-        assert!(output_names.contains(&"_table.tableGroup".to_string()));
+        assert!(output_names.contains(&"_dataset.datasetGroup".to_string()));
     }
 
     #[test]
@@ -756,9 +755,9 @@ mod tests {
             model: "steelwheels".to_string(),
             dimensions: None,
             rows: Some(vec![
-                "_table.model".to_string(),
-                "_table.namespace".to_string(),
-                "_table.uuid".to_string(),
+                "_dataset.model".to_string(),
+                "_dataset.namespace".to_string(),
+                "_dataset.uuid".to_string(),
             ]),
             columns: None,
             metrics: Some(vec!["sales".to_string()]),
@@ -790,8 +789,8 @@ mod tests {
             model: "steelwheels".to_string(),
             dimensions: None,
             rows: Some(vec![
-                "_table.sourceSystem".to_string(),
-                "_table.dataOwner".to_string(),
+                "_dataset.sourceSystem".to_string(),
+                "_dataset.dataOwner".to_string(),
             ]),
             columns: None,
             metrics: Some(vec!["sales".to_string()]),
@@ -820,15 +819,15 @@ mod tests {
         let request = QueryRequest {
             model: "steelwheels".to_string(),
             dimensions: None,
-            rows: Some(vec!["_table.nonexistent".to_string()]),
+            rows: Some(vec!["_dataset.nonexistent".to_string()]),
             columns: None,
             metrics: None,
             filter: None,
         };
 
         let err = resolve_query(&schema, &request, &selected).unwrap_err();
-        // With explicit _table dimension, unknown attributes return AttributeNotFound
-        assert!(matches!(err, ResolveError::AttributeNotFound { dimension, .. } if dimension == "_table"));
+        // With explicit _dataset dimension, unknown attributes return AttributeNotFound
+        assert!(matches!(err, ResolveError::AttributeNotFound { dimension, .. } if dimension == "_dataset"));
     }
 
     #[test]
@@ -840,7 +839,7 @@ mod tests {
             dimensions: None,
             rows: Some(vec![
                 "dates.year".to_string(),
-                "_table.tableGroup".to_string(),
+                "_dataset.datasetGroup".to_string(),
             ]),
             columns: None,
             metrics: Some(vec!["sales".to_string()]),
@@ -857,6 +856,6 @@ mod tests {
         
         // Second dimension is Meta
         assert!(resolved.dimensions[1].is_meta());
-        assert_eq!(resolved.dimensions[1].name(), "_table");
+        assert_eq!(resolved.dimensions[1].name(), "_dataset");
     }
 }

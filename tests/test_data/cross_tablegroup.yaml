@@ -1,22 +1,22 @@
-# Cross-TableGroup Test Fixture
-# Tests: UNION across multiple tableGroups with different measures
+# Cross-DatasetGroup Test Fixture
+# Tests: UNION across multiple datasetGroups with different measures
 #
 # Expected behavior:
-# - unified_cost metric should generate a UNION of both tableGroups
+# - unified_cost metric should generate a UNION of both datasetGroups
 # - Each branch should aggregate its own measure (ad_cost vs media_spend)
 # - Final result should re-aggregate the unioned data
-# - Model-level dimensions (dates) can be queried with 2-part paths across tableGroups
+# - Model-level dimensions (dates) can be queried with 2-part paths across datasetGroups
 
 semantic_models:
   - name: marketing
-    # Model-level dimensions - queryable with 2-part paths across all tableGroups
+    # Model-level dimensions - queryable with 2-part paths across all datasetGroups
     dimensions:
-      - name: _table
+      - name: _dataset
         virtual: true
         attributes:
           - name: model
             type: string
-          - name: tableGroup
+          - name: datasetGroup
             type: string
           - name: table
             type: string
@@ -48,7 +48,7 @@ semantic_models:
                 type: string
           
           # Virtual dimension reference
-          - name: _table
+          - name: _dataset
 
         measures:
           - name: ad_cost
@@ -74,7 +74,7 @@ semantic_models:
             dimensions:
               dates: [date, year]
               campaign: [campaign_id, campaign_name]
-              _table: [model, tableGroup, table]
+              _dataset: [model, datasetGroup, dataset]
             measures: [ad_cost, clicks, impressions]
 
       # Meta (Facebook) Ads data
@@ -95,7 +95,7 @@ semantic_models:
                 type: string
           
           # Virtual dimension reference
-          - name: _table
+          - name: _dataset
 
         measures:
           - name: media_spend
@@ -121,12 +121,12 @@ semantic_models:
             dimensions:
               dates: [date, year]
               campaign: [campaign_id, campaign_name]
-              _table: [model, tableGroup, table]
+              _dataset: [model, datasetGroup, dataset]
             measures: [media_spend, clicks, impressions]
 
     # Metrics
     metrics:
-      # Simple metric that exists in both tableGroups
+      # Simple metric that exists in both datasetGroups
       - name: clicks
         type: i64
         expr: clicks
@@ -135,17 +135,17 @@ semantic_models:
         type: i64
         expr: impressions
       
-      # Cross-tableGroup metric (different measures per tableGroup)
+      # Cross-datasetGroup metric (different measures per datasetGroup)
       - name: unified_cost
         type: f64
         expr:
           case:
             when:
               - condition:
-                  eq: [tableGroup.name, "google_ads"]
+                  eq: [datasetGroup.name, "google_ads"]
                 then: ad_cost
               - condition:
-                  eq: [tableGroup.name, "meta_ads"]
+                  eq: [datasetGroup.name, "meta_ads"]
                 then: media_spend
             else: 0
 

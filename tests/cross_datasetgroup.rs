@@ -88,8 +88,8 @@ fn test_conformed_dimension_detection() {
     assert!(model.is_conformed("dates", "year"), "dates.year should be conformed (model-level)");
     assert!(model.is_conformed("dates", "date"), "dates.date should be conformed (model-level)");
     
-    // _table is at model level (virtual) - all attributes are conformed
-    assert!(model.is_conformed("_table", "tableGroup"), "_table.tableGroup should be conformed (virtual)");
+    // _dataset is at model level (virtual) - all attributes are conformed
+    assert!(model.is_conformed("_dataset", "datasetGroup"), "_dataset.datasetGroup should be conformed (virtual)");
     
     // campaign is NOT at model level (inline only) - NOT conformed
     assert!(!model.is_conformed("campaign", "campaign_id"), "campaign.campaign_id should NOT be conformed (inline only)");
@@ -105,8 +105,8 @@ fn test_conformed_query_detection() {
     let model = schema.get_model("marketing").unwrap();
 
     // Query with only model-level dimensions
-    let conformed_query = vec!["dates.year".to_string(), "_table.tableGroup".to_string()];
-    assert!(model.is_conformed_query(&conformed_query), "Query with dates.year and _table should be conformed");
+    let conformed_query = vec!["dates.year".to_string(), "_dataset.datasetGroup".to_string()];
+    assert!(model.is_conformed_query(&conformed_query), "Query with dates.year and _dataset should be conformed");
     
     // Query with inline-only dimension (not at model level)
     let non_conformed_query = vec!["campaign.campaign_name".to_string()];
@@ -149,24 +149,24 @@ fn test_conformed_dimension_with_table_metadata() {
     
     let schema = load_fixture("cross_tablegroup.yaml");
 
-    // Query conformed dimension + _table.tableGroup + metric
+    // Query conformed dimension + _dataset.datasetGroup + metric
     let request = QueryRequest {
         model: "marketing".to_string(),
         rows: Some(vec![
             "dates.year".to_string(),
-            "_table.tableGroup".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: Some(vec!["clicks".to_string()]),
         ..Default::default()
     };
 
     let plan = run_pipeline(&schema, &request)
-        .expect("Conformed dimension + _table query should succeed");
+        .expect("Conformed dimension + _dataset query should succeed");
     
     // Should produce a UNION plan
     assert!(
         has_union(&plan),
-        "Conformed dimension + _table query should produce a UNION plan"
+        "Conformed dimension + _dataset query should produce a UNION plan"
     );
 }
 
@@ -177,12 +177,12 @@ fn test_virtual_dimension_implicitly_conformed() {
     
     let schema = load_fixture("cross_tablegroup.yaml");
 
-    // Query ONLY _table.tableGroup (virtual dimension) + metric
+    // Query ONLY _dataset.datasetGroup (virtual dimension) + metric
     // Virtual dimensions should be implicitly conformed
     let request = QueryRequest {
         model: "marketing".to_string(),
         rows: Some(vec![
-            "_table.tableGroup".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: Some(vec!["clicks".to_string()]),
         ..Default::default()
@@ -205,11 +205,11 @@ fn test_virtual_only_query_no_table_scan() {
     
     let schema = load_fixture("cross_tablegroup.yaml");
 
-    // Query ONLY _table.tableGroup (virtual dimension) with NO metrics
+    // Query ONLY _dataset.datasetGroup (virtual dimension) with NO metrics
     let request = QueryRequest {
         model: "marketing".to_string(),
         rows: Some(vec![
-            "_table.tableGroup".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: None,
         ..Default::default()
@@ -292,12 +292,12 @@ fn test_datasetgroup_qualified_with_virtual_dimension() {
     
     let schema = load_fixture("cross_tablegroup.yaml");
     
-    // Query with datasetGroup-qualified dimension + virtual _table dimension
+    // Query with datasetGroup-qualified dimension + virtual _dataset dimension
     let request = QueryRequest {
         model: "marketing".to_string(),
         rows: Some(vec![
             "google_ads.dates.year".to_string(),
-            "_table.tableGroup".to_string(),
+            "_dataset.datasetGroup".to_string(),
         ]),
         metrics: Some(vec!["unified_cost".to_string()]),
         ..Default::default()

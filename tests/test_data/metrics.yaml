@@ -8,14 +8,14 @@
 
 semantic_models:
   - name: financial
-    # Virtual _table dimension for metadata
+    # Virtual _dataset dimension for metadata
     dimensions:
-      - name: _table
+      - name: _dataset
         virtual: true
         attributes:
           - name: model
             type: string
-          - name: tableGroup
+          - name: datasetGroup
             type: string
           - name: table
             type: string
@@ -38,7 +38,7 @@ semantic_models:
                 type: string
           
           # Virtual dimension for metadata
-          - name: _table
+          - name: _dataset
 
         measures:
           - name: revenue
@@ -69,7 +69,7 @@ semantic_models:
             dimensions:
               dates: [date, year]
               products: [product_id, category]
-              _table: [model, tableGroup, table]
+              _dataset: [model, datasetGroup, dataset]
             measures: [revenue, cost, quantity, transaction_count]
 
     # Metrics at model level - the public query interface

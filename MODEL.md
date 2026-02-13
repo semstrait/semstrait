@@ -75,7 +75,7 @@ dimensions:
     source:
       type: parquet
       path: <path_or_template>   # Supports {model.namespace}, {dimension.name}, etc.
-    table: <physical_table>
+    dataset: <physical_table>
     label: <display_label>
     attributes: [...]
 ```
@@ -88,7 +88,7 @@ The location where a dimension is defined determines how it can be queried:
 |------------|-------------|---------|----------|
 | Model-level `dimensions` | Two-part | `dates.year` | UNION across all datasetGroups |
 | Inline in datasetGroup | Three-part | `adwords.campaign.name` | Single datasetGroup only |
-| Virtual (model-level) | Two-part | `_table.datasetGroup` | Literal values across all datasetGroups |
+| Virtual (model-level) | Two-part | `_dataset.datasetGroup` | Literal values across all datasetGroups |
 
 ### Model-Level Dimensions (Two-Part Path)
 
@@ -113,11 +113,11 @@ metrics: ["revenue"]
 
 ### Virtual Dimensions (Two-Part Path)
 
-Virtual dimensions (like `_table`) are defined at model level with `virtual: true`. They have no physical table and emit literal values.
+Virtual dimensions (like `_dataset`) are defined at model level with `virtual: true`. They have no physical table and emit literal values.
 
 ```yaml
 rows:
-  - "_table.datasetGroup"  # Shows which datasetGroup each row came from
+  - "_dataset.datasetGroup"  # Shows which datasetGroup each row came from
 metrics: ["revenue"]
 ```
 
@@ -137,13 +137,13 @@ rows:
   - "dates.date"              # Model-level (2-part)
   - "adwords.dates.date"      # Inline (3-part)
   - "facebookads.dates.date"  # Inline (3-part)
-  - "_table.datasetGroup"       # Virtual (2-part)
+  - "_dataset.datasetGroup"       # Virtual (2-part)
 metrics: ["fun-cost"]
 ```
 
 Result:
 ```
-| dates.date | adwords.dates.date | facebookads.dates.date | _table.datasetGroup | fun-cost |
+| dates.date | adwords.dates.date | facebookads.dates.date | _dataset.datasetGroup | fun-cost |
 |------------|--------------------|-----------------------|-------------------|----------|
 | 2024-01-01 | 2024-01-01         | null                  | adwords           | 1500     |
 | 2024-01-02 | 2024-01-02         | null                  | adwords           | 1800     |
@@ -153,7 +153,7 @@ Result:
 
 This enables:
 - Seeing the shared dimension value (`dates.date`) for sorting/grouping
-- Identifying which datasetGroup each row came from via inline columns or `_table.datasetGroup`
+- Identifying which datasetGroup each row came from via inline columns or `_dataset.datasetGroup`
 - Client-side post-processing to compute cross-datasetGroup totals
 
 ## Dataset Groups
@@ -689,15 +689,15 @@ metrics:
 
 Supported: `add`, `subtract`, `multiply`, `divide`
 
-## Virtual `_table` Dimension
+## Virtual `_dataset` Dimension
 
-The `_table` dimension is a virtual dimension that provides access to dataset and model metadata as queryable attributes. These values are emitted as constant literals in the query output.
+The `_dataset` dimension is a virtual dimension that provides access to dataset and model metadata as queryable attributes. These values are emitted as constant literals in the query output.
 
 Unlike regular dimensions, virtual dimensions have no physical table - they are marked with `virtual: true` and their attribute values come from the model configuration rather than data.
 
-### Declaring the `_table` Dimension
+### Declaring the `_dataset` Dimension
 
-The `_table` dimension must be explicitly declared in the model's `dimensions` list:
+The `_dataset` dimension must be explicitly declared in the model's `dimensions` list:
 
 ```yaml
 semantic_models:
@@ -715,7 +715,7 @@ semantic_models:
           - { name: year, column: year_id, type: i32 }
       
       # Virtual dimension (no physical table)
-      - name: _table
+      - name: _dataset
         virtual: true
         label: Table Metadata
         description: Metadata about the table and model
@@ -727,10 +727,10 @@ semantic_models:
             label: Model Namespace
             type: string
           - name: datasetGroup
-            label: Table Group
+            label: Dataset Group
             type: string
-          - name: table
-            label: Physical Table
+          - name: dataset
+            label: Physical Dataset
             type: string
           - name: uuid
             label: Table UUID
@@ -746,7 +746,7 @@ semantic_models:
 
 ### Referencing in DatasetGroups and Datasets
 
-Like regular dimensions, `_table` must be referenced in the datasetGroup and each dataset must declare which attributes it provides:
+Like regular dimensions, `_dataset` must be referenced in the datasetGroup and each dataset must declare which attributes it provides:
 
 ```yaml
 datasetGroups:
@@ -757,7 +757,7 @@ datasetGroups:
           leftKey: time_id
           rightKey: time_id
       # Reference the virtual dimension (no join needed)
-      - name: _table
+      - name: _dataset
     
     datasets:
       - dataset: steelwheels.orderfact
@@ -767,27 +767,27 @@ datasetGroups:
           dataOwner: "analytics-team"
         dimensions:
           dates: [year, quarter, month]
-          # Declare which _table attributes this dataset provides
-          _table: [model, namespace, datasetGroup, dataset, uuid, sourceSystem, dataOwner]
+          # Declare which _dataset attributes this dataset provides
+          _dataset: [model, namespace, datasetGroup, dataset, uuid, sourceSystem, dataOwner]
         measures: [sales, quantity]
 ```
 
 ### Usage in Queries
 
-Include `_table.*` attributes in `rows` or `columns` just like regular dimension attributes:
+Include `_dataset.*` attributes in `rows` or `columns` just like regular dimension attributes:
 
 ```yaml
 model: "steelwheels"
 rows:
   - "dates.year"
-  - "_table.datasetGroup"
-  - "_table.sourceSystem"
+  - "_dataset.datasetGroup"
+  - "_dataset.sourceSystem"
 metrics: ["sales"]
 ```
 
 Result:
 ```
-| dates.year | _table.datasetGroup | _table.sourceSystem | sales    |
+| dates.year | _dataset.datasetGroup | _dataset.sourceSystem | sales    |
 |------------|-------------------|---------------------|----------|
 | 2023       | orders            | pentaho             | 500000   |
 | 2024       | orders            | pentaho             | 650000   |
@@ -797,12 +797,12 @@ Result:
 
 | Attribute | Value Source | Description |
 |-----------|--------------|-------------|
-| `_table.model` | `model.name` | Model name |
-| `_table.namespace` | `model.namespace` | Model namespace (required if declared) |
-| `_table.datasetGroup` | `datasetGroup.name` | DatasetGroup name |
-| `_table.dataset` | `dataset.dataset` | Physical dataset name |
-| `_table.uuid` | `dataset.uuid` | Dataset UUID (required if declared) |
-| `_table.{key}` | `dataset.properties[key]` | Custom property from `properties` map |
+| `_dataset.model` | `model.name` | Model name |
+| `_dataset.namespace` | `model.namespace` | Model namespace (required if declared) |
+| `_dataset.datasetGroup` | `datasetGroup.name` | DatasetGroup name |
+| `_dataset.dataset` | `dataset.dataset` | Physical dataset name |
+| `_dataset.uuid` | `dataset.uuid` | Dataset UUID (required if declared) |
+| `_dataset.{key}` | `dataset.properties[key]` | Custom property from `properties` map |
 
 ### Cross-DatasetGroup Queries
 
@@ -812,11 +812,11 @@ When used with cross-datasetGroup metrics, each UNION branch gets its own metada
 model: "marketing"
 rows:
   - "dates.date"
-  - "_table.datasetGroup"
+  - "_dataset.datasetGroup"
 metrics: ["unified_cost"]
 
 # Result:
-# | dates.date | _table.datasetGroup | unified_cost |
+# | dates.date | _dataset.datasetGroup | unified_cost |
 # |------------|-------------------|--------------|
 # | 2024-01-01 | google_ads        | 1500.00      |
 # | 2024-01-01 | meta_ads          | 2300.00      |
@@ -824,7 +824,7 @@ metrics: ["unified_cost"]
 
 ### Behavior
 
-- **Self-documenting schema**: UI/LLM can introspect the model to discover available `_table` attributes
+- **Self-documenting schema**: UI/LLM can introspect the model to discover available `_dataset` attributes
 - **Explicit declaration**: Only declared attributes can be queried - unknown attributes return an error
 - **Not in GROUP BY**: Meta attributes are constant values and are not included in the SQL GROUP BY clause
 - **Projected as literals**: The values are emitted as string literals in the Substrait ProjectRel

@@ -173,7 +173,7 @@ pub struct Union {
 
 /// Virtual table with literal values (like SQL VALUES clause)
 /// 
-/// Used for metadata-only queries (e.g., querying only `_table` attributes)
+/// Used for metadata-only queries (e.g., querying only `_dataset` attributes)
 /// where no actual table scan is needed. Each row is a set of literal values.
 #[derive(Debug)]
 pub struct VirtualTable {

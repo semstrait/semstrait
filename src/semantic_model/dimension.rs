@@ -7,7 +7,7 @@ use super::datasetgroup::Source;
 /// A dimension definition with its attributes
 /// 
 /// Can be either a regular dimension (with physical table) or a virtual dimension
-/// (like `_table`) that provides metadata as constant literals.
+/// (like `_dataset`) that provides metadata as constant literals.
 #[derive(Debug, Deserialize)]
 pub struct Dimension {
     pub name: String,

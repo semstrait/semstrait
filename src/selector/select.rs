@@ -272,8 +272,8 @@ fn has_all_dimensions(
     required_dimensions: &[String],
 ) -> bool {
     for dim_attr in required_dimensions {
-        // Skip virtual _table dimension
-        if dim_attr.starts_with("_table.") {
+        // Skip virtual _dataset dimension
+        if dim_attr.starts_with("_dataset.") {
             continue;
         }
         
@@ -308,9 +308,9 @@ fn is_feasible(
 ) -> bool {
     // Check all required dimension.attribute paths exist
     for dim_attr in required_dimensions {
-        // Skip virtual _table dimension - it's available on all datasets
+        // Skip virtual _dataset dimension - it's available on all datasets
         // and shouldn't affect dataset selection
-        if dim_attr.starts_with("_table.") {
+        if dim_attr.starts_with("_dataset.") {
             continue;
         }
         
@@ -403,8 +403,8 @@ fn find_missing_requirements(
     let mut missing = Vec::new();
     
     for dim_attr in required_dimensions {
-        // Skip virtual _table dimension - it's always available
-        if dim_attr.starts_with("_table.") {
+        // Skip virtual _dataset dimension - it's always available
+        if dim_attr.starts_with("_dataset.") {
             continue;
         }
         

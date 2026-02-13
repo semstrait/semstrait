@@ -11,9 +11,9 @@ pub enum ResolveError {
     MetricNotFound(String),
     InvalidAttributeFormat(String),
     InvalidQuery(String),
-    /// A virtual _table metadata attribute was requested but not available
+    /// A virtual _dataset metadata attribute was requested but not available
     MetaAttributeNotFound(String),
-    /// A virtual _table metadata attribute requires a value that isn't set
+    /// A virtual _dataset metadata attribute requires a value that isn't set
     /// (e.g., dataset.uuid when uuid is None)
     MetaAttributeNotSet { attribute: String, reason: String },
 }
@@ -34,10 +34,10 @@ impl fmt::Display for ResolveError {
             }
             ResolveError::InvalidQuery(msg) => write!(f, "Invalid query: {}", msg),
             ResolveError::MetaAttributeNotFound(name) => {
-                write!(f, "Unknown _table attribute '{}'. Available: model, namespace, datasetGroup, dataset, uuid, or any dataset property key", name)
+                write!(f, "Unknown _dataset attribute '{}'. Available: model, namespace, datasetGroup, dataset, uuid, or any dataset property key", name)
             }
             ResolveError::MetaAttributeNotSet { attribute, reason } => {
-                write!(f, "_table.{} is not available: {}", attribute, reason)
+                write!(f, "_dataset.{} is not available: {}", attribute, reason)
             }
         }
     }
