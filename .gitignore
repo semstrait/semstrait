@@ -1,6 +1,8 @@
-# Rust build artifacts
-/target/
-/Cargo.lock
+# Rust build artifacts (match target dirs anywhere, e.g. tools/semstrait_demo/target)
+target/
+**/target/
+Cargo.lock
+**/Cargo.lock
 
 # IDE and editor files
 .cursor/

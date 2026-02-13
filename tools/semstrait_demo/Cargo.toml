@@ -1,0 +1,46 @@
+[package]
+name = "semstrait_demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Local semstrait dependency
+semstrait = { path = "../../" }
+
+# Async runtime
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+
+# DataFusion integration for execution
+datafusion = { version = "52.0", default-features = false, features = ["parquet"] }
+
+# Arrow/Parquet for data generation
+arrow = { version = "54.0" }
+parquet = { version = "54.0", features = ["arrow"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Hashing for snapshot IDs
+blake3 = "1.5"
+
+# Additional serde for reproducibility parameters
+serde = { version = "1.0", features = ["derive"] }
+
+# Temp directory for fixtures
+tempfile = "3.0"
+
+# YAML parsing for embedded model
+serde_yaml = "0.9"
+
+# CLI argument parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# JSON output option
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+
+# For async recursion boxing
+futures = "0.3"
+
+# Substrait protobuf types
+substrait = { version = "0.62", features = ["serde"] }

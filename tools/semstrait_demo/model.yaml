@@ -1,0 +1,195 @@
+semantic_models:
+  - name: "marketing-demo"
+    namespace: "demo"
+    label: "Marketing Analytics Demo"
+    description: "Demo semantic model showing UNION across tableGroups"
+
+    # Virtual dimension for table metadata
+    dimensions:
+      - name: _table
+        virtual: true
+        label: "Table Metadata"
+        description: "Metadata about the table and model"
+        attributes:
+          - name: model
+            type: string
+          - name: namespace
+            type: string
+          - name: tableGroup
+            type: string
+          - name: table
+            type: string
+
+      # Grain dimensions for diff analysis
+      - name: dates
+        label: "Date Dimensions"
+        description: "Date-based grouping dimensions"
+        attributes:
+          - name: day
+            type: string
+            label: "Day"
+            description: "Date in YYYY-MM-DD format"
+
+      - name: accounts
+        label: "Account Dimensions"
+        description: "Account-based grouping dimensions"
+        attributes:
+          - name: id
+            type: i64
+            label: "Account ID"
+            description: "Account identifier"
+
+      - name: campaigns
+        label: "Campaign Dimensions"
+        description: "Campaign-based grouping dimensions"
+        attributes:
+          - name: id
+            type: i64
+            label: "Campaign ID"
+            description: "Campaign identifier"
+
+      - name: ads
+        label: "Ad Dimensions"
+        description: "Ad-based grouping dimensions"
+        attributes:
+          - name: id
+            type: i64
+            label: "Ad ID"
+            description: "Ad identifier"
+
+      - name: users
+        label: "User Dimensions"
+        description: "User-based dimensions for distinct counting"
+        attributes:
+          - name: id
+            type: i64
+            label: "User ID"
+            description: "User identifier"
+
+    tableGroups:
+      # AdWords tableGroup
+      - name: adwords
+        label: "AdWords Campaigns"
+        dimensions:
+          - name: _table
+          - name: dates
+          - name: accounts
+          - name: campaigns
+          - name: ads
+        measures:
+          - name: cost
+            aggregation: sum
+            expr: cost
+            type: f64
+            label: "AdWords Cost"
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+            label: "AdWords Impressions"
+          - name: user_id
+            aggregation: count_distinct
+            expr: user_id
+            type: i64
+            label: "AdWords Unique Users"
+        tables:
+          - table: "adwords_campaigns"
+            source:
+              type: parquet
+              path: "/tmp/adwords_campaigns.parquet"  # Will be overridden in demo
+            dimensions:
+              _table: [model, namespace, tableGroup, table]
+              dates: [day]
+              accounts: [account_id]
+              campaigns: [campaign_id]
+              ads: [ad_id]
+              users: [user_id]
+            measures: [cost, impressions, user_id]
+
+      # Facebook tableGroup
+      - name: facebook
+        label: "Facebook Campaigns"
+        dimensions:
+          - name: _table
+          - name: dates
+          - name: accounts
+          - name: campaigns
+          - name: ads
+        measures:
+          - name: spend
+            aggregation: sum
+            expr: spend
+            type: f64
+            label: "Facebook Spend"
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+            label: "Facebook Impressions"
+          - name: user_id
+            aggregation: count_distinct
+            expr: user_id
+            type: i64
+            label: "Facebook Unique Users"
+        tables:
+          - table: "facebook_campaigns"
+            source:
+              type: parquet
+              path: "/tmp/facebook_campaigns.parquet"  # Will be overridden in demo
+            dimensions:
+              _table: [model, namespace, tableGroup, table]
+              dates: [day]
+              accounts: [account_id]
+              campaigns: [campaign_id]
+              ads: [ad_id]
+              users: [user_id]
+            measures: [spend, impressions, user_id]
+
+    metrics:
+      # Total cost metric that combines adwords.cost and facebook.spend
+      - name: total_cost
+        type: f64
+        label: "Total Marketing Cost"
+        description: "Combined cost across all marketing channels"
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [tableGroup.name, "adwords"]
+                then: cost
+              - condition:
+                  eq: [tableGroup.name, "facebook"]
+                then: spend
+            else: 0
+
+      # Total impressions metric
+      - name: total_impressions
+        type: i64
+        label: "Total Impressions"
+        description: "Combined impressions across all marketing channels"
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [tableGroup.name, "adwords"]
+                then: impressions
+              - condition:
+                  eq: [tableGroup.name, "facebook"]
+                then: impressions
+            else: 0
+
+      # Total unique users metric
+      - name: total_unique_users
+        type: i64
+        label: "Total Unique Users"
+        description: "Combined unique users across all marketing channels"
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [tableGroup.name, "adwords"]
+                then: user_id
+              - condition:
+                  eq: [tableGroup.name, "facebook"]
+                then: user_id
+            else: 0
