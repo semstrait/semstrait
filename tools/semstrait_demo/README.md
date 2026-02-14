@@ -529,3 +529,5 @@ Traditional semantic layers solved the "how calculated" problem. Semstrait's tru
 **Before**: Teams fear their data and make conservative decisions.
 
 **After**: Teams trust their data completely and make bold, data-driven decisions.
+
+
