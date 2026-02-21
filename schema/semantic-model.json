@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semstrait/semantic-model.json",
+  "title": "Semstrait Semantic Model",
+  "description": "Schema for semstrait semantic model YAML files",
+  "type": "object",
+  "required": ["semantic_models"],
+  "properties": {
+    "semantic_models": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/SemanticModel" }
+    }
+  },
+  "$defs": {
+    "SemanticModel": {
+      "type": "object",
+      "required": ["name", "dataset_groups"],
+      "properties": {
+        "name": { "type": "string" },
+        "namespace": { "type": "string" },
+        "dimensions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Dimension" },
+          "default": []
+        },
+        "dataset_groups": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/DatasetGroup" }
+        },
+        "metrics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Metric" }
+        },
+        "dataFilter": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DataFilter" }
+        }
+      }
+    },
+    "DataFilter": {
+      "type": "object",
+      "required": ["field"],
+      "properties": {
+        "field": { "type": "string" },
+        "userAttribute": { "type": "string" }
+      }
+    },
+    "Dimension": {
+      "type": "object",
+      "required": ["name", "attributes"],
+      "properties": {
+        "name": { "type": "string" },
+        "virtual": { "type": "boolean", "default": false },
+        "source": { "$ref": "#/$defs/Source" },
+        "table": { "type": "string" },
+        "alias": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "attributes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Attribute" }
+        }
+      }
+    },
+    "Attribute": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "column": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "examples": { "type": "array", "items": { "type": "string" } },
+        "type": { "$ref": "#/$defs/DataType" }
+      }
+    },
+    "Source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "path"],
+          "properties": {
+            "type": { "const": "parquet" },
+            "path": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "table"],
+          "properties": {
+            "type": { "const": "iceberg" },
+            "table": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DataType": {
+      "oneOf": [
+        { "type": "string", "enum": ["i8", "i16", "i32", "i64", "f32", "f64", "bool", "string", "date", "timestamp"] },
+        { "type": "string", "pattern": "^decimal\\(\\d{1,2},\\s*\\d{1,2}\\)$" }
+      ]
+    },
+    "Join": {
+      "type": "object",
+      "required": ["leftKey", "rightKey"],
+      "properties": {
+        "leftKey": { "type": "string" },
+        "rightKey": { "type": "string" },
+        "rightAlias": { "type": "string" }
+      }
+    },
+    "DatasetGroup": {
+      "type": "object",
+      "required": ["name", "dimensions", "measures", "datasets"],
+      "properties": {
+        "name": { "type": "string" },
+        "dimensions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DatasetGroupDimension" }
+        },
+        "measures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Measure" }
+        },
+        "datasets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/GroupDataset" }
+        }
+      }
+    },
+    "DatasetGroupDimension": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "join": { "$ref": "#/$defs/Join" },
+        "attributes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Attribute" }
+        }
+      }
+    },
+    "Aggregation": {
+      "type": "string",
+      "enum": ["sum", "avg", "count", "count_distinct", "min", "max"]
+    },
+    "Measure": {
+      "type": "object",
+      "required": ["name", "aggregation", "expr"],
+      "properties": {
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "synonyms": { "type": "array", "items": { "type": "string" } },
+        "hidden": { "type": "boolean" },
+        "format": { "type": "string" },
+        "aggregation": { "$ref": "#/$defs/Aggregation" },
+        "expr": { "$ref": "#/$defs/MeasureExpr" },
+        "type": { "$ref": "#/$defs/DataType" },
+        "dataFilter": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MeasureFilter" }
+        }
+      }
+    },
+    "MeasureFilter": {
+      "type": "object",
+      "required": ["field"],
+      "properties": {
+        "field": { "type": "string" },
+        "userAttribute": { "type": "string" }
+      }
+    },
+    "MeasureExpr": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/$defs/ExprNode" }
+      ]
+    },
+    "ExprNode": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["add"], "properties": { "add": { "type": "array", "items": { "$ref": "#/$defs/ExprArg" } } },
+        { "required": ["subtract"], "properties": { "subtract": { "type": "array", "items": { "$ref": "#/$defs/ExprArg" } } },
+        { "required": ["multiply"], "properties": { "multiply": { "type": "array", "items": { "$ref": "#/$defs/ExprArg" } } },
+        { "required": ["divide"], "properties": { "divide": { "type": "array", "items": { "$ref": "#/$defs/ExprArg" } } },
+        { "required": ["column"], "properties": { "column": { "type": "string" } },
+        { "required": ["literal"], "properties": { "literal": {} },
+        { "required": ["case"], "properties": { "case": { "$ref": "#/$defs/CaseExpr" } }
+      ]
+    },
+    "CaseExpr": {
+      "type": "object",
+      "required": ["when"],
+      "properties": {
+        "when": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["condition", "then"],
+            "properties": {
+              "condition": { "$ref": "#/$defs/ConditionExpr" },
+              "then": { "$ref": "#/$defs/ExprArg" }
+            }
+          }
+        },
+        "else": { "$ref": "#/$defs/ExprArg" }
+      }
+    },
+    "ConditionExpr": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["eq"], "properties": { "eq": { "type": "array" } },
+        { "required": ["ne"], "properties": { "ne": { "type": "array" } },
+        { "required": ["gt"], "properties": { "gt": { "type": "array" } },
+        { "required": ["gte"], "properties": { "gte": { "type": "array" } },
+        { "required": ["lt"], "properties": { "lt": { "type": "array" } },
+        { "required": ["lte"], "properties": { "lte": { "type": "array" } },
+        { "required": ["and"], "properties": { "and": { "type": "array", "items": { "$ref": "#/$defs/ConditionExpr" } } },
+        { "required": ["or"], "properties": { "or": { "type": "array", "items": { "$ref": "#/$defs/ConditionExpr" } } },
+        { "required": ["is_null"], "properties": { "is_null": { "type": "string" } },
+        { "required": ["is_not_null"], "properties": { "is_not_null": { "type": "string" } }
+      ]
+    },
+    "ExprArg": {},
+    "Metric": {
+      "type": "object",
+      "required": ["name", "expr"],
+      "properties": {
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "synonyms": { "type": "array", "items": { "type": "string" } },
+        "hidden": { "type": "boolean" },
+        "format": { "type": "string" },
+        "type": { "$ref": "#/$defs/DataType" },
+        "expr": { "$ref": "#/$defs/MetricExpr" }
+      }
+    },
+    "MetricExpr": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/$defs/MetricExprNode" }
+      ]
+    },
+    "MetricExprNode": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["measure"], "properties": { "measure": { "type": "string" } },
+        { "required": ["literal"], "properties": { "literal": { "type": "number" } },
+        { "required": ["add"], "properties": { "add": { "type": "array", "items": { "$ref": "#/$defs/MetricExprArg" } } },
+        { "required": ["subtract"], "properties": { "subtract": { "type": "array", "items": { "$ref": "#/$defs/MetricExprArg" } } },
+        { "required": ["multiply"], "properties": { "multiply": { "type": "array", "items": { "$ref": "#/$defs/MetricExprArg" } } },
+        { "required": ["divide"], "properties": { "divide": { "type": "array", "items": { "$ref": "#/$defs/MetricExprArg" } } },
+        { "required": ["case"], "properties": { "case": { "$ref": "#/$defs/MetricCaseExpr" } }
+      ]
+    },
+    "MetricCaseExpr": {
+      "type": "object",
+      "required": ["when"],
+      "properties": {
+        "when": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["condition", "then"],
+            "properties": {
+              "condition": { "$ref": "#/$defs/MetricCondition" },
+              "then": { "$ref": "#/$defs/MetricExprArg" }
+            }
+          }
+        },
+        "else": { "$ref": "#/$defs/MetricExprArg" }
+      }
+    },
+    "MetricCondition": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["eq"], "properties": { "eq": { "type": "array" } },
+        { "required": ["ne"], "properties": { "ne": { "type": "array" } }
+      ]
+    },
+    "MetricExprArg": {},
+    "GroupDataset": {
+      "type": "object",
+      "required": ["dataset", "source", "dimensions", "measures"],
+      "properties": {
+        "dataset": { "type": "string" },
+        "source": { "$ref": "#/$defs/Source" },
+        "uuid": { "type": "string" },
+        "properties": { "type": "object", "additionalProperties": { "type": "string" } },
+        "columns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Column" }
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "measures": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "rowFilter": {
+          "type": "object"
+        }
+      }
+    },
+    "Column": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "$ref": "#/$defs/DataType" }
+      }
+    }
+  }
+}
