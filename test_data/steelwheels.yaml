@@ -131,7 +131,7 @@ semantic_models:
         userAttribute: allowedLocations
     
     # Table groups that can serve this model
-    datasetGroups:
+    dataset_groups:
       - name: orders
         # ------------------------------------------
         # DIMENSIONS available in this group

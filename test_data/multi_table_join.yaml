@@ -53,7 +53,7 @@ semantic_models:
           divide: [cost, clicks]
         type: f64
     
-    datasetGroups:
+    dataset_groups:
       - name: marketing
         
         # Dimensions (all degenerate - on fact tables)

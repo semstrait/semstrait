@@ -20,7 +20,7 @@ semantic_models:
           - name: table
             type: string
 
-    datasetGroups:
+    dataset_groups:
       - name: transactions
         dimensions:
           - name: dates

@@ -6,7 +6,7 @@ semantic_models:
     # This requires cross-group query support which isn't implemented yet.
     # For now, query each group separately and union in application layer.
     
-    # Virtual dimension for dataset metadata (shared across all datasetGroups)
+    # Virtual dimension for dataset metadata (shared across all dataset_groups)
     dimensions:
       - name: _dataset
         virtual: true
@@ -22,7 +22,7 @@ semantic_models:
           - name: table
             type: string
     
-    datasetGroups:
+    dataset_groups:
       # ============================================
       # ADWORDS
       # ============================================

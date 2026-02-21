@@ -17,7 +17,7 @@ semantic_models:
         expr: total_value
         type: f64
     
-    datasetGroups:
+    dataset_groups:
       - name: user_events
         dimensions:
           # Degenerate dimension - no join spec, columns are on fact table

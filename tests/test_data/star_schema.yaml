@@ -48,7 +48,7 @@ semantic_models:
         expr: order_count
         type: i64
     
-    datasetGroups:
+    dataset_groups:
       - name: transactions
         dimensions:
           - name: dates

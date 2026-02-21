@@ -57,6 +57,26 @@ impl Dimension {
     pub fn parquet_path(&self) -> Option<&str> {
         match &self.source {
             Some(Source::Parquet { path }) => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Get the Iceberg table identifier if source is Iceberg
+    pub fn iceberg_table(&self) -> Option<&str> {
+        match &self.source {
+            Some(Source::Iceberg { table }) => Some(table),
+            _ => None,
+        }
+    }
+
+    /// Get the primary source identifier regardless of source type.
+    ///
+    /// Returns the parquet path for Parquet sources, the table identifier
+    /// for Iceberg sources, or None if no source is configured.
+    pub fn source_ref(&self) -> Option<&str> {
+        match &self.source {
+            Some(Source::Parquet { path }) => Some(path),
+            Some(Source::Iceberg { table }) => Some(table),
             None => None,
         }
     }

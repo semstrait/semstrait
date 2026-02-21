@@ -265,7 +265,8 @@ fn type_to_substrait(type_name: &str) -> proto::Type {
             type_variation_reference: 0,
             nullability: Nullability::Nullable as i32,
         }),
-        "timestamp" => Kind::Timestamp(proto::r#type::Timestamp {
+        "timestamp" => Kind::PrecisionTimestamp(proto::r#type::PrecisionTimestamp {
+            precision: 6,
             type_variation_reference: 0,
             nullability: Nullability::Nullable as i32,
         }),
@@ -1187,6 +1188,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_emit_plan_has_extensions() {
         let scan = PlanNode::Scan(
             Scan::new("test.table")

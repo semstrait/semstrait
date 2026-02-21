@@ -22,7 +22,7 @@ fn test_cross_datasetgroup_metric_detection() {
         "unified_cost should be detected as cross-datasetGroup metric"
     );
 
-    // Should have mappings for both datasetGroups
+    // Should have mappings for both dataset groups
     let mappings = metric.dataset_group_measures();
     assert_eq!(mappings.len(), 2, "Should have 2 datasetGroup mappings");
 
@@ -124,7 +124,7 @@ fn test_conformed_dimension_union_plan() {
     
     let schema = load_fixture("cross_tablegroup.yaml");
 
-    // Query conformed dimension with a metric that exists in both datasetGroups
+    // Query conformed dimension with a metric that exists in both dataset groups
     let request = QueryRequest {
         model: "marketing".to_string(),
         rows: Some(vec!["dates.year".to_string()]),
@@ -135,7 +135,7 @@ fn test_conformed_dimension_union_plan() {
     let plan = run_pipeline(&schema, &request)
         .expect("Conformed dimension query should succeed");
     
-    // Should produce a UNION plan (querying across both datasetGroups)
+    // Should produce a UNION plan (querying across both dataset groups)
     assert!(
         has_union(&plan),
         "Conformed dimension query should produce a UNION plan"
@@ -191,7 +191,7 @@ fn test_virtual_dimension_implicitly_conformed() {
     let plan = run_pipeline(&schema, &request)
         .expect("Virtual dimension only query should succeed (implicitly conformed)");
     
-    // Should produce a UNION plan (querying across both datasetGroups)
+    // Should produce a UNION plan (querying across both dataset groups)
     assert!(
         has_union(&plan),
         "Virtual dimension query should produce a UNION plan"
@@ -259,7 +259,7 @@ fn test_datasetgroup_qualified_dimension_cross_datasetgroup_metric() {
     
     let schema = load_fixture("cross_tablegroup.yaml");
     
-    // Query with datasetGroup-qualified dimensions from BOTH datasetGroups
+    // Query with datasetGroup-qualified dimensions from BOTH dataset groups
     let request = QueryRequest {
         model: "marketing".to_string(),
         rows: Some(vec![
@@ -273,7 +273,7 @@ fn test_datasetgroup_qualified_dimension_cross_datasetgroup_metric() {
     let result = common::run_pipeline(&schema, &request);
     assert!(
         result.is_ok(),
-        "Query with qualified dimensions from both datasetGroups should succeed: {:?}",
+        "Query with qualified dimensions from both dataset groups should succeed: {:?}",
         result.err()
     );
     

@@ -8,6 +8,15 @@
 
 semstrait is a Rust library that transforms YAML-based semantic model definitions into [Substrait](https://substrait.io/) compute plans, enabling engine-agnostic analytics.
 
+Modern data platforms are built on cloud blob storage (S3, GCS, Azure Blob) with open table formats like Iceberg and Delta Lake — not traditional databases with rigid table hierarchies. Existing semantic layer initiatives inherit assumptions from the data warehouse era: single-table fact models, database-centric naming, and tight coupling to SQL engines.
+
+semstrait is designed for this new world:
+
+- **Storage-first, not database-first** — Semantic models describe datasets as they exist in modern data platforms: plain Parquet files on blob storage, Iceberg tables in open catalogs, or any combination. No assumption of a single database or schema.
+- **Dataset grouping** — Open data lakes often contain many related datasets that belong together semantically. semstrait's DatasetGroup abstraction lets you model these as a single queryable unit with shared dimensions, automatic UNIONs, and cross-source metrics.
+- **Engine-agnostic via Substrait** — Plans compile to the open Substrait format, decoupling the semantic layer from any specific query engine. Run the same model on DataFusion, DuckDB, Velox, or any Substrait consumer.
+- **Composable and lightweight** — Pure Rust library with no runtime server. Embed it in an API, CLI tool, or edge function.
+
 ```
 YAML Schema → semstrait → Substrait Plan → Any Engine
                                               ├── DataFusion
@@ -23,7 +32,7 @@ YAML Schema → semstrait → Substrait Plan → Any Engine
 - **Logical Planning** — Generate optimized relational algebra plans
 - **Substrait Output** — Emit portable compute plans for any Substrait-compatible engine
 - **Dataset Groups** — Multiple data sources (e.g., Google Ads, Facebook Ads) in one model
-- **Cross-DatasetGroup Queries** — Model-level dimensions automatically UNION across datasetGroups
+- **Cross-DatasetGroup Queries** — Model-level dimensions automatically UNION across dataset groups
 - **Virtual Dimensions** — Metadata dimensions (like `_dataset`) with no physical table
 - **Degenerate Dimensions** — Support for fact table columns as dimension attributes
 - **Metrics** — Derived calculations from measures (e.g., `revenue / quantity`)

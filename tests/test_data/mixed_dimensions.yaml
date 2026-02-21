@@ -34,7 +34,7 @@ semantic_models:
         expr: order_count
         type: i64
     
-    datasetGroups:
+    dataset_groups:
       - name: order_facts
         dimensions:
           # Denormalized - columns are on fact table, no join needed

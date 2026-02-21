@@ -23,11 +23,10 @@ pub struct SemanticModel {
     pub name: String,
     /// Namespace for the model (e.g., organization or project identifier)
     pub namespace: Option<String>,
-    /// Model-level dimensions - queryable with 2-part paths across all datasetGroups
+    /// Model-level dimensions - queryable with 2-part paths across all dataset groups
     #[serde(default)]
     pub dimensions: Vec<Dimension>,
     /// Dataset groups - each group contains datasets that share field definitions
-    #[serde(rename = "datasetGroups")]
     pub dataset_groups: Vec<DatasetGroup>,
     /// Metrics - derived calculations from measures (model-level, shared across dataset groups)
     pub metrics: Option<Vec<Metric>>,
@@ -164,7 +163,7 @@ impl SemanticModel {
     
     /// Check if a dimension is defined at model level (can be queried with 2-part path)
     /// 
-    /// Model-level dimensions are queryable across all datasetGroups that reference them.
+    /// Model-level dimensions are queryable across all dataset groups that reference them.
     /// The attr_name parameter is kept for API compatibility but not used in the check.
     pub fn is_conformed(&self, dim_name: &str, _attr_name: &str) -> bool {
         self.dimensions.iter().any(|d| d.name == dim_name)
@@ -173,7 +172,7 @@ impl SemanticModel {
     /// Check if all dimension attributes in a query can use the cross-datasetGroup UNION path
     /// 
     /// Returns true if all dimensions are either:
-    /// - Virtual dimensions (like `_dataset`) - implicitly work across datasetGroups
+    /// - Virtual dimensions (like `_dataset`) - implicitly work across dataset groups
     /// - Model-level dimensions - defined at model.dimensions, queryable with 2-part paths
     pub fn is_conformed_query(&self, dimension_attrs: &[String]) -> bool {
         if dimension_attrs.is_empty() {

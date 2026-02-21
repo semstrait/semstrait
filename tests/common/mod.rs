@@ -1,4 +1,5 @@
 //! Shared test utilities for integration tests
+#![allow(dead_code)]
 
 use semstrait::{
     emit_plan, parser,
@@ -13,27 +14,17 @@ pub fn load_fixture(name: &str) -> Schema {
         .unwrap_or_else(|e| panic!("Failed to load test data {}: {}", name, e))
 }
 
-/// Load a test fixture from the test_data directory (existing fixtures)
-pub fn load_test_data(name: &str) -> Schema {
-    let path = format!("test_data/{}", name);
-    parser::parse_file(&path)
-        .unwrap_or_else(|e| panic!("Failed to load test data {}: {}", name, e))
-}
-
-/// Run the full pipeline: schema + request → Substrait Plan
+/// Run the full pipeline: schema + request -> Substrait Plan
 pub fn run_pipeline(schema: &Schema, request: &QueryRequest) -> Result<Plan, String> {
     use semstrait::planner::plan_semantic_query;
     
-    // Get model
     let model = schema
         .get_model(&request.model)
         .ok_or_else(|| format!("Model '{}' not found", request.model))?;
 
-    // Use plan_semantic_query which handles cross-datasetGroup cases
     let plan_node = plan_semantic_query(schema, model, request)
         .map_err(|e| format!("Planning failed: {}", e))?;
 
-    // Emit Substrait
     let substrait = emit_plan(&plan_node, None).map_err(|e| format!("Emission failed: {}", e))?;
 
     Ok(substrait)
@@ -45,7 +36,6 @@ pub fn run_pipeline(schema: &Schema, request: &QueryRequest) -> Result<Plan, Str
 
 use substrait::proto::rel::RelType;
 
-/// Count the number of ReadRel (table scans) in the plan
 pub fn count_scans(plan: &Plan) -> usize {
     let mut count = 0;
     for plan_rel in &plan.relations {
@@ -85,7 +75,6 @@ fn count_scans_in_rel(rel: &substrait::proto::Rel) -> usize {
     }
 }
 
-/// Check if the plan contains any JoinRel nodes
 pub fn has_join(plan: &Plan) -> bool {
     for plan_rel in &plan.relations {
         if let Some(rel_type) = &plan_rel.rel_type {
@@ -121,7 +110,6 @@ fn has_join_in_rel(rel: &substrait::proto::Rel) -> bool {
     }
 }
 
-/// Check if the plan contains a SetRel (UNION)
 pub fn has_union(plan: &Plan) -> bool {
     for plan_rel in &plan.relations {
         if let Some(rel_type) = &plan_rel.rel_type {
@@ -160,7 +148,6 @@ fn has_union_in_rel(rel: &substrait::proto::Rel) -> bool {
     }
 }
 
-/// Count the number of JoinRel nodes in the plan
 pub fn count_joins(plan: &Plan) -> usize {
     let mut count = 0;
     for plan_rel in &plan.relations {
@@ -198,11 +185,6 @@ fn count_joins_in_rel(rel: &substrait::proto::Rel) -> usize {
     }
 }
 
-// =============================================================================
-// Debug Utilities
-// =============================================================================
-
-/// Print the plan structure for debugging
 #[allow(dead_code)]
 pub fn debug_plan_structure(plan: &Plan) {
     println!("Plan has {} relations", plan.relations.len());

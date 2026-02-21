@@ -1,15 +1,15 @@
 # Cross-DatasetGroup Test Fixture
-# Tests: UNION across multiple datasetGroups with different measures
+# Tests: UNION across multiple dataset_groups with different measures
 #
 # Expected behavior:
-# - unified_cost metric should generate a UNION of both datasetGroups
+# - unified_cost metric should generate a UNION of both dataset_groups
 # - Each branch should aggregate its own measure (ad_cost vs media_spend)
 # - Final result should re-aggregate the unioned data
-# - Model-level dimensions (dates) can be queried with 2-part paths across datasetGroups
+# - Model-level dimensions (dates) can be queried with 2-part paths across dataset_groups
 
 semantic_models:
   - name: marketing
-    # Model-level dimensions - queryable with 2-part paths across all datasetGroups
+    # Model-level dimensions - queryable with 2-part paths across all dataset_groups
     dimensions:
       - name: _dataset
         virtual: true
@@ -29,7 +29,7 @@ semantic_models:
           - name: year
             type: i32
 
-    datasetGroups:
+    dataset_groups:
       # Google Ads data
       - name: google_ads
         dimensions:
@@ -126,7 +126,7 @@ semantic_models:
 
     # Metrics
     metrics:
-      # Simple metric that exists in both datasetGroups
+      # Simple metric that exists in both dataset_groups
       - name: clicks
         type: i64
         expr: clicks

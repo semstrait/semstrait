@@ -99,6 +99,26 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_iceberg_source() {
+        let schema = parse_file("test_data/iceberg_source.yaml").unwrap();
+
+        let model = schema.get_model("iceberg-test").unwrap();
+
+        // Dimension should have Iceberg source
+        let dates = model.get_dimension("dates").unwrap();
+        assert_eq!(dates.iceberg_table(), Some("warehouse.dates"));
+        assert!(dates.parquet_path().is_none());
+        assert_eq!(dates.source_ref(), Some("warehouse.dates"));
+
+        // Dataset should have Iceberg source
+        let group = model.first_dataset_group().unwrap();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
+        assert_eq!(dataset.iceberg_table(), Some("warehouse.orderfact"));
+        assert!(dataset.parquet_path().is_none());
+        assert_eq!(dataset.source_ref(), "warehouse.orderfact");
+    }
+
+    #[test]
     fn test_parse_invalid_yaml() {
         let result = parse_str("not: [valid: yaml");
         assert!(result.is_err());

@@ -17,6 +17,9 @@ pub enum Source {
     /// Parquet file source
     #[serde(rename = "parquet")]
     Parquet { path: String },
+    /// Iceberg table source (catalog resolution is the service layer's responsibility)
+    #[serde(rename = "iceberg")]
+    Iceberg { table: String },
 }
 
 /// Resolve template variables in a path string
@@ -245,6 +248,26 @@ impl GroupDataset {
     pub fn parquet_path(&self) -> Option<&str> {
         match &self.source {
             Source::Parquet { path } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Get the Iceberg table identifier if source is Iceberg
+    pub fn iceberg_table(&self) -> Option<&str> {
+        match &self.source {
+            Source::Iceberg { table } => Some(table),
+            _ => None,
+        }
+    }
+
+    /// Get the primary source identifier regardless of source type.
+    ///
+    /// Returns the parquet path for Parquet sources, or the table identifier
+    /// for Iceberg sources.
+    pub fn source_ref(&self) -> &str {
+        match &self.source {
+            Source::Parquet { path } => path,
+            Source::Iceberg { table } => table,
         }
     }
 
@@ -561,6 +584,47 @@ datasets:
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown variable"));
+    }
+
+    #[test]
+    fn test_parse_iceberg_source() {
+        let yaml = r#"
+name: orders
+dimensions:
+  - name: dates
+    join:
+      leftKey: time_id
+      rightKey: time_id
+measures:
+  - name: sales
+    aggregation: sum
+    expr: totalprice
+    type: f64
+datasets:
+  - dataset: warehouse.orderfact
+    source:
+      type: iceberg
+      table: warehouse.orderfact
+    dimensions:
+      dates: [year, month]
+    measures: [sales]
+"#;
+        let group: DatasetGroup = serde_yaml::from_str(yaml).unwrap();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
+
+        assert!(dataset.parquet_path().is_none());
+        assert_eq!(dataset.iceberg_table(), Some("warehouse.orderfact"));
+        assert_eq!(dataset.source_ref(), "warehouse.orderfact");
+    }
+
+    #[test]
+    fn test_source_ref_parquet() {
+        let group = sample_dataset_group();
+        let dataset = group.get_dataset("warehouse.orderfact").unwrap();
+
+        assert_eq!(dataset.source_ref(), "/data/warehouse/orderfact.parquet");
+        assert_eq!(dataset.parquet_path(), Some("/data/warehouse/orderfact.parquet"));
+        assert!(dataset.iceberg_table().is_none());
     }
 
 }

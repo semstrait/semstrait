@@ -9,7 +9,7 @@
 
 semantic_models:
   - name: sales_multi
-    datasetGroups:
+    dataset_groups:
       - name: sales_agg
         dimensions:
           - name: dates
