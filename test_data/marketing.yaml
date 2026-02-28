@@ -1,0 +1,193 @@
+semantic_models:
+  - name: "-ObDoDFVQGxxCGa5vw_Z"
+    namespace: 6fc5b53e-cfc9-4c24-86a5-98348d9bcd1f
+    
+    # Note: common-cost metric uses cross-datasetGroup logic (CASE WHEN connectorType)
+    # This requires cross-group query support which isn't implemented yet.
+    # For now, query each group separately and union in application layer.
+    
+    # Virtual dimension for dataset metadata (shared across all dataset_groups)
+    dimensions:
+      - name: _dataset
+        virtual: true
+        label: Table Metadata
+        description: Metadata about the table and model
+        attributes:
+          - name: model
+            type: string
+          - name: namespace
+            type: string
+          - name: datasetGroup
+            type: string
+          - name: table
+            type: string
+    
+    dataset_groups:
+      # ============================================
+      # ADWORDS
+      # ============================================
+      - name: adwords
+        dimensions:
+          # All degenerate dimensions (columns on fact tables)
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+          
+          - name: account
+            attributes:
+              - name: currency
+                type: string
+              - name: accountName
+                column: adwords-accountName
+                type: string
+              - name: accountId
+                column: adwords-accountId
+                type: string
+          
+          - name: campaign
+            attributes:
+              - name: campaign
+                column: adwords-campaign
+                type: string
+              - name: campaignID
+                column: adwords-campaignID
+                type: string
+          
+          - name: ad_group
+            attributes:
+              - name: ad_group_id
+                column: adwords-ad_group_id
+                type: string
+              - name: ad_group_name
+                column: adwords-ad_group_name
+                type: string
+          
+          # Virtual dimension for metadata
+          - name: _dataset
+        
+        measures:
+          - name: cost
+            aggregation: sum
+            expr: adwords-cost
+            type: f64
+          
+          - name: views
+            aggregation: sum
+            expr: adwords-views
+            type: f64
+          
+          - name: clicks
+            aggregation: sum
+            expr: adwords-clicks
+            type: f64
+          
+          - name: impressions
+            aggregation: sum
+            expr: adwords-impressions
+            type: f64
+        
+        datasets:
+          - dataset: "95f9b0c3-b116-46c5-849e-b7e901e5d7c1"  # Geo Performance | Campaign | Postal code
+            source:
+              type: parquet
+              path: /data/adwords/geo_performance.parquet
+            dimensions:
+              dates: [date]
+              account: [currency, accountName, accountId]
+              campaign: [campaign, campaignID]
+              _dataset: [model, namespace, datasetGroup, dataset]
+            measures: [cost, views, clicks, impressions]
+          
+          - dataset: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
+            source:
+              type: parquet
+              path: /data/adwords/ad_group_device.parquet
+            dimensions:
+              dates: [date]
+              account: [currency, accountName, accountId]
+              campaign: [campaign, campaignID]
+              ad_group: [ad_group_id, ad_group_name]
+              _dataset: [model, namespace, datasetGroup, dataset]
+            measures: [cost, views, clicks, impressions]
+
+      # ============================================
+      # FACEBOOK ADS
+      # ============================================
+      - name: facebookads
+        dimensions:
+          - name: dates
+            attributes:
+              - name: date
+                type: date
+          
+          - name: account
+            attributes:
+              - name: currency
+                type: string
+          
+          - name: campaign
+            attributes:
+              - name: campaign
+                column: campaign_name
+                type: string
+          
+          # Virtual dimension for metadata
+          - name: _dataset
+        
+        measures:
+          - name: spend
+            aggregation: sum
+            expr: spend
+            type: f64
+          
+          - name: clicks
+            aggregation: sum
+            expr: clicks
+            type: i64
+          
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+        
+        datasets:
+          - dataset: "facebook-campaign-daily"
+            source:
+              type: parquet
+              path: /data/facebookads/campaign_daily.parquet
+            dimensions:
+              dates: [date]
+              account: [currency]
+              campaign: [campaign]
+              _dataset: [model, namespace, datasetGroup, dataset]
+            measures: [spend, clicks, impressions]
+
+    metrics:
+      - name: fun-cost
+        type: f64
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [datasetGroup.name, "adwords"]
+                then: cost
+              - condition:
+                  eq: [datasetGroup.name, "facebookads"]
+                then: spend
+            else: 0
+      
+      - name: fun-impressions
+        type: f64
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [datasetGroup.name, "adwords"]
+                then: impressions
+              - condition:
+                  eq: [datasetGroup.name, "facebookads"]
+                then: impressions
+            else: 0
+
+# No shared dimension tables (all dimensions are degenerate/inline)

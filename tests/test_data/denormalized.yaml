@@ -1,0 +1,78 @@
+# Denormalized (Flat Table) Test Fixture
+# Tests: All dimension columns exist directly on the fact table (no JOINs)
+#
+# Expected behavior:
+# - No JOINs should be generated
+# - All columns come from a single table scan
+# - Degenerate dimensions (no join spec) should work correctly
+
+semantic_models:
+  - name: events
+    # Metrics are the public query interface
+    metrics:
+      - name: event_count
+        expr: event_count
+        type: i64
+      - name: total_value
+        expr: total_value
+        type: f64
+    
+    dataset_groups:
+      - name: user_events
+        dimensions:
+          # Degenerate dimension - no join spec, columns are on fact table
+          - name: dates
+            attributes:
+              - name: event_date
+                type: date
+              - name: event_year
+                column: year
+                type: i32
+              - name: event_month
+                column: month
+                type: i32
+
+          # Another degenerate dimension
+          - name: user
+            attributes:
+              - name: user_id
+                type: string
+              - name: user_country
+                column: country
+                type: string
+              - name: user_segment
+                column: segment
+                type: string
+
+          # Event type dimension
+          - name: event
+            attributes:
+              - name: event_type
+                type: string
+              - name: event_category
+                column: category
+                type: string
+
+        measures:
+          - name: event_count
+            aggregation: count
+            expr: event_id
+            type: i64
+
+          - name: total_value
+            aggregation: sum
+            expr: value
+            type: f64
+
+        datasets:
+          - dataset: analytics.events_flat
+            source:
+              type: parquet
+              path: /data/analytics/events_flat.parquet
+            dimensions:
+              dates: [event_date, event_year, event_month]
+              user: [user_id, user_country, user_segment]
+              event: [event_type, event_category]
+            measures: [event_count, total_value]
+
+# No shared dimensions - everything is denormalized

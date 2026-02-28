@@ -1,0 +1,67 @@
+# Test fixture for Iceberg table sources
+#
+# Validates that the semantic model can be defined with Iceberg sources
+# instead of Parquet files. Catalog resolution is the service layer's
+# responsibility -- the semantic model only carries the table identifier.
+
+semantic_models:
+  - name: iceberg-test
+    namespace: "test-namespace"
+
+    dimensions:
+      - name: dates
+        source:
+          type: iceberg
+          table: warehouse.dates
+        table: warehouse.dates
+        attributes:
+          - name: date
+            column: time_id
+            type: string
+          - name: year
+            column: year_id
+            type: i32
+
+    metrics:
+      - name: sales
+        expr: sales
+        type: f64
+
+      - name: quantity
+        expr: quantity
+        type: i32
+
+      - name: avg_unit_price
+        label: Average Unit Price
+        expr:
+          divide: [sales, quantity]
+        type: f64
+
+    dataset_groups:
+      - name: orders
+        dimensions:
+          - name: dates
+            join:
+              leftKey: time_id
+              rightKey: time_id
+
+        measures:
+          - name: quantity
+            aggregation: sum
+            expr: quantityordered
+            type: i32
+
+          - name: sales
+            aggregation: sum
+            expr: totalprice
+            type: f64
+
+        datasets:
+          - dataset: warehouse.orderfact
+            source:
+              type: iceberg
+              table: warehouse.orderfact
+            uuid: "iceberg-uuid-001"
+            dimensions:
+              dates: [date, year]
+            measures: [quantity, sales]

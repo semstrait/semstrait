@@ -1,0 +1,104 @@
+# Star Schema Test Fixture
+# Tests: Fact table with dimension JOINs
+#
+# Expected behavior:
+# - Query with dates.year should produce a JOIN to the dates dimension
+# - Query with products.category should produce a JOIN to the products dimension
+# - Multiple dimensions should produce multiple JOINs
+
+semantic_models:
+  - name: sales
+    dimensions:
+      - name: dates
+        source:
+          type: parquet
+          path: /data/warehouse/dates_dim.parquet
+        table: warehouse.dates_dim
+        attributes:
+          - name: date_id
+            type: i32
+          - name: year
+            type: i32
+          - name: month
+            type: i32
+          - name: day
+            type: i32
+
+      - name: products
+        source:
+          type: parquet
+          path: /data/warehouse/products_dim.parquet
+        table: warehouse.products_dim
+        attributes:
+          - name: product_id
+            type: i32
+          - name: name
+            type: string
+          - name: category
+            type: string
+    
+    metrics:
+      - name: revenue
+        expr: revenue
+        type: f64
+      - name: quantity
+        expr: quantity
+        type: i64
+      - name: order_count
+        expr: order_count
+        type: i64
+    
+    dataset_groups:
+      - name: transactions
+        dimensions:
+          - name: dates
+            join:
+              leftKey: date_id
+              rightKey: date_id
+            attributes:
+              - name: date_id
+                type: i32
+              - name: year
+                type: i32
+              - name: month
+                type: i32
+              - name: day
+                type: i32
+
+          - name: products
+            join:
+              leftKey: product_id
+              rightKey: product_id
+            attributes:
+              - name: product_id
+                type: i32
+              - name: name
+                type: string
+              - name: category
+                type: string
+
+        measures:
+          - name: revenue
+            aggregation: sum
+            expr: amount
+            type: f64
+
+          - name: quantity
+            aggregation: sum
+            expr: qty
+            type: i64
+
+          - name: order_count
+            aggregation: count
+            expr: order_id
+            type: i64
+
+        datasets:
+          - dataset: warehouse.sales_fact
+            source:
+              type: parquet
+              path: /data/warehouse/sales_fact.parquet
+            dimensions:
+              dates: [date_id, year, month, day]
+              products: [product_id, name, category]
+            measures: [revenue, quantity, order_count]
