@@ -5,6 +5,6 @@
 mod node;
 mod expr;
 
-pub use node::{PlanNode, Scan, Join, JoinType, Filter, Aggregate, Project, ProjectExpr, Sort, SortKey, SortDirection, Union, VirtualTable, LiteralValue};
+pub use node::{PlanNode, Scan, Join, JoinType, CrossJoin, Filter, Aggregate, Project, ProjectExpr, Sort, SortKey, SortDirection, Union, VirtualTable, LiteralValue};
 pub use expr::{Expr, AggregateExpr, Column, Literal, BinaryOperator};
 

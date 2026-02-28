@@ -145,3 +145,62 @@ fn test_smallest_dataset_first_assignment() {
     assert_eq!(selection.datasets[1].dataset.dataset, "campaign_details");
     assert!(selection.datasets[1].measures.contains(&"cost".to_string()));
 }
+
+#[test]
+fn test_cross_join_no_dimensions() {
+    let schema = load_schema();
+    let model = schema.get_model("multi-table-test").unwrap();
+    
+    // Two metrics from different tables, no dimensions at all
+    let request = QueryRequest {
+        model: "multi-table-test".to_string(),
+        dimensions: None,
+        rows: None,
+        columns: None,
+        metrics: Some(vec!["clicks".to_string(), "cost".to_string()]),
+        filter: None,
+    };
+    
+    let plan = plan_semantic_query(&schema, model, &request).unwrap();
+    
+    // Should be: Project(CrossJoin(...))
+    match &plan {
+        PlanNode::Project(proj) => {
+            assert_eq!(proj.expressions.len(), 2);
+            match proj.input.as_ref() {
+                PlanNode::CrossJoin(_) => {}
+                other => panic!("Expected CrossJoin, got {:?}", std::mem::discriminant(other)),
+            }
+        }
+        other => panic!("Expected Project at top level, got {:?}", std::mem::discriminant(other)),
+    }
+}
+
+#[test]
+fn test_cross_join_with_virtual_dimension_only() {
+    let schema = load_schema();
+    let model = schema.get_model("multi-table-test").unwrap();
+    
+    // Two metrics from different tables, only a virtual dimension
+    let request = QueryRequest {
+        model: "multi-table-test".to_string(),
+        dimensions: None,
+        rows: Some(vec!["_dataset.datasetGroup".to_string()]),
+        columns: None,
+        metrics: Some(vec!["clicks".to_string(), "cost".to_string()]),
+        filter: None,
+    };
+    
+    let plan = plan_semantic_query(&schema, model, &request).unwrap();
+    
+    // Plan should succeed and contain a CrossJoin (virtual dims don't create join keys)
+    fn has_cross_join(node: &PlanNode) -> bool {
+        match node {
+            PlanNode::CrossJoin(_) => true,
+            PlanNode::Project(p) => has_cross_join(&p.input),
+            PlanNode::Sort(s) => has_cross_join(&s.input),
+            _ => false,
+        }
+    }
+    assert!(has_cross_join(&plan), "Plan should contain a CrossJoin:\n{}", plan.display_indent());
+}

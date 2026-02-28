@@ -10,6 +10,8 @@ pub enum PlanNode {
     Scan(Scan),
     /// Join two relations
     Join(Join),
+    /// Cross join two relations (cartesian product, no join keys)
+    CrossJoin(CrossJoin),
     /// Filter rows
     Filter(Filter),
     /// Aggregate (GROUP BY)
@@ -97,6 +99,18 @@ pub struct Join {
     pub left_key: Column,
     /// Right key column
     pub right_key: Column,
+}
+
+/// Cross join two relations (cartesian product)
+///
+/// Used when combining scalar aggregates from different tables that have
+/// no shared dimensions. Each side produces one row, so the result is one row.
+#[derive(Debug)]
+pub struct CrossJoin {
+    /// Left input
+    pub left: Box<PlanNode>,
+    /// Right input
+    pub right: Box<PlanNode>,
 }
 
 /// Filter rows (WHERE clause)
@@ -245,6 +259,12 @@ impl PlanNode {
                 join.left.fmt_indent(f, indent + 1)?;
                 writeln!(f)?;
                 join.right.fmt_indent(f, indent + 1)
+            }
+            PlanNode::CrossJoin(cross) => {
+                writeln!(f, "{}CrossJoin", pad)?;
+                cross.left.fmt_indent(f, indent + 1)?;
+                writeln!(f)?;
+                cross.right.fmt_indent(f, indent + 1)
             }
             PlanNode::Filter(filter) => {
                 writeln!(f, "{}Filter: {}", pad, filter.predicate)?;

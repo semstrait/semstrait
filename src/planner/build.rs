@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use crate::semantic_model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupDataset, Dimension, DatasetGroupDimension, DatasetGroup, Schema, SemanticModel, Metric, Aggregation, Measure};
 use crate::plan::{
-    Aggregate, AggregateExpr, Column, Expr, Filter, Join, JoinType, 
+    Aggregate, AggregateExpr, Column, CrossJoin, Expr, Filter, Join, JoinType, 
     Literal, PlanNode, Scan, BinaryOperator, Project, ProjectExpr, Sort, SortKey, SortDirection, Union,
     VirtualTable, LiteralValue as PlanLiteralValue,
 };
@@ -1262,10 +1262,8 @@ fn build_multi_table_aggregate(
     let mut left_alias = first_alias;
     
     for (right_plan, right_alias) in sub_queries {
-        // Use the first dimension attribute as the join key
         if let Some((dim_name, attr_name)) = physical_dims.first() {
             let semantic_name = format!("{}.{}", dim_name, attr_name);
-            // Column names include the prefix, e.g., "t0.dates.date"
             let left_col_name = format!("{}.{}", left_alias, semantic_name);
             let right_col_name = format!("{}.{}", right_alias, semantic_name);
             
@@ -1282,9 +1280,14 @@ fn build_multi_table_aggregate(
             
             left_alias = format!("{}_{}", left_alias, right_alias);
         } else {
-            return Err(PlanError::InvalidQuery(
-                "Cannot JOIN tables without common dimensions".to_string()
-            ));
+            // No physical dimensions — each sub-query is a scalar aggregate (one row).
+            // CROSS JOIN produces exactly one row from two single-row inputs.
+            joined_plan = PlanNode::CrossJoin(CrossJoin {
+                left: Box::new(joined_plan),
+                right: Box::new(right_plan),
+            });
+            
+            left_alias = format!("{}_{}", left_alias, right_alias);
         }
     }
     
@@ -3277,10 +3280,7 @@ fn plan_same_tablegroup_join(
     
     // JOIN remaining sub-queries
     for (right_plan, right_alias) in sub_queries {
-        // Use the first dimension attribute as the join key
-        // (all physical dimensions should work as join keys)
         if let Some((dim_name, attr_name)) = physical_dims.first() {
-            // Get the column name for this dimension attribute
             let col_name = get_dimension_column_name(dataset_group, dim_name, attr_name);
             
             let left_key = Column::new(&left_alias, &col_name);
@@ -3294,14 +3294,16 @@ fn plan_same_tablegroup_join(
                 right_key,
             });
             
-            // For the next join, use a compound alias
             left_alias = format!("{}_{}", left_alias, right_alias);
         } else {
-            // No physical dimensions - can't join, just use the first table
-            // This shouldn't happen in practice
-            return Err(PlanError::InvalidQuery(
-                "Cannot JOIN tables without common dimensions".to_string()
-            ));
+            // No physical dimensions — each sub-query is a scalar aggregate (one row).
+            // CROSS JOIN produces exactly one row from two single-row inputs.
+            joined_plan = PlanNode::CrossJoin(CrossJoin {
+                left: Box::new(joined_plan),
+                right: Box::new(right_plan),
+            });
+            
+            left_alias = format!("{}_{}", left_alias, right_alias);
         }
     }
     
