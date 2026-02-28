@@ -47,7 +47,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     
     // Start with the fact table scan (from the selected table)
     let fact_table = &resolved.dataset.dataset;
-    let fact_alias = "fact"; // GroupDataset doesn't have alias, use default
+    let fact_alias = &resolved.dataset_group.name;
     
     let mut plan: PlanNode = PlanNode::Scan(
         Scan::new(fact_table)
@@ -1003,7 +1003,7 @@ fn build_single_table_aggregate(
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
     output_prefix: Option<&str>,
 ) -> Result<PlanNode, PlanError> {
-    let fact_alias = "fact";
+    let fact_alias = &dataset_group.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     let mut joined_dimensions: HashSet<String> = HashSet::new();
@@ -1966,7 +1966,7 @@ fn build_union_branch(
     }
     
     // Build the scan
-    let fact_alias = "fact";
+    let fact_alias: &str = &dataset_group.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     
@@ -2343,7 +2343,7 @@ fn build_multi_metric_branch(
     }
     
     // Build the scan
-    let fact_alias = "fact";
+    let fact_alias: &str = &dataset_group.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     
@@ -3020,7 +3020,7 @@ fn build_cross_dataset_group_branch(
     }
     
     // Build the scan
-    let fact_alias = "fact";
+    let fact_alias: &str = &dataset_group.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     
@@ -3774,7 +3774,7 @@ mod tests {
         let resolved = resolve_query(&schema, &request, &selected).unwrap();
         let plan = plan_query(&resolved).unwrap();
 
-        // Should be: Sort(Project(Aggregate(Scan(fact)))) - NO join for degenerate dimension
+        // Should be: Sort(Project(Aggregate(Scan(orders)))) - NO join for degenerate dimension
         let proj = match plan {
             PlanNode::Sort(sort) => {
                 assert_eq!(sort.sort_keys.len(), 1);
@@ -3791,8 +3791,8 @@ mod tests {
             PlanNode::Aggregate(agg) => {
                 // Aggregate should have 1 group by column
                 assert_eq!(agg.group_by.len(), 1);
-                // The column should be from the fact table (degenerate dimension)
-                assert_eq!(agg.group_by[0].table, "fact");
+                // The column should be from the dataset group (degenerate dimension)
+                assert_eq!(agg.group_by[0].table, "orders");
                 assert_eq!(agg.group_by[0].name, "is_premium_order"); // Uses the column name from attribute
 
                 // Input should be just a Scan (no Join for degenerate dimension)

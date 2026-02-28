@@ -1,5 +1,6 @@
 //! Expression types for the logical plan
 
+use std::fmt;
 use crate::semantic_model::Aggregation;
 
 /// A column reference
@@ -95,6 +96,18 @@ pub enum Literal {
     String(String),
 }
 
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Literal::Null(t) => write!(f, "NULL::{}", t),
+            Literal::Bool(b) => write!(f, "{}", b),
+            Literal::Int(i) => write!(f, "{}", i),
+            Literal::Float(v) => write!(f, "{}", v),
+            Literal::String(s) => write!(f, "'{}'", s),
+        }
+    }
+}
+
 /// Binary operators
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOperator {
@@ -125,5 +138,55 @@ pub struct AggregateExpr {
     pub func: Aggregation,
     pub expr: Expr,
     pub alias: String,
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Column(col) => write!(f, "{}", col.qualified_name()),
+            Expr::Literal(lit) => write!(f, "{}", lit),
+            Expr::BinaryOp { left, op, right } =>
+                write!(f, "{} {} {}", left, op.as_str(), right),
+            Expr::In { expr, values } => {
+                let vals: Vec<_> = values.iter().map(|v| v.to_string()).collect();
+                write!(f, "{} IN ({})", expr, vals.join(", "))
+            }
+            Expr::And(exprs) => {
+                let parts: Vec<_> = exprs.iter().map(|e| e.to_string()).collect();
+                write!(f, "({})", parts.join(" AND "))
+            }
+            Expr::Or(exprs) => {
+                let parts: Vec<_> = exprs.iter().map(|e| e.to_string()).collect();
+                write!(f, "({})", parts.join(" OR "))
+            }
+            Expr::Sql(s) => write!(f, "{}", s),
+            Expr::Add(a, b) => write!(f, "({} + {})", a, b),
+            Expr::Subtract(a, b) => write!(f, "({} - {})", a, b),
+            Expr::Multiply(a, b) => write!(f, "({} * {})", a, b),
+            Expr::Divide(a, b) => write!(f, "({} / {})", a, b),
+            Expr::IsNull(e) => write!(f, "{} IS NULL", e),
+            Expr::IsNotNull(e) => write!(f, "{} IS NOT NULL", e),
+            Expr::Case { when_then, else_result } => {
+                write!(f, "CASE")?;
+                for (cond, result) in when_then {
+                    write!(f, " WHEN {} THEN {}", cond, result)?;
+                }
+                if let Some(else_r) = else_result {
+                    write!(f, " ELSE {}", else_r)?;
+                }
+                write!(f, " END")
+            }
+            Expr::Coalesce(exprs) => {
+                let parts: Vec<_> = exprs.iter().map(|e| e.to_string()).collect();
+                write!(f, "coalesce({})", parts.join(", "))
+            }
+        }
+    }
+}
+
+impl fmt::Display for AggregateExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}({}) AS {}", self.func, self.expr, self.alias)
+    }
 }
 

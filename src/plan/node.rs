@@ -1,5 +1,6 @@
 //! Plan node types
 
+use std::fmt;
 use super::expr::{AggregateExpr, Column, Expr};
 
 /// A node in the logical plan tree
@@ -194,4 +195,125 @@ pub enum LiteralValue {
     Float64(f64),
     Bool(bool),
     Null,
+}
+
+// =============================================================================
+// Display - indented plan tree (DataFusion-style)
+// =============================================================================
+
+impl PlanNode {
+    /// Return a display wrapper that renders the plan as an indented tree.
+    ///
+    /// Mirrors DataFusion's `LogicalPlan::display_indent()` style:
+    /// ```text
+    /// Projection: fact.year AS dates.year, sum(fact.amount) AS revenue
+    ///   Sort: fact.year ASC
+    ///     Aggregate: groupBy=[[fact.year]], aggr=[[sum(fact.amount) AS revenue]]
+    ///       InnerJoin: fact.date_id = dates.date_id
+    ///         TableScan: fact projection=[date_id, amount]
+    ///         TableScan: dates projection=[date_id, year]
+    /// ```
+    pub fn display_indent(&self) -> impl fmt::Display + '_ {
+        struct IndentDisplay<'a>(&'a PlanNode);
+        impl fmt::Display for IndentDisplay<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt_indent(f, 0)
+            }
+        }
+        IndentDisplay(self)
+    }
+
+    fn fmt_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
+        let pad = "  ".repeat(indent);
+        match self {
+            PlanNode::Scan(scan) => {
+                let name = scan.alias.as_deref().unwrap_or(&scan.table);
+                write!(f, "{}TableScan: {} projection=[{}]",
+                    pad, name, scan.columns.join(", "))
+            }
+            PlanNode::Join(join) => {
+                let jt = match join.join_type {
+                    JoinType::Inner => "Inner",
+                    JoinType::Left => "Left",
+                    JoinType::Right => "Right",
+                    JoinType::Full => "Full",
+                };
+                writeln!(f, "{}{}Join: {} = {}",
+                    pad, jt,
+                    join.left_key.qualified_name(),
+                    join.right_key.qualified_name())?;
+                join.left.fmt_indent(f, indent + 1)?;
+                writeln!(f)?;
+                join.right.fmt_indent(f, indent + 1)
+            }
+            PlanNode::Filter(filter) => {
+                writeln!(f, "{}Filter: {}", pad, filter.predicate)?;
+                filter.input.fmt_indent(f, indent + 1)
+            }
+            PlanNode::Aggregate(agg) => {
+                let groups: Vec<_> = agg.group_by.iter()
+                    .map(|c| c.qualified_name()).collect();
+                let aggrs: Vec<_> = agg.aggregates.iter()
+                    .map(|a| a.to_string()).collect();
+                writeln!(f, "{}Aggregate: groupBy=[[{}]], aggr=[[{}]]",
+                    pad, groups.join(", "), aggrs.join(", "))?;
+                agg.input.fmt_indent(f, indent + 1)
+            }
+            PlanNode::Project(proj) => {
+                let exprs: Vec<_> = proj.expressions.iter()
+                    .map(|pe| {
+                        if pe.expr.to_string() == pe.alias {
+                            pe.alias.clone()
+                        } else {
+                            format!("{} AS {}", pe.expr, pe.alias)
+                        }
+                    })
+                    .collect();
+                writeln!(f, "{}Projection: {}", pad, exprs.join(", "))?;
+                proj.input.fmt_indent(f, indent + 1)
+            }
+            PlanNode::Sort(sort) => {
+                let keys: Vec<_> = sort.sort_keys.iter()
+                    .map(|k| {
+                        let dir = match k.direction {
+                            SortDirection::Ascending => "ASC",
+                            SortDirection::Descending => "DESC",
+                        };
+                        format!("{} {}", k.column, dir)
+                    })
+                    .collect();
+                writeln!(f, "{}Sort: {}", pad, keys.join(", "))?;
+                sort.input.fmt_indent(f, indent + 1)
+            }
+            PlanNode::Union(union) => {
+                writeln!(f, "{}Union", pad)?;
+                for (i, input) in union.inputs.iter().enumerate() {
+                    if i > 0 { writeln!(f)?; }
+                    input.fmt_indent(f, indent + 1)?;
+                }
+                Ok(())
+            }
+            PlanNode::VirtualTable(vt) => {
+                write!(f, "{}VirtualTable: [{}] ({} rows)",
+                    pad, vt.columns.join(", "), vt.rows.len())
+            }
+        }
+    }
+}
+
+impl fmt::Display for PlanNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_indent(f, 0)
+    }
+}
+
+impl fmt::Display for JoinType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JoinType::Inner => write!(f, "Inner"),
+            JoinType::Left => write!(f, "Left"),
+            JoinType::Right => write!(f, "Right"),
+            JoinType::Full => write!(f, "Full"),
+        }
+    }
 }
