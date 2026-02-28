@@ -101,7 +101,7 @@ semantic_models:
         # Two tables with DIFFERENT measure subsets
         datasets:
           # Summary dataset: has impressions and clicks (more aggregated - fewer dims)
-          - dataset: "campaign_summary"
+          - name: "campaign_summary"
             source:
               type: parquet
               path: /data/campaign_summary.parquet
@@ -112,7 +112,7 @@ semantic_models:
             measures: [impressions, clicks]
           
           # Details dataset: has cost and conversions (less aggregated - more dims)
-          - dataset: "campaign_details"
+          - name: "campaign_details"
             source:
               type: parquet
               path: /data/campaign_details.parquet

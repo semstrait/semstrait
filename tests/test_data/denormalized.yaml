@@ -65,7 +65,7 @@ semantic_models:
             type: f64
 
         datasets:
-          - dataset: analytics.events_flat
+          - name: analytics.events_flat
             source:
               type: parquet
               path: /data/analytics/events_flat.parquet

@@ -80,7 +80,7 @@ To add a new expression type: add variant to `ExprNode` enum, serde handles dese
 | Add aggregation | `model/types.rs` - add to `Aggregation` enum, update `FromStr` |
 | Add input format | Create parser crate that produces `model::Schema` |
 | Add plan node | `plan/node.rs` + update `planner/` and `emitter/` |
-| Add source type | `semantic_model/datasetgroup.rs` - add variant to `Source` enum, update accessors on `GroupDataset` and `Dimension`, update `semstrait-js` `Source` type |
+| Add source type | `semantic_model/datasetgroup.rs` - add variant to `Source` enum, update accessors on `Dataset` and `Dimension`, update `semstrait-js` `Source` type |
 | Add `_dataset` attribute | 1) Add to model's `_dataset` dimension attributes, 2) Add to dataset's `_dataset` list |
 | Add dataset property | 1) Add to `dataset.properties`, 2) Declare in `_dataset` dimension, 3) Add to dataset's `_dataset` list |
 | Add shared dimension | Define at model-level `dimensions` (queryable with 2-part path) |

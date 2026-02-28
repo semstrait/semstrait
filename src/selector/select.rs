@@ -14,7 +14,7 @@
 //! to assign measures to the most aggregated datasets.
 
 use std::collections::{HashMap, HashSet};
-use crate::semantic_model::{SemanticModel, DatasetGroup, GroupDataset, Schema};
+use crate::semantic_model::{SemanticModel, DatasetGroup, Dataset, Schema};
 use super::error::SelectError;
 
 /// Result of dataset selection - includes both the group and dataset
@@ -23,7 +23,7 @@ pub struct SelectedDataset<'a> {
     /// The dataset group containing the selected dataset
     pub group: &'a DatasetGroup,
     /// The selected dataset
-    pub dataset: &'a GroupDataset,
+    pub dataset: &'a Dataset,
 }
 
 /// Result of multi-dataset selection for JOIN scenarios
@@ -42,7 +42,7 @@ pub struct MultiDatasetSelection<'a> {
 #[derive(Debug, Clone)]
 pub struct DatasetWithMeasures<'a> {
     /// The selected dataset
-    pub dataset: &'a GroupDataset,
+    pub dataset: &'a Dataset,
     /// Measures assigned to this dataset (using "first smallest wins" strategy)
     pub measures: Vec<String>,
 }
@@ -205,7 +205,7 @@ pub fn select_datasets_for_join<'a>(
     };
     
     // Find all datasets that have the required dimensions (can participate in JOIN)
-    let dimension_feasible: Vec<&GroupDataset> = target_group.datasets.iter()
+    let dimension_feasible: Vec<&Dataset> = target_group.datasets.iter()
         .filter(|dataset| has_all_dimensions(model, target_group, dataset, required_dimensions))
         .collect();
     
@@ -217,11 +217,11 @@ pub fn select_datasets_for_join<'a>(
     }
     
     // Sort datasets by attribute count (smallest/most aggregated first)
-    let mut sorted_datasets: Vec<&GroupDataset> = dimension_feasible;
+    let mut sorted_datasets: Vec<&Dataset> = dimension_feasible;
     sorted_datasets.sort_by_key(|t| t.attribute_count());
     
     // Assign measures to datasets using "first smallest wins" strategy
-    let mut measure_assignments: HashMap<String, &GroupDataset> = HashMap::new();
+    let mut measure_assignments: HashMap<String, &Dataset> = HashMap::new();
     let mut datasets_used: HashSet<String> = HashSet::new();
     
     for measure_name in required_measures {
@@ -230,7 +230,7 @@ pub fn select_datasets_for_join<'a>(
             .find(|t| t.has_measure(measure_name))
         {
             measure_assignments.insert(measure_name.clone(), *dataset);
-            datasets_used.insert(dataset.dataset.clone());
+            datasets_used.insert(dataset.name.clone());
         } else {
             return Err(SelectError::NoFeasibleDataset {
                 model: model.name.clone(),
@@ -243,9 +243,9 @@ pub fn select_datasets_for_join<'a>(
     let mut datasets_with_measures: Vec<DatasetWithMeasures> = Vec::new();
     
     for dataset in &sorted_datasets {
-        if datasets_used.contains(&dataset.dataset) {
+        if datasets_used.contains(&dataset.name) {
             let measures: Vec<String> = measure_assignments.iter()
-                .filter(|(_, t)| t.dataset == dataset.dataset)
+                .filter(|(_, t)| t.name == dataset.name)
                 .map(|(m, _)| m.clone())
                 .collect();
             
@@ -268,7 +268,7 @@ pub fn select_datasets_for_join<'a>(
 fn has_all_dimensions(
     model: &SemanticModel,
     group: &DatasetGroup,
-    dataset: &GroupDataset,
+    dataset: &Dataset,
     required_dimensions: &[String],
 ) -> bool {
     for dim_attr in required_dimensions {
@@ -302,7 +302,7 @@ fn has_all_dimensions(
 fn is_feasible(
     model: &SemanticModel,
     group: &DatasetGroup,
-    dataset: &GroupDataset,
+    dataset: &Dataset,
     required_dimensions: &[String],
     required_measures: &[String],
 ) -> bool {
@@ -355,7 +355,7 @@ fn is_feasible(
 fn dataset_has_attribute(
     model: &SemanticModel,
     group: &DatasetGroup,
-    dataset: &GroupDataset,
+    dataset: &Dataset,
     dim_attr_path: &str,
 ) -> bool {
     let parts: Vec<&str> = dim_attr_path.split('.').collect();

@@ -1,6 +1,6 @@
 //! Types for resolved query components
 
-use crate::semantic_model::{Attribute, Dimension, Measure, Metric, SemanticModel, DatasetGroup, DatasetGroupDimension, GroupDataset};
+use crate::semantic_model::{Attribute, Dimension, Measure, Metric, SemanticModel, DatasetGroup, DatasetGroupDimension, Dataset};
 
 /// A resolved attribute reference (dimension.attribute)
 /// 
@@ -159,7 +159,7 @@ pub struct ResolvedQuery<'a> {
     /// The selected dataset group (for dimensions and measures)
     pub dataset_group: &'a DatasetGroup,
     /// The selected dataset (for physical dataset name and columns)
-    pub dataset: &'a GroupDataset,
+    pub dataset: &'a Dataset,
     /// Dimensions needed for this query (from rows, columns, and filters)
     pub dimensions: Vec<ResolvedDimension<'a>>,
     /// Attributes for rows (GROUP BY, first axis)

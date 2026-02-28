@@ -51,8 +51,8 @@ semantic_models:
           # Joined dimension - need to join for name, city
           - name: customers
             join:
-              leftKey: customer_id
-              rightKey: customer_id
+              left_key: customer_id
+              right_key: customer_id
             attributes:
               - name: customer_id
                 type: i32
@@ -73,7 +73,7 @@ semantic_models:
             type: i64
 
         datasets:
-          - dataset: sales.orders
+          - name: sales.orders
             source:
               type: parquet
               path: /data/sales/orders.parquet

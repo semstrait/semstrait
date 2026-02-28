@@ -47,7 +47,7 @@ pub mod parser;
 pub mod error;
 
 // Re-export commonly used types
-pub use semantic_model::{Schema, SemanticModel, DatasetGroup, GroupDataset, DatasetGroupDimension, DataType, Aggregation, resolve_path_template, resolve_dimension_path_template};
+pub use semantic_model::{Schema, SemanticModel, DatasetGroup, Dataset, DatasetGroupDimension, DataType, Aggregation, resolve_path_template, resolve_dimension_path_template};
 pub use query::{QueryRequest, DataFilter};
 pub use selector::{select_datasets, SelectedDataset, SelectError};
 pub use resolver::{resolve_query, ResolvedQuery, ResolveError};

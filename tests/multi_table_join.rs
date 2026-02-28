@@ -30,7 +30,7 @@ fn test_single_dataset_selection_when_possible() {
     assert!(result.is_ok());
     let datasets = result.unwrap();
     assert_eq!(datasets.len(), 1);
-    assert_eq!(datasets[0].dataset.dataset, "campaign_summary");
+    assert_eq!(datasets[0].dataset.name, "campaign_summary");
 }
 
 #[test]
@@ -70,9 +70,9 @@ fn test_multi_dataset_selection_for_cross_dataset_measures() {
     
     // Verify measure assignments (smallest dataset first wins)
     let summary_dataset = selection.datasets.iter()
-        .find(|t| t.dataset.dataset == "campaign_summary");
+        .find(|t| t.dataset.name == "campaign_summary");
     let details_dataset = selection.datasets.iter()
-        .find(|t| t.dataset.dataset == "campaign_details");
+        .find(|t| t.dataset.name == "campaign_details");
     
     assert!(summary_dataset.is_some());
     assert!(details_dataset.is_some());
@@ -138,11 +138,11 @@ fn test_smallest_dataset_first_assignment() {
     let selection = result.unwrap();
     
     // campaign_summary should come first (smaller dataset)
-    assert_eq!(selection.datasets[0].dataset.dataset, "campaign_summary");
+    assert_eq!(selection.datasets[0].dataset.name, "campaign_summary");
     assert!(selection.datasets[0].measures.contains(&"impressions".to_string()));
     
     // campaign_details should come second (larger dataset)  
-    assert_eq!(selection.datasets[1].dataset.dataset, "campaign_details");
+    assert_eq!(selection.datasets[1].dataset.name, "campaign_details");
     assert!(selection.datasets[1].measures.contains(&"cost".to_string()));
 }
 
