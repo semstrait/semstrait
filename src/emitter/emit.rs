@@ -25,7 +25,7 @@ use substrait::proto::{
 };
 
 use crate::plan::{
-    PlanNode, Scan, Join, JoinType, Filter, Aggregate, Project, Sort, SortDirection, Union,
+    PlanNode, Scan, Join, JoinType, CrossJoin, Filter, Aggregate, Project, Sort, SortDirection, Union,
     VirtualTable, LiteralValue,
     Expr, Column, Literal, BinaryOperator, AggregateExpr,
 };
@@ -214,6 +214,7 @@ fn emit_rel(node: &PlanNode, ctx: &mut SchemaContext) -> Result<proto::Rel, Emit
     match node {
         PlanNode::Scan(scan) => emit_scan(scan, ctx),
         PlanNode::Join(join) => emit_join(join, ctx),
+        PlanNode::CrossJoin(cross) => emit_cross_join(cross, ctx),
         PlanNode::Filter(filter) => emit_filter(filter, ctx),
         PlanNode::Aggregate(agg) => emit_aggregate(agg, ctx),
         PlanNode::Project(proj) => emit_project(proj, ctx),
@@ -383,6 +384,27 @@ fn emit_join(join: &Join, ctx: &mut SchemaContext) -> Result<proto::Rel, EmitErr
             r#type: join_type as i32,
             expression: Some(Box::new(condition)),
             ..Default::default()
+        }))),
+    })
+}
+
+/// Emit a CrossRel (cartesian product, no join condition)
+fn emit_cross_join(cross: &CrossJoin, ctx: &mut SchemaContext) -> Result<proto::Rel, EmitError> {
+    let mut left_ctx = SchemaContext::new();
+    let left = emit_rel(&cross.left, &mut left_ctx)?;
+    
+    let mut right_ctx = SchemaContext::new();
+    let right = emit_rel(&cross.right, &mut right_ctx)?;
+    
+    ctx.merge(left_ctx);
+    ctx.merge(right_ctx);
+    
+    Ok(proto::Rel {
+        rel_type: Some(RelType::Cross(Box::new(proto::CrossRel {
+            left: Some(Box::new(left)),
+            right: Some(Box::new(right)),
+            common: None,
+            advanced_extension: None,
         }))),
     })
 }
