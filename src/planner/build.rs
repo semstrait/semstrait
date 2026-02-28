@@ -1,7 +1,7 @@
 //! Plan building logic
 
 use std::collections::{HashMap, HashSet};
-use crate::semantic_model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, GroupDataset, Dimension, DatasetGroupDimension, DatasetGroup, Schema, SemanticModel, Metric, Aggregation, Measure};
+use crate::semantic_model::{MeasureExpr, ExprNode, ExprArg, LiteralValue, MetricExpr, MetricExprNode, MetricExprArg, CaseExpr, ConditionExpr, DataType, Dataset, Dimension, DatasetGroupDimension, DatasetGroup, Schema, SemanticModel, Metric, Aggregation, Measure};
 use crate::plan::{
     Aggregate, AggregateExpr, Column, CrossJoin, Expr, Filter, Join, JoinType, 
     Literal, PlanNode, Scan, BinaryOperator, Project, ProjectExpr, Sort, SortKey, SortDirection, Union,
@@ -21,7 +21,7 @@ use super::error::PlanError;
 /// 
 /// The "key attribute" is the dimension attribute whose column matches the join's rightKey.
 fn needs_join_for_dimension(
-    table: &GroupDataset,
+    table: &Dataset,
     group_dim: &DatasetGroupDimension,
     dimension: &Dimension,
 ) -> bool {
@@ -46,7 +46,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     let (fact_columns, fact_types, dimension_columns) = collect_required_columns(resolved);
     
     // Start with the fact table scan (from the selected table)
-    let fact_table = &resolved.dataset.dataset;
+    let fact_table = &resolved.dataset.name;
     let fact_alias = &resolved.dataset_group.name;
     
     let mut plan: PlanNode = PlanNode::Scan(
@@ -344,7 +344,7 @@ fn build_sort_keys(resolved: &ResolvedQuery<'_>) -> Vec<SortKey> {
 /// 
 /// Considers whether the table needs a join (based on key attribute inclusion) or has denormalized columns.
 /// Panics if called with a Meta attribute (use build_attribute_expr instead).
-fn build_column(attr: &AttributeRef<'_>, table: &GroupDataset, fact_alias: &str) -> Column {
+fn build_column(attr: &AttributeRef<'_>, table: &Dataset, fact_alias: &str) -> Column {
     match attr {
         AttributeRef::Degenerate { attribute, .. } => {
             // Degenerate dimension: column is directly on fact table
@@ -371,7 +371,7 @@ fn build_column(attr: &AttributeRef<'_>, table: &GroupDataset, fact_alias: &str)
 /// Build an Expr from an AttributeRef
 /// 
 /// Returns a Column reference for regular attributes, or a Literal for Meta attributes.
-fn build_attribute_expr(attr: &AttributeRef<'_>, table: &GroupDataset, fact_alias: &str) -> Expr {
+fn build_attribute_expr(attr: &AttributeRef<'_>, table: &Dataset, fact_alias: &str) -> Expr {
     match attr {
         AttributeRef::Meta { value, .. } => {
             // Meta attributes are constant literal values
@@ -737,7 +737,7 @@ fn metric_binary_args(args: &[MetricExprArg]) -> (Expr, Expr) {
 /// 1. Explicit table.columns (if defined)
 /// 2. Degenerate dimension attributes in the table group
 /// 3. Fall back to the provided default type
-fn lookup_column_type(name: &str, table: &GroupDataset, dataset_group: &DatasetGroup, fallback_type: &DataType) -> String {
+fn lookup_column_type(name: &str, table: &Dataset, dataset_group: &DatasetGroup, fallback_type: &DataType) -> String {
     // First, try explicit columns
     if let Some(col) = table.get_column(name) {
         return col.data_type().to_string();
@@ -765,7 +765,7 @@ fn lookup_column_type(name: &str, table: &GroupDataset, dataset_group: &DatasetG
 fn collect_measure_columns(
     expr: &MeasureExpr, 
     fallback_type: &DataType, 
-    table: &GroupDataset,
+    table: &Dataset,
     dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
@@ -782,7 +782,7 @@ fn collect_measure_columns(
 fn collect_node_columns(
     node: &ExprNode, 
     fallback_type: &DataType, 
-    table: &GroupDataset,
+    table: &Dataset,
     dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
@@ -815,7 +815,7 @@ fn collect_node_columns(
 fn collect_condition_columns(
     cond: &ConditionExpr, 
     fallback_type: &DataType, 
-    table: &GroupDataset,
+    table: &Dataset,
     dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
@@ -843,7 +843,7 @@ fn collect_condition_columns(
 fn collect_arg_columns(
     arg: &ExprArg, 
     fallback_type: &DataType, 
-    table: &GroupDataset,
+    table: &Dataset,
     dataset_group: &DatasetGroup,
     columns: &mut HashMap<String, String>
 ) {
@@ -862,7 +862,7 @@ fn collect_arg_columns(
 /// Add column from an attribute reference to the appropriate collection
 fn add_attribute_column_with_type(
     attr: &AttributeRef<'_>,
-    table: &GroupDataset,
+    table: &Dataset,
     fact_columns: &mut HashMap<String, String>,
     dimension_columns: &mut HashMap<String, HashMap<String, String>>,
 ) {
@@ -998,7 +998,7 @@ fn build_tablegroup_branch(
 fn build_single_table_aggregate(
     model: &SemanticModel,
     dataset_group: &DatasetGroup,
-    table: &GroupDataset,
+    table: &Dataset,
     physical_dims: &[(String, String)],  // (dim_name, attr_name)
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
     output_prefix: Option<&str>,
@@ -1037,7 +1037,7 @@ fn build_single_table_aggregate(
     
     // Build scan
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.dataset)
+        Scan::new(&table.name)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -1178,7 +1178,7 @@ fn build_multi_table_aggregate(
 ) -> Result<PlanNode, PlanError> {
     // Find which tables have which measures
     // Use "smallest table first" heuristic (fewest attributes = most aggregated)
-    let mut tables_sorted: Vec<&GroupDataset> = dataset_group.datasets.iter().collect();
+    let mut tables_sorted: Vec<&Dataset> = dataset_group.datasets.iter().collect();
     tables_sorted.sort_by_key(|t| t.attribute_count());
     
     // Assign measures to tables (first table that has the measure wins)
@@ -1856,7 +1856,7 @@ fn find_feasible_table_for_qualified<'a>(
     dataset_group: &'a DatasetGroup,
     dimension_attrs: &[String],
     metric_names: &[String],
-) -> Option<&'a GroupDataset> {
+) -> Option<&'a Dataset> {
     // Get required measures from metrics
     let required_measures: Vec<String> = metric_names
         .iter()
@@ -1937,7 +1937,7 @@ fn find_feasible_table_for_qualified<'a>(
 fn build_union_branch(
     model: &SemanticModel,
     dataset_group: &DatasetGroup,
-    table: &GroupDataset,
+    table: &Dataset,
     dimension_attrs: &[String],
     metric_names: &[String],
 ) -> Result<PlanNode, PlanError> {
@@ -2011,7 +2011,7 @@ fn build_union_branch(
     }
     
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.dataset)
+        Scan::new(&table.name)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -2245,7 +2245,7 @@ fn get_virtual_attribute_value(
 pub struct CrossDatasetGroupBranch<'a> {
     pub dataset_group: &'a DatasetGroup,
     pub measure: &'a Measure,
-    pub table: &'a GroupDataset,
+    pub table: &'a Dataset,
 }
 
 /// Plan a cross-tableGroup query for multiple metrics that span multiple tableGroups
@@ -2315,7 +2315,7 @@ pub fn plan_multi_cross_dataset_group_query<'a>(
 fn build_multi_metric_branch(
     model: &SemanticModel,
     dataset_group: &DatasetGroup,
-    table: &GroupDataset,
+    table: &Dataset,
     measures_with_metrics: &[(&str, &Measure)], // (metric_name, measure)
     dimension_attrs: &[String],
     all_metric_names: &[&str], // All metrics in query (for consistent schema)
@@ -2376,7 +2376,7 @@ fn build_multi_metric_branch(
     }
     
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.dataset)
+        Scan::new(&table.name)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -2622,7 +2622,7 @@ fn build_multi_table_metric_branch(
         
         // Build scan
         let scan = PlanNode::Scan(
-            Scan::new(&table.dataset)
+            Scan::new(&table.name)
                 .with_alias(&table_alias)
                 .with_columns(columns, types)
         );
@@ -2988,7 +2988,7 @@ impl ParsedDimensionAttr {
 fn build_cross_dataset_group_branch(
     model: &SemanticModel,
     dataset_group: &DatasetGroup,
-    table: &GroupDataset,
+    table: &Dataset,
     measure: &Measure,
     dimension_attrs: &[String],
     output_alias: &str,
@@ -3049,7 +3049,7 @@ fn build_cross_dataset_group_branch(
     }
     
     let mut plan = PlanNode::Scan(
-        Scan::new(&table.dataset)
+        Scan::new(&table.name)
             .with_alias(fact_alias)
             .with_columns(columns, types)
     );
@@ -3410,7 +3410,7 @@ fn plan_same_tablegroup_join(
 fn build_table_subquery(
     model: &SemanticModel,
     dataset_group: &DatasetGroup,
-    table: &GroupDataset,
+    table: &Dataset,
     physical_dims: &[(String, String)], // (dim_name, attr_name)
     measures: &[String],
     alias: &str,
@@ -3443,7 +3443,7 @@ fn build_table_subquery(
     
     // Build scan
     let scan = PlanNode::Scan(
-        Scan::new(&table.dataset)
+        Scan::new(&table.name)
             .with_alias(alias)
             .with_columns(columns, types)
     );

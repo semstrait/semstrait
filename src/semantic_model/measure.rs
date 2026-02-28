@@ -121,7 +121,6 @@ pub struct Measure {
     /// Result data type. Defaults to I64 for count, F64 for others.
     #[serde(rename = "type")]
     pub data_type: Option<DataType>,
-    #[serde(rename = "dataFilter")]
     pub data_filter: Option<Vec<MeasureFilter>>,
 }
 
@@ -143,6 +142,5 @@ impl Measure {
 #[derive(Debug, Deserialize)]
 pub struct MeasureFilter {
     pub field: String,
-    #[serde(rename = "userAttribute")]
     pub user_attribute: Option<String>,
 }

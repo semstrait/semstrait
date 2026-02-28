@@ -29,11 +29,8 @@ pub struct Dimension {
 /// Join specification between fact and dimension tables
 #[derive(Debug, Deserialize, Clone)]
 pub struct Join {
-    #[serde(rename = "leftKey")]
     pub left_key: String,
-    #[serde(rename = "rightKey")]
     pub right_key: String,
-    #[serde(rename = "rightAlias")]
     pub right_alias: Option<String>,
 }
 

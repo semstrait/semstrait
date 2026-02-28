@@ -53,8 +53,8 @@ semantic_models:
         dimensions:
           - name: dates
             join:
-              leftKey: date_id
-              rightKey: date_id
+              left_key: date_id
+              right_key: date_id
             attributes:
               - name: date_id
                 type: i32
@@ -67,8 +67,8 @@ semantic_models:
 
           - name: products
             join:
-              leftKey: product_id
-              rightKey: product_id
+              left_key: product_id
+              right_key: product_id
             attributes:
               - name: product_id
                 type: i32
@@ -94,7 +94,7 @@ semantic_models:
             type: i64
 
         datasets:
-          - dataset: warehouse.sales_fact
+          - name: warehouse.sales_fact
             source:
               type: parquet
               path: /data/warehouse/sales_fact.parquet

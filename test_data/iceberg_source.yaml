@@ -42,8 +42,8 @@ semantic_models:
         dimensions:
           - name: dates
             join:
-              leftKey: time_id
-              rightKey: time_id
+              left_key: time_id
+              right_key: time_id
 
         measures:
           - name: quantity
@@ -57,7 +57,7 @@ semantic_models:
             type: f64
 
         datasets:
-          - dataset: warehouse.orderfact
+          - name: warehouse.orderfact
             source:
               type: iceberg
               table: warehouse.orderfact

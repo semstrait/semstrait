@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use crate::semantic_model::{Schema, SemanticModel, DatasetGroup, GroupDataset, Metric, MetricExpr, MetricExprNode, MetricExprArg};
+use crate::semantic_model::{Schema, SemanticModel, DatasetGroup, Dataset, Metric, MetricExpr, MetricExprNode, MetricExprArg};
 use crate::query::{DataFilter, QueryRequest};
 use crate::selector::SelectedDataset;
 use super::error::ResolveError;
@@ -62,7 +62,7 @@ pub fn resolve_query<'a>(
 fn resolve_filters<'a>(
     model: &'a SemanticModel,
     group: &'a DatasetGroup,
-    dataset: &'a GroupDataset,
+    dataset: &'a Dataset,
     filters: Option<&Vec<DataFilter>>,
 ) -> Result<Vec<ResolvedFilter<'a>>, ResolveError> {
     let Some(filter_list) = filters else {
@@ -90,7 +90,7 @@ fn resolve_filters<'a>(
 fn resolve_attributes<'a>(
     model: &'a SemanticModel,
     group: &'a DatasetGroup,
-    dataset: &'a GroupDataset,
+    dataset: &'a Dataset,
     attributes: Option<&Vec<String>>,
 ) -> Result<Vec<AttributeRef<'a>>, ResolveError> {
     let Some(attrs) = attributes else {
@@ -111,7 +111,7 @@ fn resolve_attributes<'a>(
 fn resolve_attribute<'a>(
     model: &'a SemanticModel,
     group: &'a DatasetGroup,
-    dataset: &'a GroupDataset,
+    dataset: &'a Dataset,
     attr_str: &str,
 ) -> Result<AttributeRef<'a>, ResolveError> {
     // Parse the attribute string
@@ -165,7 +165,7 @@ fn resolve_dataset_group_qualified_attribute<'a>(
 fn resolve_attribute_in_group<'a>(
     model: &'a SemanticModel,
     group: &'a DatasetGroup,
-    dataset: &'a GroupDataset,
+    dataset: &'a Dataset,
     dim_name: &str,
     attr_name: &str,
     dataset_group_qualifier: Option<String>,
@@ -245,7 +245,7 @@ fn resolve_attribute_in_group<'a>(
 fn resolve_meta_attribute<'a>(
     model: &'a SemanticModel,
     group: &'a DatasetGroup,
-    dataset: &'a GroupDataset,
+    dataset: &'a Dataset,
     attr_name: &str,
 ) -> Result<AttributeRef<'a>, ResolveError> {
     // 1. Check if _dataset dimension is declared in the model
@@ -287,7 +287,7 @@ fn resolve_meta_attribute<'a>(
 fn resolve_meta_value(
     model: &SemanticModel,
     group: &DatasetGroup,
-    dataset: &GroupDataset,
+    dataset: &Dataset,
     attr_name: &str,
 ) -> Result<String, ResolveError> {
     match attr_name {
@@ -299,7 +299,7 @@ fn resolve_meta_value(
             }
         }),
         "datasetGroup" => Ok(group.name.clone()),
-        "dataset" => Ok(dataset.dataset.clone()),
+        "dataset" => Ok(dataset.name.clone()),
         "uuid" => dataset.uuid.clone().ok_or_else(|| {
             ResolveError::MetaAttributeNotSet {
                 attribute: "uuid".to_string(),
@@ -341,7 +341,7 @@ fn resolve_metrics<'a>(
 /// Collect all measures required by metrics
 fn collect_metric_measures<'a>(
     group: &'a DatasetGroup,
-    dataset: &'a GroupDataset,
+    dataset: &'a Dataset,
     metrics: &[&'a Metric],
 ) -> Result<Vec<&'a crate::semantic_model::Measure>, ResolveError> {
     let mut measure_names: HashSet<&str> = HashSet::new();

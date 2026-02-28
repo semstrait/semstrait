@@ -150,12 +150,15 @@ pub fn resolve_dimension_path_template(
 #[derive(Debug, Deserialize)]
 pub struct DatasetGroup {
     pub name: String,
+    pub label: Option<String>,
+    /// Human-readable description for UIs and LLMs
+    pub description: Option<String>,
     /// Dimensions available to datasets in this group
     pub dimensions: Vec<DatasetGroupDimension>,
     /// Measures shared by all datasets in this group
     pub measures: Vec<Measure>,
     /// Physical datasets, each declaring which subset of fields it has
-    pub datasets: Vec<GroupDataset>,
+    pub datasets: Vec<Dataset>,
 }
 
 /// A dimension reference within a dataset group
@@ -175,9 +178,12 @@ pub struct DatasetGroupDimension {
 
 /// A physical dataset within a dataset group
 #[derive(Debug, Deserialize)]
-pub struct GroupDataset {
+pub struct Dataset {
     /// Physical dataset name (e.g., "warehouse.orderfact")
-    pub dataset: String,
+    pub name: String,
+    pub label: Option<String>,
+    /// Human-readable description for UIs and LLMs
+    pub description: Option<String>,
     /// Data source configuration (parquet path, iceberg table, etc.)
     pub source: Source,
     /// Unique identifier for this dataset (e.g., Iceberg table UUID)
@@ -195,7 +201,6 @@ pub struct GroupDataset {
     pub measures: Vec<String>,
     /// Row filter for partitioned datasets
     /// e.g., { "dates.year": 2023 } means this dataset only contains 2023 data
-    #[serde(rename = "rowFilter")]
     pub row_filter: Option<HashMap<String, serde_yaml::Value>>,
 }
 
@@ -211,8 +216,8 @@ impl DatasetGroup {
     }
 
     /// Get a dataset by physical dataset name
-    pub fn get_dataset(&self, dataset_name: &str) -> Option<&GroupDataset> {
-        self.datasets.iter().find(|t| t.dataset == dataset_name)
+    pub fn get_dataset(&self, dataset_name: &str) -> Option<&Dataset> {
+        self.datasets.iter().find(|t| t.name == dataset_name)
     }
 
     /// Get all unique measure names
@@ -243,7 +248,7 @@ impl DatasetGroupDimension {
     }
 }
 
-impl GroupDataset {
+impl Dataset {
     /// Get the parquet path if source is Parquet
     pub fn parquet_path(&self) -> Option<&str> {
         match &self.source {
@@ -334,8 +339,8 @@ name: orders
 dimensions:
   - name: dates
     join:
-      leftKey: time_id
-      rightKey: time_id
+      left_key: time_id
+      right_key: time_id
   - name: flags
     attributes:
       - name: is_premium
@@ -347,7 +352,7 @@ measures:
     expr: totalprice
     type: f64
 datasets:
-  - dataset: warehouse.orderfact
+  - name: warehouse.orderfact
     source:
       type: parquet
       path: /data/warehouse/orderfact.parquet
@@ -365,8 +370,8 @@ name: orders
 dimensions:
   - name: dates
     join:
-      leftKey: time_id
-      rightKey: time_id
+      left_key: time_id
+      right_key: time_id
   - name: flags
     attributes:
       - name: is_premium
@@ -378,7 +383,7 @@ measures:
     expr: totalprice
     type: f64
 datasets:
-  - dataset: warehouse.orderfact
+  - name: warehouse.orderfact
     source:
       type: parquet
       path: /data/warehouse/orderfact.parquet
@@ -593,15 +598,15 @@ name: orders
 dimensions:
   - name: dates
     join:
-      leftKey: time_id
-      rightKey: time_id
+      left_key: time_id
+      right_key: time_id
 measures:
   - name: sales
     aggregation: sum
     expr: totalprice
     type: f64
 datasets:
-  - dataset: warehouse.orderfact
+  - name: warehouse.orderfact
     source:
       type: iceberg
       table: warehouse.orderfact

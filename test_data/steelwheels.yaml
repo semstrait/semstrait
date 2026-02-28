@@ -126,9 +126,9 @@ semantic_models:
           divide: [sales, quantity]
         type: f64
     
-    dataFilter:
+    data_filter:
       - field: markets.country
-        userAttribute: allowedLocations
+        user_attribute: allowedLocations
     
     # Table groups that can serve this model
     dataset_groups:
@@ -140,14 +140,14 @@ semantic_models:
           # Joined dimension - references model-level dimension
           - name: dates
             join:
-              leftKey: time_id
-              rightKey: time_id
+              left_key: time_id
+              right_key: time_id
           
           # Joined dimension
           - name: markets
             join:
-              leftKey: customernumber
-              rightKey: customernumber
+              left_key: customernumber
+              right_key: customernumber
           
           # Degenerate dimension (columns on fact table, no join)
           - name: flags
@@ -207,7 +207,7 @@ semantic_models:
         # TABLES: Each declares its field subset
         # ------------------------------------------
         datasets:
-          - dataset: steelwheels.orderfact
+          - name: steelwheels.orderfact
             source:
               type: parquet
               path: /data/steelwheels/orderfact.parquet

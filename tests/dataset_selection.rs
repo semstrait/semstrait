@@ -20,7 +20,7 @@ fn test_select_yearly_for_year_only() {
 
     assert!(!selected.is_empty(), "Should select at least one dataset");
     assert_eq!(
-        selected[0].dataset.dataset, "agg.yearly_summary",
+        selected[0].dataset.name, "agg.yearly_summary",
         "Should select the yearly aggregate dataset"
     );
 }
@@ -38,7 +38,7 @@ fn test_select_monthly_for_month_query() {
 
     assert!(!selected.is_empty(), "Should select at least one dataset");
     assert_eq!(
-        selected[0].dataset.dataset, "agg.monthly_summary",
+        selected[0].dataset.name, "agg.monthly_summary",
         "Should select the monthly aggregate dataset"
     );
 }
@@ -56,7 +56,7 @@ fn test_select_daily_for_day_query() {
 
     assert!(!selected.is_empty(), "Should select at least one dataset");
     assert_eq!(
-        selected[0].dataset.dataset, "agg.daily_detail",
+        selected[0].dataset.name, "agg.daily_detail",
         "Should select the daily detail dataset"
     );
 }
@@ -74,7 +74,7 @@ fn test_select_most_aggregated_when_possible() {
 
     assert!(!selected.is_empty(), "Should select at least one dataset");
     assert_eq!(
-        selected[0].dataset.dataset, "agg.yearly_summary",
+        selected[0].dataset.name, "agg.yearly_summary",
         "Should select the most aggregated dataset"
     );
 }

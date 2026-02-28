@@ -88,7 +88,7 @@ semantic_models:
             type: f64
         
         datasets:
-          - dataset: "95f9b0c3-b116-46c5-849e-b7e901e5d7c1"  # Geo Performance | Campaign | Postal code
+          - name: "95f9b0c3-b116-46c5-849e-b7e901e5d7c1"  # Geo Performance | Campaign | Postal code
             source:
               type: parquet
               path: /data/adwords/geo_performance.parquet
@@ -99,7 +99,7 @@ semantic_models:
               _dataset: [model, namespace, datasetGroup, dataset]
             measures: [cost, views, clicks, impressions]
           
-          - dataset: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
+          - name: "79d5d2cf-e3aa-4df6-aa15-cdf8fc57ad07"  # Ad Group | Device
             source:
               type: parquet
               path: /data/adwords/ad_group_device.parquet
@@ -152,7 +152,7 @@ semantic_models:
             type: i64
         
         datasets:
-          - dataset: "facebook-campaign-daily"
+          - name: "facebook-campaign-daily"
             source:
               type: parquet
               path: /data/facebookads/campaign_daily.parquet

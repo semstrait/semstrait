@@ -42,7 +42,7 @@ mod tests {
         // Check datasets within group
         assert_eq!(group.datasets.len(), 1);
         let dataset = group.get_dataset("steelwheels.orderfact").unwrap();
-        assert_eq!(dataset.dataset, "steelwheels.orderfact");
+        assert_eq!(dataset.name, "steelwheels.orderfact");
         
         // Check dimensions (now on model) - includes _dataset virtual dimension
         assert_eq!(model.dimensions.len(), 3);

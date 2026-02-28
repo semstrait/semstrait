@@ -62,7 +62,7 @@ semantic_models:
             type: i64
 
         datasets:
-          - dataset: finance.transactions
+          - name: finance.transactions
             source:
               type: parquet
               path: /data/finance/transactions.parquet

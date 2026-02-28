@@ -5,7 +5,7 @@ use std::path::Path;
 use super::dimension::Dimension;
 use super::measure::Measure;
 use super::metric::Metric;
-use super::datasetgroup::{DatasetGroup, GroupDataset};
+use super::datasetgroup::{DatasetGroup, Dataset};
 use crate::error::ParseError;
 
 /// The root semantic schema containing semantic models
@@ -31,7 +31,6 @@ pub struct SemanticModel {
     /// Metrics - derived calculations from measures (model-level, shared across dataset groups)
     pub metrics: Option<Vec<Metric>>,
     /// Row-level security filter
-    #[serde(rename = "dataFilter")]
     pub data_filter: Option<Vec<DataFilter>>,
 }
 
@@ -39,7 +38,6 @@ pub struct SemanticModel {
 #[derive(Debug, Deserialize)]
 pub struct DataFilter {
     pub field: String,
-    #[serde(rename = "userAttribute")]
     pub user_attribute: Option<String>,
 }
 
@@ -70,7 +68,7 @@ impl Schema {
             // Fact datasets from dataset groups
             for group in &model.dataset_groups {
                 for dataset in &group.datasets {
-                    datasets.push(dataset.dataset.clone());
+                    datasets.push(dataset.name.clone());
                 }
             }
             
@@ -91,7 +89,7 @@ impl Schema {
     /// Get all datasets across all models and dataset groups
     /// 
     /// Returns references to GroupDataset structs with full source configuration.
-    pub fn all_datasets(&self) -> Vec<&GroupDataset> {
+    pub fn all_datasets(&self) -> Vec<&Dataset> {
         self.semantic_models
             .iter()
             .flat_map(|m| m.dataset_groups.iter())
@@ -122,11 +120,11 @@ impl SemanticModel {
     }
     
     /// Get a dataset by physical dataset name (searches all groups)
-    pub fn get_dataset(&self, dataset_name: &str) -> Option<&GroupDataset> {
+    pub fn get_dataset(&self, dataset_name: &str) -> Option<&Dataset> {
         self.dataset_groups
             .iter()
             .flat_map(|g| g.datasets.iter())
-            .find(|t| t.dataset == dataset_name)
+            .find(|t| t.name == dataset_name)
     }
     
     /// Get a measure by name (searches all groups)
@@ -154,7 +152,7 @@ impl SemanticModel {
     }
     
     /// Get all datasets across all groups
-    pub fn all_datasets(&self) -> Vec<&GroupDataset> {
+    pub fn all_datasets(&self) -> Vec<&Dataset> {
         self.dataset_groups
             .iter()
             .flat_map(|g| g.datasets.iter())

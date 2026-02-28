@@ -67,7 +67,7 @@ semantic_models:
             type: i64
 
         datasets:
-          - dataset: marketing.google_ads_daily
+          - name: marketing.google_ads_daily
             source:
               type: parquet
               path: /data/marketing/google_ads_daily.parquet
@@ -114,7 +114,7 @@ semantic_models:
             type: i64
 
         datasets:
-          - dataset: marketing.meta_ads_daily
+          - name: marketing.meta_ads_daily
             source:
               type: parquet
               path: /data/marketing/meta_ads_daily.parquet
