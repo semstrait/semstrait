@@ -1,10 +1,15 @@
-//! Substrait emitter (verb module)
+//! Emitters (verb modules)
 //!
-//! Transforms a PlanNode into a Substrait Plan.
+//! Transforms a PlanNode into an output format.
+//!
+//! - `substrait` – Substrait protobuf Plan
+//! - `sql` – ANSI SQL string
 
-mod emit;
+mod substrait;
+mod sql;
 mod error;
 
-pub use emit::emit_plan;
+pub use substrait::emit_plan;
+pub use sql::emit_sql;
 pub use error::EmitError;
 

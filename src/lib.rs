@@ -20,7 +20,7 @@
 //! - `selector/` - SemanticModel + Query → Selected datasets (aggregate awareness)
 //! - `resolver/` - Schema + QueryRequest + Datasets → ResolvedQuery
 //! - `planner/` - ResolvedQuery → PlanNode
-//! - `emitter/` - PlanNode → Substrait
+//! - `emitter/` - PlanNode → Substrait or SQL
 //!
 //! # Example
 //!
@@ -53,5 +53,5 @@ pub use selector::{select_datasets, SelectedDataset, SelectError};
 pub use resolver::{resolve_query, ResolvedQuery, ResolveError};
 pub use plan::{PlanNode, Expr, Column, AggregateExpr};
 pub use planner::{plan_query, plan_semantic_query, PlanError};
-pub use emitter::{emit_plan, EmitError};
+pub use emitter::{emit_plan, emit_sql, EmitError};
 pub use error::ParseError;
