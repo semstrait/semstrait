@@ -47,7 +47,7 @@ pub fn plan_query(resolved: &ResolvedQuery<'_>) -> Result<PlanNode, PlanError> {
     
     // Start with the fact table scan (from the selected table)
     let fact_table = &resolved.dataset.name;
-    let fact_alias = &resolved.dataset_group.name;
+    let fact_alias = &resolved.dataset.name;
     
     let mut plan: PlanNode = PlanNode::Scan(
         Scan::new(fact_table)
@@ -1003,7 +1003,7 @@ fn build_single_table_aggregate(
     measure_aliases: &[(String, String)],  // (output_alias, measure_name)
     output_prefix: Option<&str>,
 ) -> Result<PlanNode, PlanError> {
-    let fact_alias = &dataset_group.name;
+    let fact_alias = &table.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     let mut joined_dimensions: HashSet<String> = HashSet::new();
@@ -1969,7 +1969,7 @@ fn build_union_branch(
     }
     
     // Build the scan
-    let fact_alias: &str = &dataset_group.name;
+    let fact_alias: &str = &table.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     
@@ -3023,7 +3023,7 @@ fn build_cross_dataset_group_branch(
     }
     
     // Build the scan
-    let fact_alias: &str = &dataset_group.name;
+    let fact_alias: &str = &table.name;
     let mut columns = Vec::new();
     let mut types = Vec::new();
     
@@ -3793,8 +3793,8 @@ mod tests {
             PlanNode::Aggregate(agg) => {
                 // Aggregate should have 1 group by column
                 assert_eq!(agg.group_by.len(), 1);
-                // The column should be from the dataset group (degenerate dimension)
-                assert_eq!(agg.group_by[0].table, "orders");
+                // The column should be qualified by the dataset name
+                assert_eq!(agg.group_by[0].table, "steelwheels.orderfact");
                 assert_eq!(agg.group_by[0].name, "is_premium_order"); // Uses the column name from attribute
 
                 // Input should be just a Scan (no Join for degenerate dimension)
