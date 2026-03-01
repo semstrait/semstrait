@@ -128,14 +128,44 @@ pub fn select_datasets<'a>(
     // Exactly one datasetGroup - apply aggregate awareness within it
     let (_, feasible) = feasible_by_group.into_iter().next().unwrap();
     
-    // Select the best dataset (fewest dimensions = likely more aggregated = smaller)
-    // For now, return single best. Future: return multiple for partitioned datasets.
-    let best = feasible
-        .into_iter()
-        .min_by_key(|st| st.dataset.attribute_count())
-        .unwrap();
+    // Check if the feasible datasets include partitioned datasets
+    let has_partitions = feasible.iter().any(|s| s.dataset.partition.is_some());
     
-    Ok(vec![best])
+    if has_partitions {
+        // Partitioned datasets: return all partitions (optionally pruned by filter)
+        let partition_filter = extract_partition_filter(required_dimensions);
+        
+        let mut partitioned: Vec<SelectedDataset> = feasible.into_iter()
+            .filter(|s| s.dataset.partition.is_some())
+            .collect();
+        
+        // Apply partition pruning if there's a filter on _dataset.partition
+        if let Some(ref filter_value) = partition_filter {
+            partitioned.retain(|s| {
+                s.dataset.partition.as_deref() == Some(filter_value.as_str())
+            });
+        }
+        
+        if partitioned.is_empty() {
+            return Err(SelectError::NoFeasibleDataset {
+                model: model.name.clone(),
+                reason: match partition_filter {
+                    Some(v) => format!("no partition matches filter value '{}'", v),
+                    None => "no partitioned datasets found".to_string(),
+                },
+            });
+        }
+        
+        Ok(partitioned)
+    } else {
+        // Non-partitioned: select the best dataset (fewest dimensions = most aggregated)
+        let best = feasible
+            .into_iter()
+            .min_by_key(|st| st.dataset.attribute_count())
+            .unwrap();
+        
+        Ok(vec![best])
+    }
 }
 
 /// Select multiple datasets for a JOIN when no single dataset has all measures
@@ -296,6 +326,20 @@ fn has_all_dimensions(
         }
     }
     true
+}
+
+/// Extract a partition filter value from required dimensions.
+/// Looks for "_dataset.partition" in the dimension list as a signal that
+/// partition pruning may be needed. The actual filter value comes from
+/// query filters (handled by the planner), but the selector uses this
+/// to detect partition-aware queries.
+/// 
+/// Returns None - actual filter-based pruning is done at the planner level.
+/// This function is reserved for future direct partition filter extraction.
+fn extract_partition_filter(_required_dimensions: &[String]) -> Option<String> {
+    // Partition pruning based on query filters is handled at the planner level.
+    // The selector returns all partitions; the planner applies WHERE _dataset.partition = 'x'.
+    None
 }
 
 /// Check if a dataset can serve a query with the given requirements

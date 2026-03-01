@@ -241,6 +241,7 @@ fn resolve_attribute_in_group<'a>(
 /// - `_dataset.datasetGroup` - DatasetGroup name
 /// - `_dataset.dataset` - Physical dataset name
 /// - `_dataset.uuid` - Dataset UUID (e.g., from Iceberg catalog)
+/// - `_dataset.partition` - Partition value (for partitioned datasets)
 /// - `_dataset.{key}` - Any key from dataset.properties
 fn resolve_meta_attribute<'a>(
     model: &'a SemanticModel,
@@ -261,17 +262,22 @@ fn resolve_meta_attribute<'a>(
         }
     }
     
-    // 3. Check if this dataset declares this _dataset attribute as available
-    if let Some(dataset_attrs) = dataset.get_dimension_attributes("_dataset") {
-        if !dataset_attrs.iter().any(|a| a == attr_name) {
-            return Err(ResolveError::AttributeNotFound {
-                dimension: "_dataset".to_string(),
-                attribute: attr_name.to_string(),
-            });
-        }
+    // 3. Check if this dataset declares this _dataset attribute as available.
+    //    For attributes not listed on the dataset, return a Meta with empty string
+    //    so the planner can project NULL instead of failing the whole query.
+    let attr_declared = if let Some(dataset_attrs) = dataset.get_dimension_attributes("_dataset") {
+        dataset_attrs.iter().any(|a| a == attr_name)
     } else if table_dim.is_some() {
-        // _dataset dimension declared but dataset doesn't list any _dataset attributes
-        return Err(ResolveError::DimensionNotFound("_dataset".to_string()));
+        false
+    } else {
+        true
+    };
+    
+    if !attr_declared {
+        return Ok(AttributeRef::Meta {
+            name: attr_name.to_string(),
+            value: String::new(),
+        });
     }
     
     // 4. Resolve the actual value
@@ -304,6 +310,12 @@ fn resolve_meta_value(
             ResolveError::MetaAttributeNotSet {
                 attribute: "uuid".to_string(),
                 reason: "dataset does not have a uuid defined".to_string(),
+            }
+        }),
+        "partition" => dataset.partition.clone().ok_or_else(|| {
+            ResolveError::MetaAttributeNotSet {
+                attribute: "partition".to_string(),
+                reason: "dataset does not have a partition value defined".to_string(),
             }
         }),
         key => {

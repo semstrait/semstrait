@@ -1,0 +1,153 @@
+semantic_models:
+  - name: partitioned_ads
+    namespace: "test-namespace-123"
+    
+    dimensions:
+      - name: _dataset
+        virtual: true
+        label: Table Metadata
+        attributes:
+          - name: model
+            type: string
+          - name: namespace
+            type: string
+          - name: datasetGroup
+            type: string
+          - name: dataset
+            type: string
+          - name: partition
+            type: string
+      
+      - name: dates
+        source:
+          type: parquet
+          path: /data/dates.parquet
+        table: dates
+        attributes:
+          - name: date
+            type: date
+          - name: year
+            type: i32
+    
+    dataset_groups:
+      - name: facebookads
+        partition_label: Account ID
+        dimensions:
+          - name: dates
+            join:
+              left_key: date_id
+              right_key: date_id
+          - name: campaign
+            attributes:
+              - name: campaign_name
+                column: campaign_name
+                type: string
+          - name: _dataset
+        
+        measures:
+          - name: spend
+            aggregation: sum
+            expr: spend
+            type: f64
+          - name: clicks
+            aggregation: sum
+            expr: clicks
+            type: i64
+          - name: impressions
+            aggregation: sum
+            expr: impressions
+            type: i64
+        
+        datasets:
+          - name: fb-account-111
+            source:
+              type: parquet
+              path: /data/facebookads/account_111.parquet
+            partition: "111"
+            dimensions:
+              dates: [date, year]
+              campaign: [campaign_name]
+              _dataset: [model, namespace, datasetGroup, dataset, partition]
+            measures: [spend, clicks, impressions]
+          
+          - name: fb-account-222
+            source:
+              type: parquet
+              path: /data/facebookads/account_222.parquet
+            partition: "222"
+            dimensions:
+              dates: [date, year]
+              campaign: [campaign_name]
+              _dataset: [model, namespace, datasetGroup, dataset, partition]
+            measures: [spend, clicks, impressions]
+          
+          - name: fb-account-333
+            source:
+              type: parquet
+              path: /data/facebookads/account_333.parquet
+            partition: "333"
+            dimensions:
+              dates: [date, year]
+              campaign: [campaign_name]
+              _dataset: [model, namespace, datasetGroup, dataset, partition]
+            measures: [spend, clicks, impressions]
+
+      - name: adwords
+        dimensions:
+          - name: dates
+            join:
+              left_key: date_id
+              right_key: date_id
+          - name: campaign
+            attributes:
+              - name: campaign_name
+                column: adwords_campaign
+                type: string
+          - name: _dataset
+        
+        measures:
+          - name: cost
+            aggregation: sum
+            expr: cost
+            type: f64
+          - name: clicks
+            aggregation: sum
+            expr: clicks
+            type: i64
+        
+        datasets:
+          - name: adwords-daily
+            source:
+              type: parquet
+              path: /data/adwords/daily.parquet
+            dimensions:
+              dates: [date, year]
+              campaign: [campaign_name]
+              _dataset: [model, namespace, datasetGroup, dataset]
+            measures: [cost, clicks]
+
+    metrics:
+      - name: spend
+        expr: spend
+        type: f64
+      - name: clicks
+        expr: clicks
+        type: i64
+      - name: impressions
+        expr: impressions
+        type: i64
+      - name: cost
+        expr: cost
+        type: f64
+      - name: total_clicks
+        type: i64
+        expr:
+          case:
+            when:
+              - condition:
+                  eq: [datasetGroup.name, "facebookads"]
+                then: clicks
+              - condition:
+                  eq: [datasetGroup.name, "adwords"]
+                then: clicks
+            else: 0
