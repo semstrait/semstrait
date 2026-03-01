@@ -120,6 +120,7 @@
         "name": { "type": "string" },
         "label": { "type": "string" },
         "description": { "type": "string" },
+        "partition_label": { "type": "string", "description": "UI display label for _dataset.partition within this group" },
         "dimensions": {
           "type": "array",
           "items": { "$ref": "#/$defs/DatasetGroupDimension" }
@@ -314,8 +315,9 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "row_filter": {
-          "type": "object"
+        "partition": {
+          "type": "string",
+          "description": "Partition value for datasets that are partitions of the same logical data"
         }
       }
     },

@@ -159,6 +159,9 @@ pub struct DatasetGroup {
     pub measures: Vec<Measure>,
     /// Physical datasets, each declaring which subset of fields it has
     pub datasets: Vec<Dataset>,
+    /// UI display label for `_dataset.partition` within this group
+    /// e.g., "Account ID" or "Year" - overrides the generic attribute label
+    pub partition_label: Option<String>,
 }
 
 /// A dimension reference within a dataset group
@@ -199,9 +202,10 @@ pub struct Dataset {
     pub dimensions: HashMap<String, Vec<String>>,
     /// Measure names available on this dataset (references group-level measures)
     pub measures: Vec<String>,
-    /// Row filter for partitioned datasets
-    /// e.g., { "dates.year": 2023 } means this dataset only contains 2023 data
-    pub row_filter: Option<HashMap<String, serde_yaml::Value>>,
+    /// Partition value for datasets that are partitions of the same logical data.
+    /// Exposed as `_dataset.partition` virtual attribute.
+    /// e.g., "123" for an ad account partition, or "2023" for a year partition
+    pub partition: Option<String>,
 }
 
 impl DatasetGroup {
@@ -223,6 +227,11 @@ impl DatasetGroup {
     /// Get all unique measure names
     pub fn measure_names(&self) -> Vec<&str> {
         self.measures.iter().map(|m| m.name.as_str()).collect()
+    }
+
+    /// Returns true if any dataset in this group has a partition value
+    pub fn has_partitions(&self) -> bool {
+        self.datasets.iter().any(|d| d.partition.is_some())
     }
 }
 
