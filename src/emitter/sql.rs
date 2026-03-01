@@ -15,9 +15,8 @@ use super::error::EmitError;
 /// If `output_names` is provided, the outermost SELECT will alias columns to
 /// those semantic names. Otherwise physical names are used.
 pub fn emit_sql(node: &PlanNode, output_names: Option<Vec<String>>) -> Result<String, EmitError> {
-    let inner = emit_node(node, 0)?;
-
     if let Some(names) = output_names {
+        let inner = emit_node(node, 1)?;
         let aliases: Vec<String> = names
             .iter()
             .enumerate()
@@ -25,6 +24,7 @@ pub fn emit_sql(node: &PlanNode, output_names: Option<Vec<String>>) -> Result<St
             .collect();
         Ok(format!("SELECT {}\nFROM (\n{}\n)", aliases.join(", "), inner))
     } else {
+        let inner = emit_node(node, 0)?;
         Ok(inner)
     }
 }
@@ -611,6 +611,8 @@ mod tests {
         let sql = emit_sql(&scan, Some(vec!["Alpha".into(), "Beta".into()])).unwrap();
         assert!(sql.contains("col0 AS \"Alpha\""));
         assert!(sql.contains("col1 AS \"Beta\""));
+        assert!(sql.contains("  SELECT a, b"), "Inner SELECT should be indented:\n{}", sql);
+        assert!(sql.contains("  FROM t"), "Inner FROM should be indented:\n{}", sql);
     }
 
     #[test]
