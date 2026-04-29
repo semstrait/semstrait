@@ -18,6 +18,7 @@ refined-by:
   - 15 (`foundations/15_mapping_and_binding.md` — the compile-time `Binding` process that consumes `SemanticMapping` values ratified in §10)
   - 16 (`foundations/16_composition.md` — how `Relationship` drives implicit composition, `ComposedSemanticInterface` construction, `Joinset` path synthesis)
   - 17 (`foundations/17_temporal_shape.md` — planner-level semantics of `TemporalShape` variants; shape × grain rollup matrix; `AsOf` forward-reference design)
+  - 19 (`foundations/19_categories.md` — `MeasureCategory` / `MetricCategory` enums + body structs + implicit-constraint contract per category; SR-E-13 … SR-E-19 canonical home; YAML grammar for `category:` collapsed wrapper; expandability invariants — `SR-CAT-FWD`, `SR-CAT-CLOSED`, `SR-E-19`)
   - 20 (`data-kinds/20_taxonomy.md` — DataKind lifecycle hooks consuming these entity types)
   - 21 / 22 / 23 / 24 (`data-kinds/*.md` — per-variant YAML carriage of the entity types ratified here)
   - 25 (`data-kinds/25_applicability_matrix.md` — per-variant × entity-type cross-cuts)
@@ -465,6 +466,8 @@ pub struct Dimension {
 
 ### 4.1 `DimensionType` roster
 
+`DimensionType` IS the **Dimension category axis** (per `19 §2`). Its category-axis semantics — what each variant implies for planner routing, adapter behavior, and validation — are ratified canonically in [`19 §2.2`](./19_categories.md#22-implicit-constraint-contract-per-dimension-category). This subsection (`18 §4.1`) remains the canonical home of the **enum roster + body struct shapes**; the implicit-constraint contract per variant lives in `19`.
+
 ```rust
 #[non_exhaustive]
 pub enum DimensionType {
@@ -477,7 +480,7 @@ pub enum DimensionType {
 }
 ```
 
-All six variants stay in the v1 roster. Per-variant body shapes are:
+All six variants stay in the v1 roster (no new variants in v1; a proposed `Identifier` variant is deferred as `Q-CAT-001` in [`questions/open/19_questions.md`](../questions/open/19_questions.md)). Per-variant body shapes are:
 
 ```rust
 #[non_exhaustive]
@@ -575,8 +578,19 @@ pub struct Measure {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_context: Option<AiContext>,
 
-    /// REQUIRED on Measure declarations. Selects the aggregation family.
-    pub agg: AggregationType,
+    /// The Measure category — drives implicit `agg` / `additivity` derivations
+    /// and planner / adapter behavior. Canonical semantics in `19 §3`.
+    /// REQUIRED post-`19`; pre-`19` manifests parse with category inferred
+    /// from `agg:` + `additivity:` per the `[TD-CATEGORIES-MIGRATE]` window.
+    #[serde(default = "MeasureCategory::default_legacy_inferred")]
+    pub category: MeasureCategory,
+
+    /// Selects the aggregation family. **Derived from `category:`** per
+    /// `19 §3.3`; authors MAY still spell it explicitly (must agree, else
+    /// SR-E-13). Required on legacy / `category: custom` Measures; otherwise
+    /// optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agg: Option<AggregationType>,
 
     /// Optional horizontal-only transform applied before aggregation.
     /// E.g. `expr: amount_cents * 0.01` + `agg: sum` gives `sum(amount_cents * 0.01)`.
@@ -585,7 +599,12 @@ pub struct Measure {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expr: Option<crate::expr_block::ExprSource>,
 
-    /// Optional additivity classification per `AdditivityType`.
+    /// Additivity classification per `AdditivityType`. **Derived from
+    /// `category:`** per `19 §3.3`; authors MAY still spell it explicitly
+    /// (must agree, else SR-E-13). `category: snapshot` synthesizes
+    /// `AdditivityType::Semi(SemiAdditivity { axes, strategy })` from its
+    /// body — explicit `additivity: semi` authoring is discouraged in
+    /// favor of `category: snapshot`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub additivity: Option<AdditivityType>,
 
@@ -594,8 +613,16 @@ pub struct Measure {
     /// at compile time.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<AggregationFilter>,
+
+    /// Explicit refinement on top of category-implied implicit constraints.
+    /// Carrier-roster + sub-block grammar live in `11 §8`. `None` ⇒ no
+    /// explicit refinement; the category alone governs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<Constraints>,
 }
 ```
+
+`MeasureCategory` and its body structs are ratified canonically in [`19 §3`](./19_categories.md#3-measure-categories--measurecategory). `Constraints` (the shared post-rewrite type — see `[TD-CONSTRAINT-RENAME]`) is ratified in [`11 §8`](./11_names_and_scopes.md#8-constraint).
 
 ### 5.1 `AggregationType` roster
 
@@ -648,35 +675,44 @@ pub enum SemiAdditivityStrategy {
 
 ```yaml
 measures:
-  # Full-additive Measure with a horizontal transform.
+  # Additive Measure (preferred post-`19` authoring path) — agg + additivity derived.
   - name: gross_revenue
     data_type: decimal(18, 2)
-    agg: sum
+    category: additive
     expr: amount_cents * 0.01
-    additivity: full
 
-  # Semi-additive — inventory is additive across warehouses, snapshot-latest over time.
+  # Snapshot Measure — replaces explicit `additivity: semi` authoring.
+  # Inventory is additive across warehouses, snapshot-latest over time.
   - name: inventory_on_hand
     data_type: long
-    agg: sum
-    additivity:
-      semi:
-        axes: [snapshotted_at]
+    category:
+      snapshot:
+        non_additive_axes: [snapshotted_at]
         strategy: latest
+    agg: sum                            # optional; must agree with category
 
-  # Non-additive — a ratio precomputed at source.
+  # Average — non-additive; planner re-aggregates from SUM/COUNT at queried grain.
   - name: margin_rate
     data_type: double
-    agg: avg
-    additivity: non
+    category: average
+
+  # Custom escape hatch — author states agg + additivity manually.
+  - name: weighted_revenue_proxy
+    data_type: decimal(18, 2)
+    category: custom
+    agg: sum
+    additivity: full
+    expr: amount_cents * weight * 0.01
 ```
 
 ### 5.4 Requirements
 
-- `agg:` is REQUIRED on every Measure declaration (root or inline). Missing `agg:` is `parse.measure-missing-agg` (SR-E-9).
+- `category:` is REQUIRED post-`19` (legacy authoring without `category:` parses with category inferred from `agg:` + `additivity:` during the `[TD-CATEGORIES-MIGRATE]` window; see `19 §3`).
+- `agg:` is **derived from `category:`** per `19 §3.3`. Authors MAY still spell it explicitly (must agree, else SR-E-13). Required on `category: custom` Measures.
 - `expr:` is OPTIONAL; when absent, the aggregation applies to the Semantic whose name the Measure declares (via `semantic_mapping` resolution at binding time).
-- `additivity:` is optional; `None` is treated as `Full` for planning purposes, with a `plan.additivity-unspecified` advisory.
+- `additivity:` is **derived from `category:`** per `19 §3.3`. Authors MAY still spell it explicitly (must agree, else SR-E-13). Required on `category: custom`.
 - `data_type:` is mandatory at declaration (SR-E-10).
+- `constraints:` is OPTIONAL — explicit refinement on top of category-derived implicit constraints (per `11 §8` rewrite). MAY only narrow what the category permits (SR-E-15).
 
 ---
 
@@ -695,29 +731,56 @@ pub struct Metric {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_context: Option<AiContext>,
 
-    /// OPTIONAL on Metric — the expression itself carries the aggregation
-    /// intent when absent.
+    /// The Metric category — drives expr-shape locks, additivity defaults,
+    /// and planner derivation routing. Canonical semantics in `19 §4`.
+    /// REQUIRED post-`19`; pre-`19` manifests parse with category inferred
+    /// from `expr:` shape per the `[TD-CATEGORIES-MIGRATE]` window.
+    #[serde(default = "MetricCategory::default_legacy_inferred")]
+    pub category: MetricCategory,
+
+    /// Optional post-aggregation wrapper. Default derives from
+    /// `category:` (e.g. Simple inherits the wrapped Measure's agg).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agg: Option<AggregationType>,
 
-    /// REQUIRED on Metric — the derivation expression over Measures /
-    /// Dimensions. May be deferred-body on a root-pool Metric and
-    /// supplied at every Ref site (see §1.3).
-    pub expr: crate::expr_block::ExprSource,
+    /// The derivation expression over Measures / Dimensions. Authoring
+    /// rules depend on `category:` (`19 §4.2`):
+    /// - `Simple` ⇒ `expr:` resolves to a single Measure name (or omitted;
+    ///   `body.measure:` is the source of truth).
+    /// - `Ratio` ⇒ `expr:` shape is `numerator / denominator`; both sides
+    ///   MUST be Measure or Simple-Metric names.
+    /// - `Derived` ⇒ `expr:` references ≥ 2 Measures / Metrics.
+    /// May be deferred-body on a root-pool Metric and supplied at every
+    /// Ref site (see §1.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expr: Option<crate::expr_block::ExprSource>,
 
+    /// Additivity classification. **Derived from `category:`** per
+    /// `19 §4.2` (Ratio ⇒ Non implicit; Simple ⇒ inherited from wrapped
+    /// Measure; Derived ⇒ author-stated, default Non).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub additivity: Option<AdditivityType>,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<AggregationFilter>,
+
+    /// Explicit refinement on top of category-implied implicit constraints.
+    /// Carrier-roster + sub-block grammar live in `11 §8`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<Constraints>,
 }
 ```
 
+`MetricCategory` and its body structs are ratified canonically in [`19 §4`](./19_categories.md#4-metric-categories--metriccategory). The v1 roster is `{Simple, Ratio, Derived}`; `Cumulative` and `Conversion` are commented-out reserved variants per `00 §10`.
+
 ### 6.1 Requirements
 
-- `expr:` is REQUIRED (either inline on a declaration or at every `Ref` site for a deferred-body root Metric — §1.3).
-- `agg:` is OPTIONAL — a Metric whose `expr:` is itself an aggregation (e.g. `sum(amount) / count(*)`) carries its aggregation in the expression; `agg:` is the field authors set when they want to state a post-aggregation wrapper explicitly.
+- `category:` is REQUIRED post-`19` (legacy authoring parses with category inferred from `expr:` shape during the `[TD-CATEGORIES-MIGRATE]` window).
+- `expr:` is REQUIRED whenever the category requires it (`Derived` always; `Simple` if `body.measure:` is omitted; `Ratio` may rely solely on `body.numerator:` + `body.denominator:`). May be deferred-body on a root-pool Metric and supplied at every `Ref` site (§1.3).
+- `agg:` is OPTIONAL — derived from `category:` (e.g. `Simple` inherits the wrapped Measure's agg). When the author spells it explicitly it must agree (SR-E-13).
+- `additivity:` is **derived from `category:`** per `19 §4.2`; explicit authoring must agree.
 - `data_type:` is mandatory at declaration (SR-E-10).
+- `constraints:` is OPTIONAL — explicit refinement on top of category-derived implicit constraints (per `11 §8` rewrite). MAY only narrow what the category permits (SR-E-15). Metric `expr:` shape MUST match the declared category (SR-E-17).
 
 ### 6.2 Cross-DataKind references
 
@@ -1042,8 +1105,15 @@ Entity-level invariants. Each rule has a stable kebab-case diagnostic code per `
 | **SR-E-10** | A `Dimension` / `Measure` / `Metric` MUST declare `data_type:` at its declaration site. | `parse.semantics-missing-data-type` |
 | **SR-E-11** | Filter names are not cross-referenceable between `DataKindFilter` and `AggregationFilter`. | `validate.filter-wrong-kind` |
 | **SR-E-12** | `data_type:` is immutable across all levels — root-pool and Ref sites must agree; local overrides are forbidden. | `validate.semantics-data-type-mismatch` |
+| **SR-E-13** | `Measure.category:` and `Metric.category:` derived `agg:` / `additivity:` MUST agree with author-stated `agg:` / `additivity:` (when present). Canonical home: `19 §6`. | `validate.measure-category-mismatch` / `validate.metric-category-mismatch` |
+| **SR-E-14** | A category whose body is non-empty MUST author every required body field. Canonical home: `19 §6`. | `validate.category-body-incomplete` |
+| **SR-E-15** | A `constraints:` block MAY NOT widen what the category locks (e.g. `aggregation.allowed:` listing an aggregation outside the category-implied set). Canonical home: `19 §6` (Measure / Metric); subsumes Dimension `data_type:` mismatch. | `validate.constraints-incompatible-with-category` (Measure / Metric) / `validate.dimension-category-data-type-mismatch` (Dimension) |
+| **SR-E-16** | Downstream re-aggregation of a Measure / Metric MUST satisfy the carrier's `aggregation:` constraint (implicit ∩ explicit). Canonical home: `19 §6`. | `plan.downstream-aggregation-violation` |
+| **SR-E-17** | A `Metric.category:` shape MUST match the Metric's `expr:` / body shape. Canonical home: `19 §6`. | `validate.metric-category-expr-shape-mismatch` |
+| **SR-E-18** | A `Filter` entity MUST NOT carry a top-level `constraints:` field (Q-R4.3d in `11 §8`). Canonical home: `19 §6`. | `validate.constraints-on-filter-entity` |
+| **SR-E-19** | An unrecognized `category:` value (not in the spec-owned roster) is rejected; v1 does not lenient-downgrade unknown categories — see `[TD-CAT-LENIENT]`. Canonical home: `19 §6`. | `validate.unknown-category` |
 
-SR-E-* numbering is append-only; adding a rule is MINOR per `30 §2`.
+SR-E-* numbering is append-only; adding a rule is MINOR per `30 §2`. SR-E-13 … SR-E-19 are ratified canonically in [`19 §6`](./19_categories.md#6-structural-rules-sr-e-13--sr-e-19); this section lists them for the entity-level diagnostic catalog.
 
 ---
 
@@ -1058,6 +1128,7 @@ SR-E-* numbering is append-only; adding a rule is MINOR per `30 §2`.
 - `11` — name / scope rules for Semantics.
 - `13` — `DataType`, `Grain`, `DimensionType` vocabulary this doc embeds.
 - `14` — `SemanticExpr` / `PhysicalExpr` grammar for every `expr:` field here.
+- `19` — Dimension / Measure / Metric **category** axis; `MeasureCategory` + `MetricCategory` enums and per-variant body structs; SR-E-13 … SR-E-19 canonical home.
 - `14b` — compile-time resolution of `SemanticExpr` at `Ref` sites + override merging.
 - `15` — `Binding` process that consumes `semantic_mapping` + the entities ratified here.
 - `16` — `Relationship` graph consumption; `Joinset` path synthesis.

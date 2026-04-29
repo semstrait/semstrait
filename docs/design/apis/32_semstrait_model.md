@@ -1,5 +1,5 @@
 ---
-prereqs: [00, 10, 11, 12, 13, 14, 14a, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 30, 31, 31b]
+prereqs: [00, 10, 11, 12, 13, 14, 14a, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 30, 31, 31b]
 authoritative-for:
   - the root YAML shape for a `semstrait` model — `semantic_model:` wrapper, per-variant plural arrays, shared Semantics pools, `relationships:`
   - the in-memory `SemanticModel` root type — per-variant typed maps, shared pools as `BTreeMap`, `relationships` as `Vec`
@@ -63,9 +63,24 @@ semantic_model:
 
   # ── Shared Semantics pools — one map per carrier ────────────────
   # Full entity shapes + ref/override grammar — 18 §4–§9.
-  dimensions: [ ... ]                  # see 18 §4
-  measures:   [ ... ]                  # see 18 §6
-  metrics:    [ ... ]                  # see 18 §7
+  # Category axis (`type:` on Dimensions, `category:` on Measures / Metrics) — 19.
+  dimensions:                          # see 18 §4 / 19 §2
+    - name: order_date
+      data_type: date
+      type:
+        temporal: { grains: [day, week, month] }
+  measures:                            # see 18 §6 / 19 §3
+    - name: gross_revenue
+      data_type: decimal(18, 2)
+      category: additive               # category derives agg + additivity
+      expr: amount_cents * 0.01
+  metrics:                             # see 18 §7 / 19 §4
+    - name: cpc
+      data_type: double
+      category:
+        ratio:
+          numerator: cost
+          denominator: clicks
 
   # ── Cross-entity relationships — see 18 §2 for full grammar ────
   relationships:
@@ -778,6 +793,7 @@ Per I11. `io` is default-off so the historical pure-type consumer of `semstrait-
 | Scope | Doc | What lives there |
 |---|---|---|
 | **Canonical entities** | [`../foundations/18_entities.md`](../foundations/18_entities.md) | **`Relationship`, `RelationshipId`, `JoinType`, `Cardinality`, `Directionality`, `TemporalShape`, `ScdType`, `Dimension` / `Measure` / `Metric`, `DimensionType` + body structs, `Additivity`, filter taxonomy, `AiContext`, `Keys`, `SemanticMappingValue` shape, root-pool reference / override grammar, `SR-E-*` entity-level rules. Authoritative for every entity struct shape embedded in 32.** |
+| **Category axis** | [`../foundations/19_categories.md`](../foundations/19_categories.md) | **`MeasureCategory` / `MetricCategory` enums + body structs; per-variant implicit-constraint contract; SR-E-13 … SR-E-19 (`19 §6`); YAML grammar (`19 §7`); expandability invariants (`SR-CAT-FWD`, `SR-CAT-CLOSED`, `SR-E-19`); growth recipe (`19 §8`). The `category:` field on Measures / Metrics surfaced in 32 examples is ratified here.** |
 | Dataset interior | [`../data-kinds/21_dataset.md`](../data-kinds/21_dataset.md) | Per-Dataset YAML: `dimensions:`, `measures:`, `metrics:`, `filters:`, `keys:`, leaf-only `extras` semantics |
 | Grainset interior | [`../data-kinds/22_grainset.md`](../data-kinds/22_grainset.md) | Per-Grainset YAML: child composition, grain-axis, `temporal:` in extras |
 | Unionset interior | [`../data-kinds/23_unionset.md`](../data-kinds/23_unionset.md) | Per-Unionset YAML: children, `mode:`, coverage |

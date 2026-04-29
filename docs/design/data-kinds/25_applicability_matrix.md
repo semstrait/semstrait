@@ -1,5 +1,5 @@
 ---
-prereqs: [20, 21, 22, 23, 24]
+prereqs: [18, 19, 20, 21, 22, 23, 24]
 authoritative-for:
   - the cross-variant applicability matrix mapping foundation rules (`10`–`17`) onto every `DataKind` variant (`Simple` / `Grainset` / `Unionset` / `Joinset`)
   - the per-variant planner-strategy summary (pointers into `21 §4`, `22 §4`–`§5`, `23 §4`, `24 §5`); strategy semantics themselves are NOT ratified here
@@ -324,6 +324,30 @@ The cross-doc invariants `I1`–`I12` ratified in `00 §9` apply uniformly to ev
 | I10 (`#[non_exhaustive]` on public sum types) | `always` — e.g. `DataType`, `Grain`, `TemporalShape`, `ColumnMappingValue`. | `always`. | `always`. | `always` — `JoinType`, `Cardinality`. |
 | I11 (separation of Model / Manifest / Planner / IR) | `always`. | `always`. | `always`. | `always`. |
 | I12 (first-class diagnostics) | `always` — `VALID_E_21xx` / `COMP_E_21xx` / `PLAN_E_21xx` / `PLAN_W_21xx`. | `always`. | `always`. | `always`. |
+
+### 2.11 Category cross-cuts — `19`
+
+The category axis ratified in [`19`](../foundations/19_categories.md) (Dimension `DimensionType`, `MeasureCategory`, `MetricCategory`) is variant-agnostic at the schema level — every DataKind variant accepts every category. The cross-cuts that **do** vary per variant are operational:
+
+| Category axis | `Simple` / Dataset | `Grainset` | `Unionset` | `Joinset` |
+|---|---|---|---|---|
+| `DimensionType::Temporal(TemporalDimensionBody)` (`19 §2.2`) | `always` — Temporal Dimension on a Simple's interface; rollup grains live in `body.grains`. | **`always`** — Grainset's `grain_axis` MUST resolve to a Temporal Dimension whose `body.grains` covers the level set (`22 §4.2`). | `conditional` — Temporal Dimensions across children are reconciled per `23 §4.4` (cast-up to LUB). | `conditional` — Temporal Dimensions per member; cross-member temporal alignment falls under `17 §5` (`AsOf` joins, deferred). |
+| `DimensionType::{Categorical, Binary, Geo}` | `always`. | `always`. | `always`. | `always`. |
+| `DimensionType::Bucketed(BucketedDimensionBody)` | `always` — `CASE WHEN` projection emitted at compile (`19 §2.2`). | `always`. | `always`. | `always`. |
+| `DimensionType::Metadata(MetadataDimensionBody)` | `always` — extracted at scan-bind (`15 §8`). | `via Simple children`. | `via Simple children`. | `via Simple children`. |
+| `MeasureCategory::Additive` / `MinMax` / `Boolean` (`19 §3.3`) | `always`. | `always`. | `always`. | `always`. |
+| `MeasureCategory::Average` (non-additive — re-aggregate from SUM/COUNT at queried grain) | `always`. | `conditional` — re-aggregation runs at the queried Grainset level; planner materializes SUM/COUNT once (`22 §10`). | `conditional` — Union-composed Average needs per-child SUM/COUNT decomposition (`23 §4.5` lossy-reagg). | `always` — runs post-join. |
+| `MeasureCategory::Distinct(DistinctMeasureBody)` (non-additive; engine-specific approx) | `always`. | `conditional` — distinct count over a non-axis grain may force a coarser Grainset level (`22 §4.4`). | `conditional` — Union-composed distinct **does not** decompose; planner must materialize at the union output (`23 §4.5`). | `always` — runs post-join. |
+| `MeasureCategory::Statistical(StatisticalMeasureBody)` (StdDev / Variance / Median / Percentile) | `always`. | `conditional` — same as Average (recompute at queried grain). | `conditional` — Union-composed stat measures decompose only when the engine supports the partial-aggregate form (`23 §4.5`). | `always` — runs post-join. |
+| `MeasureCategory::Snapshot(SnapshotMeasureBody)` (semi-additive) | `always` — synthesizes `AdditivityType::Semi` per `19 §3.3`. | `conditional` — non-additive axis MUST be among the Grainset's `grain_axis` members or a sibling Dimension; otherwise `validate.snapshot-axis-not-on-host`. | `conditional` — Union-composed Snapshot requires per-child axis agreement (advisory). | `always` — runs post-join. |
+| `MeasureCategory::Custom` | `always` — author states `agg:` + `additivity:` manually. | `always`. | `always`. | `always`. |
+| `MetricCategory::Simple(SimpleMetricBody)` (`19 §4.2`) | `always`. | `always` — inherits the wrapped Measure's variant cross-cut. | `always`. | `always`. |
+| `MetricCategory::Ratio(RatioMetricBody)` | `always` — materializes numerator + denominator separately, combines in a post-aggregate `Project`. | `always` — same. | `conditional` — Union-composed ratio requires per-child decomposition of numerator + denominator (advisory if one child is missing one side). | `always` — runs post-join. |
+| `MetricCategory::Derived(DerivedMetricBody)` | `always`. | `always`. | `conditional` — Union-composed Derived may require lossy-reagg per `23 §4.5`. | `always`. |
+| `MetricCategory::Cumulative` (post-v1; cross-cuts `00 §10` window-function deferral) | `n/a` (post-v1). | `n/a` (post-v1) — when ratified, requires the host DataKind to have a Temporal axis; planner-direction hint. | `n/a` (post-v1). | `n/a` (post-v1). |
+| `MetricCategory::Conversion` (post-v1) | `n/a` (post-v1). | `n/a`. | `n/a`. | `n/a`. |
+
+The `conditional` cells point at planner moves that the per-variant `2x` docs already detail; `25 §2.11` only records that the move exists. Concrete planner emission per category lives in [`19 §3.3`](../foundations/19_categories.md#33-implicit-constraint-contract-per-measure-category) / [`19 §4.2`](../foundations/19_categories.md#42-implicit-constraint-contract-per-metric-category).
 
 ---
 

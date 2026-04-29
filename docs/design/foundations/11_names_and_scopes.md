@@ -8,7 +8,7 @@ authoritative-for:
   - Semantics element catalog roles and responsibilities (Dimension, Measure, Metric, Filter, Key — roles; struct shapes live in `18 §4`–`§9`)
   - `Additivity` / `SemiAdditive` planner contract — where each variant is legal, what the planner does with it (enum definition owned by `18 §5`)
   - identifier grammar (ASCII-only, snake-case-friendly minimum-viable form)
-  - `Constraint` framework: generic carrier-agnostic concept, per-carrier `constraints:` DSL, kind sub-block toolkit, v1 realized (Measure, Metric) vs reserved (Dimension, Filter, Key, DataKind) carriers, evaluation lifecycle (§8)
+  - `Constraint` framework — explicit `constraints:` block as the **refinement** layer over category-implicit rules (`19 §5`); v1 carriers `{Measure, Metric}` (Filter dropped per Q-R4.3d); reserved future carriers (Filter, Key, Dimension, DataKind) folded into `[TD-CONSTRAINT-CARRIER-EXT]`; outer key `aggregation:` (singular); third dimensions key `all_of` (symmetric); type rename `MeasureConstraints` → `Constraints` (`[TD-CONSTRAINT-RENAME]`); evaluation lifecycle (§8). SR-E-13 … SR-E-19 are **not** owned here — canonical home is [`19 §6`](./19_categories.md#6-structural-rules-sr-e-13--sr-e-19).
   - cross-kind reference rule (Relationship-required invariant; compile pre-validation, plan walks)
   - nested-kind structural label concept (non-Semantics naming at nested scope levels)
   - lookup algorithm (how `compile` resolves a named reference against the scope tree and global registry)
@@ -20,6 +20,7 @@ refined-by:
   - 15 (mapping and binding — compile-time `Binding` process, `SemanticMapping` authoring, `PhysicalSource`, binding coverage)
   - 16 (composition — `Relationship`, `ComposedSemanticInterface`, cross-kind walk semantics)
   - 17 (temporal shape — `TemporalShape`'s independent role in candidate selection and rollup, per §7)
+  - 19 (categories — Dimension / Measure / Metric category axis; the implicit-vs-explicit constraint contract that the `§8` rewrite layers on top; SR-E-13 … SR-E-19 canonical home)
   - 20–25 (strategies — per-DataKind-variant resolution and `Constraint` evaluation)
 ---
 
@@ -597,50 +598,60 @@ Full per-variant planner rules, including the SCD / Snapshot / Timeseries / Even
 
 ## 8. Constraint
 
-A **Constraint** is a declarative rule that narrows how a Semantics element participates in computation. The concept is **element-agnostic** — any carrier type (Measure, Metric, Dimension, Filter, Key, DataKind) MAY carry Constraints. The v1 implementation realizes the carrier mechanism for **Measure and Metric**; the other carriers are architecturally reserved extension points (§8.5). The DSL shape — a nested `constraints:` block composed of reusable **kind sub-blocks** — is itself carrier-agnostic (§8.3); different carriers select different kind sub-blocks appropriate to what that element does.
+A **Constraint** is a declarative rule that **refines** how a Semantics element participates in computation, on top of the implicit constraints derived from the element's category (`19_categories.md`). The category axis ratified in `19` says *what an entity is* — `category: ratio` Metric, `category: distinct` Measure, `Temporal` Dimension. Categories drive *implicit* constraints (locked `agg:`, derived `additivity:`, expr-shape locks). The `constraints:` block ratified here is the *explicit refinement* layer — narrowing how a Request may consume the element.
+
+In v1 the explicit-refinement carriers are **`Measure`** and **`Metric`** (per Q-R4.3d resolution — see [`questions/closed/11_constraints_deferred.md`](../questions/closed/11_constraints_deferred.md)). `Filter` does not carry a `constraints:` block in v1. Reserved future carriers (Dimension, Key, DataKind) collapse into a single `[TD-CONSTRAINT-CARRIER-EXT]` note (§8.5) — not enumerated as section headers.
 
 **Not Constraints** (boundaries the `§8` framework does not cover):
 
-- SQL-style relational integrity (`NOT NULL`, `UNIQUE`, `FOREIGN KEY`, `PRIMARY KEY`) — Preconditions in `§12.2` (`N-C3` … `N-C9`).
-- System-level compiler invariants ("SUM only on Measure `expr:`, not on a Dimension / Key column") — validate/compile-stage structural rules in `14` / `15` / `§12.2`.
-- Engine-side operand-type admissibility — deferred to adapters per the `14 §5.6` pass-through posture.
-- Arbitrary boolean-predicate escape-hatches — every admissible Constraint kind is a closed, structured sub-block. The `14 §4.3` inline DSL is not reused inside `constraints:`.
-- Authorable severity — every Constraint violation is a hard error (§8.7).
+- **Implicit constraints derived from category.** Category-implied locks on `agg:` / `additivity:` / `expr-shape:` live in `19 §2.2 / §3.3 / §4.2`. They are not authored as YAML and never appear in a `constraints:` block.
+- **SQL-style relational integrity** (`NOT NULL`, `UNIQUE`, `FOREIGN KEY`, `PRIMARY KEY`) — Preconditions in `§12.2` (`N-C3` … `N-C9`).
+- **System-level compiler invariants** ("SUM only on Measure `expr:`, not on a Dimension / Key column") — validate/compile-stage structural rules in `14` / `15` / `§12.2`.
+- **Engine-side operand-type admissibility** — deferred to adapters per the `14 §5.6` pass-through posture.
+- **Arbitrary boolean-predicate escape-hatches** — every admissible Constraint kind is a closed, structured sub-block. The `14 §4.3` inline DSL is not reused inside `constraints:`.
+- **Authorable severity** — every Constraint violation is a hard error (§8.7).
 
 ### 8.1 The Constraint concept
 
-A Constraint binds to one **carrier element** (the Semantics it restricts). It is composed of one or more **kind sub-blocks**, each drawn from a small reusable toolkit (§8.3). Each kind sub-block expresses a single admissibility rule using a familiar vocabulary (three-way set membership, two-way whitelist/blacklist, bounded range, identifier list).
+A Constraint binds to one **carrier element** (the Measure / Metric it refines). It is composed of one or more **kind sub-blocks**, each drawn from a small reusable toolkit (§8.3). Each kind sub-block expresses a single admissibility rule using a familiar vocabulary (three-way set membership, two-way whitelist/blacklist).
 
-Constraints are evaluated at a stage appropriate to the carrier and kind (§8.6). Violations are hard errors that abort the host stage immediately.
+Constraints are evaluated at **step 0** (pre-resolution) of the planner (§8.6). Violations are hard errors that abort planning immediately.
+
+**Layering with categories.** Per `19 §1.3`, the planner's step-0 pre-resolution check consumes the *combined* rule set: implicit (category-derived) ∩ explicit (constraints-derived). An explicit constraint MAY only narrow what the category permits — it cannot widen (`19 §6` SR-E-15). Examples:
+
+- A `category: distinct` Measure has implicit `agg: count_distinct`. An explicit `constraints.aggregation.allowed: [sum]` is `validate.constraints-incompatible-with-category` — it tries to widen what the category locks.
+- A `category: additive` Measure has implicit `agg ∈ {Sum, Count}` and `additivity: full`. An explicit `constraints.aggregation.prohibited: [count]` is legal — it narrows the implicit set from `{Sum, Count}` to `{Sum}`.
 
 ### 8.2 Carriers
 
-Every Semantics element type is a candidate carrier. The carrier table below records the current realization status:
+Per Q-R4.3d, the v1 explicit-constraint carriers are:
 
-| Carrier | Role of Constraints | v1 state |
+| Carrier | Role of explicit `constraints:` | v1 state |
 |---|---|---|
-| **Measure** | Narrow which Dimensions may / must appear in the Request's query scope; narrow which aggregation functions are admissible | **Realized** — §8.4.1 |
-| **Metric** | Narrow which Dimensions may / must appear in the Request's query scope; narrow which aggregation functions are admissible (applies to two-stage Metrics per `CompiledMetric.agg`) | **Realized (partial)** — §8.4.2 |
-| **Dimension** | *Implicit today.* Grain admissibility is expressed by `13 §3` `grains:`; Key-membership is expressed by `§6.5`'s Key declarations. Future explicit `constraints:` block could carry null-policy, allowed-rollup paths, value-set policies, etc. | **Reserved** — §8.5.1 |
-| **Filter** | Filter-reachability from carrier DataKinds; auto-application policy (the `requires:` mechanism the code comment reserves); admissibility of targeted Dimension names | **Reserved** — §8.5.2 |
-| **Key** | Enforcement posture for Key uniqueness at the stated grain; admissibility of Dimensions as Key members | **Reserved** — §8.5.3 |
-| **DataKind** | Row-count / grain-shape bounds; cross-Semantics invariants that bind at the DataKind scope | **Reserved** — §8.5.4 |
+| **Measure** | Narrow which Dimensions may / must appear in the Request's query scope; narrow downstream re-aggregation legality (§8.4.1) | **Realized** |
+| **Metric** | Same kind sub-blocks as Measure (§8.4.2) | **Realized** |
 
-Each realized or reserved carrier has its own per-carrier `constraints:` field. The field is independently optional per carrier. The **set of kind sub-blocks admissible inside a carrier's `constraints:` block is closed per carrier** (§8.4 / §8.5); unknown kind names are a parse-stage rejection.
+`Filter` does **not** carry a top-level `constraints:` field in v1 (Q-R4.3d → d3). Per-Metric scoped filters live inside `SimpleMetricBody.filter` and `RatioMetricBody.filter` (`19 §4.1`); the carrier's `filters: Vec<AggregationFilter>` whitelist remains the authoring surface for Measure-scoped filtering. Filter reachability + admissibility is tracked under `[TD-FILTER-REACHABILITY]`.
+
+Reserved future carriers (Dimension, Key, DataKind) — collapsed into one TD entry rather than per-carrier scaffolding sections (see §8.5).
+
+The set of kind sub-blocks admissible inside a carrier's `constraints:` block is closed per carrier (§8.4 / §8.8); unknown kind names are a parse-stage rejection.
 
 ### 8.3 The kind sub-block toolkit
 
-A reusable vocabulary that kind sub-blocks compose from. v1 realizes the first two; the remaining entries are reserved for future kind sub-blocks.
+A reusable vocabulary that kind sub-blocks compose from. v1 realizes the first two:
 
 | Pattern | Shape | Example | Used by |
 |---|---|---|---|
-| **Three-way set policy** | `{ one_of: [...], none_of: [...], all: [...] }` — all three fields independently optional; AND-combined | `dimensions: { one_of: [date], none_of: [pii], all: [region] }` | `dimensions` kind (§8.4.1) |
-| **Two-way list policy** | `{ allowed: [...], prohibited: [...] }` — both optional; both may co-exist | `aggregations: { allowed: [SUM, MIN], prohibited: [COUNT_DISTINCT] }` | `aggregations` kind (§8.4.1) |
-| **Bounded range** | `{ min: N, max: M }` — both optional; `min ≤ max` when both present | (future) `row_count: { min: 1 }` | *reserved* |
-| **Identifier list** | `[name_a, name_b]` — flat list of Semantics/Filter names | (future) `requires: [is_active]` | *reserved* |
-| **Structured scalar bound** | typed value with bound (e.g. `{ max: 0.05 }` for a ratio) | (future) `null_fraction: { max: 0.05 }` | *reserved* |
+| **Three-way set policy** | `{ one_of: [...], none_of: [...], all_of: [...] }` — all three fields independently optional; AND-combined | `dimensions: { one_of: [date], none_of: [pii], all_of: [region] }` | `dimensions` kind (§8.4.1) |
+| **Two-way list policy** | `{ allowed: [...], prohibited: [...] }` — both optional; both may co-exist | `aggregation: { allowed: [SUM, MIN], prohibited: [COUNT_DISTINCT] }` | `aggregation` kind (§8.4.1) |
+| **Bounded range** | `{ min: N, max: M }` — both optional; `min ≤ max` when both present | `[TD-CONSTRAINT-CARRIER-EXT]` future | *reserved (per `[TD-CONSTRAINT-CARRIER-EXT]`)* |
+| **Identifier list** | `[name_a, name_b]` — flat list of Semantics/Filter names | `[TD-CONSTRAINT-CARRIER-EXT]` future | *reserved (per `[TD-CONSTRAINT-CARRIER-EXT]`)* |
+| **Structured scalar bound** | typed value with bound (e.g. `{ max: 0.05 }` for a ratio) | `[TD-CONSTRAINT-CARRIER-EXT]` future | *reserved (per `[TD-CONSTRAINT-CARRIER-EXT]`)* |
 
 A kind sub-block MAY compose multiple patterns. New kinds SHOULD use these patterns before inventing new shape grammars.
+
+> **[TD-CONSTRAINT-RENAME-ALL]** — per Q-R4.3b, the third dimensions key is `all_of` (symmetric with `one_of` / `none_of`). The current code uses bare `all`. Rename scheduled with the broader `[TD-CONSTRAINT-RENAME]` Manifest-schema revision (§8.4.3); this TD is subsumed there.
 
 ### 8.4 v1 realized carriers
 
@@ -654,112 +665,120 @@ Two kind sub-blocks admissible:
 |---|---|
 | `one_of: [A, B, C]` | Query scope MUST include ≥ 1 of the listed Dimensions |
 | `none_of: [X, Y]` | Query scope MUST NOT include ANY listed Dimension |
-| `all: [P, Q]` | Query scope MUST include EVERY listed Dimension |
+| `all_of: [P, Q]` | Query scope MUST include EVERY listed Dimension |
 
-**`aggregations:`** — two-way list policy (§8.3) over UPPERCASE aggregation-name tokens matching the `Aggregation` enum names (currently `SUM`, `AVG`, `COUNT`, `COUNT_DISTINCT`, `MIN`, `MAX`; see `crates/semstrait-planner/src/validator.rs::agg_constraint_name`).
+**`aggregation:`** (singular per Q-R4.3b) — two-way list policy (§8.3) over UPPERCASE aggregation-name tokens matching the `Aggregation` enum names (currently `SUM`, `AVG`, `COUNT`, `COUNT_DISTINCT`, `MIN`, `MAX`; see `crates/semstrait-planner/src/validator.rs::agg_constraint_name`).
+
+Per Q-R4.3a (Reading 1, narrowed): `aggregation:` constrains how this Measure may be **re-aggregated downstream** by a parent query (e.g. wrapping with another `SUM`). The default downstream-agg set is implied by the Measure's `category:` (`19 §3.3`):
+
+- `category: additive` ⇒ default `aggregation.allowed: [SUM, MIN, MAX]`.
+- `category: average` / `distinct` / `statistical` / `category: ratio` (Metric) ⇒ default `aggregation.allowed: []` (additivity = `Non` blocks all downstream re-agg).
+- `category: snapshot` ⇒ default `aggregation.allowed:` derived per `body.strategy:` and `body.non_additive_axes:` (semi-additive lattice).
+
+Authoring an explicit `aggregation:` block **narrows** the category-implied default. Widening fails SR-E-15 (`19 §6`).
 
 | Field | Semantics |
 |---|---|
-| `allowed: [...]` | Measure's effective aggregation MUST be one of the listed names |
-| `prohibited: [...]` | Measure's effective aggregation MUST NOT be one of the listed names |
+| `allowed: [...]` | Downstream re-aggregation MUST be one of the listed names (subset of category-implied default) |
+| `prohibited: [...]` | Downstream re-aggregation MUST NOT be one of the listed names |
 
 Authorable form:
 
 ```yaml
-measure:
-  name: order_amount
-  agg: SUM
-  data_type: Decimal(18, 4)
-  constraints:
-    dimensions:
-      one_of: [date, order_month]
-      none_of: [pii_customer_ssn]
-      all: [region]
-    aggregations:
-      allowed: [SUM, MIN, MAX]
-      prohibited: [COUNT_DISTINCT]
+measures:
+  - name: order_amount
+    category: additive                  # category provides implicit defaults
+    data_type: decimal(18, 4)
+    constraints:
+      dimensions:
+        one_of: [date, order_month]
+        none_of: [pii_customer_ssn]
+        all_of: [region]
+      aggregation:                      # explicit narrowing of category default {SUM, MIN, MAX}
+        allowed: [SUM, MIN]             # MAX disallowed
+        prohibited: [COUNT_DISTINCT]    # also disallowed (already outside category default)
 ```
 
-Unknown keys inside any Measure-`constraints:` sub-block are `ValidateError::ShapeMalformed` via serde's default unknown-field rejection. Both sub-blocks are independently optional; a `constraints:` block carrying only `dimensions:` (or only `aggregations:`) is legal.
+**The "Balance" idiom — composition, not a separate category.** A second worked example illustrates how the same framework expresses a *stock-balance* measure (banking balance, inventory level, debt position). The shape combines a body-bearing `Snapshot` category (semi-additive over a temporal axis) with an `aggregation:`-only refinement (no `dimensions:` block needed):
+
+```yaml
+# Example: balance-style measure (banking, inventory, debt position).
+# Demonstrates that the existing constraints + categories framework
+# already covers what a hypothetical `category: balance` variant
+# would express — no new mechanism needed.
+measures:
+  - name: account_balance
+    category:
+      snapshot:
+        non_additive_axes: [snapshot_date]   # semi-additive over the date axis
+        strategy: latest                     # rollup picks the most recent snapshot
+    data_type: decimal(18, 2)
+    constraints:
+      aggregation:                           # narrow Snapshot's category-implied default
+        allowed:    [SUM, MIN, MAX]          # additive across customers / accounts
+                                             # on a single date
+        prohibited: [AVG, COUNT_DISTINCT]    # AVG of balances across dates is meaningless
+```
+
+Banking-balance, inventory-level, and debt-position measures share a recurring shape: semi-additive over a temporal axis, additive across non-temporal axes (customers, accounts, products), and intolerant of certain downstream re-aggregations (`AVG` of dollars across multiple snapshot dates produces a meaningless number). The composition above expresses all three concerns:
+
+- `category: snapshot` carries the **mathematical property** (semi-additive math; `strategy: latest` for forced rollups when a Request omits the non-additive axis from scope). See [`19 §3.3`](./19_categories.md#33-implicit-constraint-contract-per-measure-category).
+- `constraints.aggregation:` carries the **defensive narrowing** of the category-implied downstream-aggregation default. Same pattern as the `order_amount` example above — applied here to a `Snapshot` category instead of `Additive`.
+
+A hypothetical `MeasureCategory::Balance` variant would be a *naming alias* over this exact composition — same body shape (`non_additive_axes`, `strategy`), same constraints, no new mechanism. The v1 spec deliberately does not add the alias because the composition is short, the primitives are clear, and a sugar-only variant adds doc-cascade overhead with no expressive gain. Tracked under [`Q-CAT-008`](../questions/open/19_questions.md) for future ratification if banking-domain authors find the `Snapshot` spelling semantically misleading.
+
+Unknown keys inside any Measure-`constraints:` sub-block are `ValidateError::ShapeMalformed` via serde's default unknown-field rejection. Both sub-blocks are independently optional; a `constraints:` block carrying only `dimensions:` (or only `aggregation:`) is legal.
+
+**No `filter:` sub-block.** Per Q-R4.3c → c1, `Measure.constraints` does not carry a `filter:` sub-block. Filter intent already lives in the carrier's `filters: Vec<AggregationFilter>` whitelist (`18 §5`).
 
 #### 8.4.2 Metric `constraints:`
 
-The same two kind sub-blocks as §8.4.1 are admissible. Authoring matches §8.4.1's grammar verbatim. Evaluation differs per kind:
+The same two kind sub-blocks as §8.4.1 are admissible. Authoring matches §8.4.1's grammar verbatim. Evaluation differs per Metric category:
 
-- **`dimensions:`** fires identically to §8.4.1.
-- **`aggregations:`** applies to Metrics that carry an `agg:` field (two-stage Metrics per `semstrait-manifest::CompiledMetric.agg: Option<Aggregation>`). For Metrics without `agg:` (pure derived expressions), the current validator silently skips the `aggregations:` check; this is the forward-compatibility behavior — a pure Metric has no direct Request-level aggregation surface.
+- **`dimensions:`** fires identically to §8.4.1 for every Metric category.
+- **`aggregation:`** semantics depend on `category:` (`19 §4`):
+  - `category: simple` Metrics inherit the wrapped Measure's `additivity:` ⇒ category-implied default agg set follows the wrapped Measure.
+  - `category: ratio` / `category: derived` ⇒ category-implied `additivity: non` ⇒ default `aggregation.allowed: []`. Authoring `aggregation: { allowed: [...] }` here is legal but typically pointless (ratios are not mechanically rollupable).
 
-> **[TD-AGG-ON-METRIC]** — open design question: should authoring `aggregations:` on a Metric that has no `agg:` field be a validate-stage error (hard reject), or remain silently ignored (current)? The silent-skip is convenient for forward-compatibility but hides likely author mistakes. Deferred for future tightening.
+Per Q-R4.3a, `aggregation:` is the override carrier when a category's default downstream-aggregation rule is too strict / too loose. Its evaluation is **always against the category-implied default**, never against the Metric's own `agg:` field (which is its top-level aggregation, not the downstream one).
+
+> **[TD-AGG-ON-METRIC]** — superseded by Q-R4.3a + categories. `aggregation:` semantics are now category-derived; the silent-skip on agg-less Metrics no longer applies — Metrics now classify via `category:` not via `agg:` presence. The TD remains for the implementation-pass cleanup that removes the silent-skip code path.
 
 #### 8.4.3 Model-layer type name
 
-The v1 implementation's struct is named `MeasureConstraints` in `semstrait-model::types::measure` and is attached to both Measure and Metric carriers. The name is a **legacy artifact** — the spec treats Constraints as per-carrier, so the conceptual naming is `{Measure,Metric}Constraints` (distinct types per carrier) even though the code currently reuses one struct.
+The v1 implementation's struct is named `MeasureConstraints` in `semstrait-model::types::measure` and is reused on Measure and Metric. Per Q-R4.3b resolution, the spec name becomes **`Constraints`** (shared across both v1 carriers); per-carrier specialization waits for a future carrier extension that needs different sub-blocks.
 
-> **[TD-CONSTRAINT-RENAME]** — rename `MeasureConstraints` in the model crate to a name that reflects its cross-carrier reuse (e.g. `ElementConstraints`, or per-carrier `MeasureConstraints` + `MetricConstraints`). Schedule with the broader Manifest-schema revision pass; not a v1 blocker.
+> **[TD-CONSTRAINT-RENAME]** — rename `MeasureConstraints` → `Constraints` in the model crate, and rename the inner `aggregations: Option<AggregationConstraints>` → `aggregation: Option<AggregationConstraints>` (singular per Q-R4.3b). Schedule with the broader Manifest-schema revision pass; not a v1 blocker. Subsumes the previous `[TD-CONSTRAINT-RENAME-ALL]` (the bare `all` → `all_of` rename rides this same pass).
 
-### 8.5 Reserved carriers (future design)
+### 8.5 Reserved carriers — single TD note
 
-Carriers listed here are architecturally supported but have **no concrete kind sub-blocks realized in v1**. Each section names candidate kinds for scoping discussions; none are authoring-legal until specified.
+Reserved carriers (Dimension, Key, DataKind, plus the `requires:` Filter-injection mechanism) collapse into a single tracking item. Per the recurring lesson — reserved scaffolding is a trap; describe what the framework supports, defer enumeration until each future carrier has its own pass.
 
-#### 8.5.1 Dimension `constraints:`
+> **[TD-CONSTRAINT-CARRIER-EXT]** (canonical home: this section) — the `Constraint` framework is element-agnostic. Future carriers will add per-element kind sub-blocks following the kind-toolkit pattern (§8.3). Tracked future kinds, indicative only — none authoring-legal in v1:
+>
+> - **Dimension** — `rollup:` (allowed-grain-rollup paths beyond `13 §3`'s grain lists), `null_policy:` (require non-null / allow / forbid), `value_set:` (enum-style admissibility — superseded for most cases by `DimensionType::Bucketed` body in `18 §4.1`).
+> - **Key** — `uniqueness:` (advisory-only / plan-time-assert / runtime-check posture for the Key's stated grain), `member_policy:` (which Dimension types are admissible as Key members).
+> - **DataKind** — `row_count:` (bounded-range plan-time check; depends on `CatalogProvider` stats — `[TD-CARDINALITY-CONSTRAINT]`), `null_fraction:` (per-column null-fraction bound; same dependency).
+> - **`requires:` mechanism** — Filter-injection (the `// This is NOT requires` source comment in `semstrait-core::constraints`). Carrier (Filter? Measure/Metric? DataKind?) and shape (identifier list?) are part of `[TD-REQUIRES-MECHANISM]`.
 
-Today, Dimension-level restrictions are expressed through dedicated shape fields: grain admissibility via `13 §3` `grains:`, Key participation via `§6.5`, metadata-source hints via `13 §4.7`. A future explicit `Dimension.constraints:` block could carry kinds like:
-
-- `rollup:` — allowed-grain-rollup paths (extends `13 §3`'s grain lists with composition rules).
-- `null_policy:` — participation when the Dimension is NULL for a row (three-way: require non-null / allow / forbid).
-- `value_set:` — enum-style admissibility (deferred from the Round-1 value-predicates discussion).
-
-None are authoring-legal in v1.
-
-#### 8.5.2 Filter `constraints:`
-
-Candidate kinds — not authoring-legal in v1:
-
-- `reachability:` — DataKinds the Filter is admissible from (restricts which Requests may name this Filter).
-- `requires:` — the Filter-injection mechanism the source comment in `semstrait-core::constraints` reserves (`// This is NOT \`requires\``). When authored on a Measure / Metric / DataKind (carrier TBD), declares that a named Filter must be in effect; planner auto-injects at step 0 or at a dedicated plan sub-step. Tracked as `[TD-REQUIRES-MECHANISM]`.
-
-The future placement of `requires:` — whether on Filter itself or on Measure/Metric/DataKind — is part of the `[TD-REQUIRES-MECHANISM]` design work.
-
-#### 8.5.3 Key `constraints:`
-
-Keys today are purely structural metadata per `§6.5`. Candidate kinds — not authoring-legal in v1:
-
-- `uniqueness:` — enforcement posture (advisory-only / plan-time-assert / runtime-check) for the Key's uniqueness at the stated grain. Today semstrait *assumes* Keys are unique; an explicit posture would let authors downgrade the assumption for nominally-key-like structures.
-- `member_policy:` — which Dimension types / roles are admissible as Key members (e.g. forbid computed Dimensions, require physical-column binding).
-
-#### 8.5.4 DataKind `constraints:`
-
-Candidate kinds — not authoring-legal in v1:
-
-- `row_count:` — bounded-range policy on the DataKind's row count at plan time. Requires a `CatalogProvider` statistics API not yet specified. Tracked as `[TD-CARDINALITY-CONSTRAINT]`.
-- `null_fraction:` — per-column null-fraction bound evaluated at plan time; same `CatalogProvider` dependency.
-
-The framework retains Cardinality constraints as DataKind-level kinds, deferred to the stats extension.
+Each item lands as its own pass when author demand surfaces. The framework does not pre-emptively scaffold per-carrier sections.
 
 ### 8.6 Validation lifecycle
 
-**Per-carrier staging.** There is no single stage at which all Constraints run. Each carrier + kind pairing selects its natural stage:
+**Single stage in v1.** All v1 explicit-constraint kinds (`dimensions:` and `aggregation:` on Measure / Metric) evaluate at **step 0** (pre-resolution) of the planner — BEFORE dataset routing, `from:`-resolution, Relationship traversal, or PlanNode construction. They consume the *combined* rule set per §8.1 (implicit-from-category ∩ explicit-from-constraints).
 
-| Carrier | Kind | Stage | Rationale |
-|---|---|---|---|
-| Measure | `dimensions` | **step 0** (pre-resolution) | Needs full Request scope (group-by + filters); runs before `10 §3.4` sub-steps |
-| Measure | `aggregations` | step 0 | Same entry point; needs the Request's Measure-usage context |
-| Metric | `dimensions` | step 0 | Same |
-| Metric | `aggregations` (two-stage) | step 0 | Fires only when Metric has `agg:`; otherwise silent-skip per `[TD-AGG-ON-METRIC]` |
-| *(Reserved)* Dimension `rollup:` | — | future `plan` sub-step | Needs resolved Request scope |
-| *(Reserved)* Filter `reachability:` | — | future `compile` | Can be resolved statically against the Manifest |
-| *(Reserved)* Filter `requires:` | — | future `plan` sub-step (injection) | Needs Request context to know which Filters are already named |
-| *(Reserved)* DataKind `row_count:` / `null_fraction:` | — | future `plan` sub-step (post-catalog) | Needs `CatalogProvider` stats |
-
-**v1 evaluation entry point.** For realized carriers (Measure, Metric), `ConstraintValidator::check()` runs as the planner's first action — **step 0, pre-resolution** — BEFORE dataset routing, `from:`-resolution, Relationship traversal, or PlanNode construction. Per-Measure / per-Metric algorithm:
+**v1 evaluation entry point.** `ConstraintValidator::check()` runs as the planner's first action. Per-Measure / per-Metric algorithm:
 
 1. Resolve `request.entity_name` to a `CompiledDataKind` via the `Manifest`. (If `entity_name` is empty — ad-hoc query — constraint validation is skipped entirely.)
 2. Build the *query scope* set: `request.dimensions` ∪ filter-field Dimensions (§8.4.1).
 3. For each name in `request.measures`:
-   - If the name resolves to a Measure: run dimensions-check AND aggregations-check (passing the Measure's effective `agg` name).
-   - Else if the name resolves to a Metric: run dimensions-check; aggregations-check fires only if `CompiledMetric.agg` is set (per `[TD-AGG-ON-METRIC]`).
-   - Else: no action — a later plan stage raises the unresolved-reference error.
+   - **Implicit step**: derive the category-implied rule set (`19 §3.3 / §4.2` — locked agg, derived additivity → downstream-agg legality).
+   - **Explicit step**: intersect with the carrier's `constraints:` block (if present). Widening attempts fire SR-E-15 at validate, not here.
+   - **Combined check**: run `dimensions:` against the query scope; run `aggregation:` against the *downstream* aggregation context (when surfaced — request-side wrappers). If the carrier resolves to a Measure: run dimensions-check + downstream-agg-check. If to a Metric: same pair, with category-aware defaults.
+   - Else (unresolved name): no action — a later plan stage raises the unresolved-reference error.
 4. First violation short-circuits with `PlannerError::ConstraintViolation` — fail-fast.
+
+**Future per-kind staging.** When `[TD-CONSTRAINT-CARRIER-EXT]` carriers activate, their kinds may select different stages (e.g. DataKind `row_count:` at a post-catalog plan sub-step). The framework supports per-carrier + per-kind staging; v1 simply has all carriers + kinds at step 0.
 
 ### 8.7 Error model, accumulation, and severity
 
@@ -774,7 +793,9 @@ pub enum PlannerError {
 
 `entity` is the Semantics name the failed constraint attached to; `message` is a free-form rule-identifying string (e.g. `"one_of constraint violated: query must include at least one of [date, order_month]"`). No per-rule enum fan-out.
 
-> **[TD-CONSTRAINT-ERROR-FANOUT]** — typed fan-out (e.g. `ConstraintError::{DimOneOf, DimNoneOf, DimAll, AggAllowed, AggProhibited, …}` with structured payloads for `Diagnostic` rendering per `10 §5`) is deferred. Decide carrier shape together with the broader `Diagnostic` model work and any v2 constraint kinds from reserved carriers (§8.5).
+Category-derived violations route through the same carrier, with `message` indicating the implicit (category) origin (e.g. `"category: distinct implies aggregation.allowed = [], downstream SUM rejected"`).
+
+> **[TD-CONSTRAINT-ERROR-FANOUT]** — typed fan-out (e.g. `ConstraintError::{DimOneOf, DimNoneOf, DimAllOf, AggAllowed, AggProhibited, CategoryWidening, …}` with structured payloads for `Diagnostic` rendering per `10 §5`) is deferred. Decide carrier shape together with the broader `Diagnostic` model work and any v2 constraint kinds from `[TD-CONSTRAINT-CARRIER-EXT]`.
 
 **Accumulation.** Fail-fast per carrier evaluation. First violation returns; subsequent constraints are not evaluated for that Request.
 
@@ -784,29 +805,34 @@ pub enum PlannerError {
 
 **Shape-field.** `constraints:` is a **shape field** per `§5.1` on every realized and reserved carrier. Two occurrences of the same Semantics across Binding vs. Semantics layers MUST declare deep-equal `constraints:` blocks or error `ValidateError::ShapeFieldConflict`.
 
-**Closed kind-vocabulary per carrier.** The set of kind sub-blocks admissible inside a given carrier's `constraints:` block is closed. Unknown kind names fail parse with `ValidateError::ShapeMalformed` (via serde). This closure is per-carrier — a future Dimension kind (`rollup:`) would not activate on Measure.
+**Closed kind-vocabulary per carrier.** The set of kind sub-blocks admissible inside a given carrier's `constraints:` block is closed. Unknown kind names fail parse with `ValidateError::ShapeMalformed` (via serde). This closure is per-carrier — a future Dimension kind (per `[TD-CONSTRAINT-CARRIER-EXT]`) would not activate on Measure.
+
+**Composition.** Multiple kind sub-blocks within a single `constraints:` block are AND-combined (Q-R4.3b). Within a single sub-block, fields are also AND-combined (e.g. `dimensions: { one_of: [a], none_of: [b] }` requires both).
 
 **Declarative-only.** No inline predicate grammar inside `constraints:`. The inline form architecturally reserved for `ExprSource` (`14 §4`) is not reused here in v1. If a future kind requires a predicate body, a separate design pass decides whether to activate the inline grammar and which wrapper (SemanticExpr / PhysicalExpr) applies.
 
-### 8.9 Round-1 decisions — mapping to the two-layer framework
+### 8.9 Round-1 + Q-R4.3 decisions — final mapping
 
-Round-1 ratified 13 decisions against a flat-taxonomy framing. In the two-layer framework, most decisions survive unchanged as framework-level properties; a few are re-contextualized as per-carrier or per-kind choices.
+This rewrite (the fourth pass) supersedes the Round-1 13-decision mapping. The current ratification is:
 
-| Q | Decision | Mapped home in §8 |
+| Question | Resolution | Mapped home |
 |---|---|---|
-| Q1 | Closed kind vocabulary, narrow realization in v1 | Re-framed: the vocabulary is **closed per carrier** (§8.8); v1 realizes two kinds on two carriers (§8.4). Other candidate kinds become **per-carrier reserved extensions** (§8.5), not top-level "taxonomy categories". |
-| Q2 | No value predicates | Survives — reserved for a future Dimension `value_set:` kind (§8.5.1). |
-| Q3 | No temporal / windowing Constraints | Survives — grain admissibility is `13 §3`, windowing is future Metric-type work. |
-| Q4 | Cardinality deferred pending `CatalogProvider` stats | Re-homed as DataKind `row_count:` / `null_fraction:` kinds (§8.5.4), tracked by `[TD-CARDINALITY-CONSTRAINT]`. |
-| Q5 | No escape-hatch / boolean-predicate kind | Survives — framework boundary (§8 preamble). |
-| Q6 | Declarative-only DSL in v1 | Survives — framework-level (§8.8). |
-| Q7 | Inline grammar reserved, reuses `14 §4.3` when activated | Survives — framework-level, no v1 use (§8.8). |
-| Q8 | Reserved tag per kind | Re-framed: **kind sub-block per carrier** (§8.3 + §8.4/§8.5). Not a flat global tag namespace; per-carrier closure. |
-| Q9 | Wrapper choice (SemanticExpr / PhysicalExpr) N/A in v1 | Survives — no Constraint kind has predicate bodies in v1 (§8.8). |
-| Q10 | Stage placement: validate / compile / plan per-kind | Re-framed as **per-carrier + per-kind matrix** (§8.6 table); v1's realized kinds are all step 0 pre-resolution, not distributed across stages. |
-| Q11 | Accumulation inherits host stage | Re-framed: v1 is fail-fast per carrier (§8.7). Host-stage inheritance becomes relevant when reserved carriers activate at validate/compile stages. |
-| Q12 | Hard error only; no severity | Survives — framework-level (§8.7). |
-| Q13 | Caching deferred to generic Manifest machinery | Survives — `[TD-MANIFEST-INCR-CACHE]`. |
+| Q-R4.3a (`aggregation:` semantics) | Reading 1, narrowed — downstream re-aggregation against category-implied default | §8.4.1 / §8.4.2 |
+| Q-R4.3b (DSL spelling + rename) | Outer key `aggregation` (singular); third dim key `all_of`; AND-combined; `MeasureConstraints` → `Constraints` | §8.3 / §8.4 / `[TD-CONSTRAINT-RENAME]` |
+| Q-R4.3c (`Measure.constraints.filter:` sub-block) | (c1) — no sub-block; existing `filters:` whitelist remains | §8.2 / §8.4.1 |
+| Q-R4.3d (Filter entity-level `constraints:`) | (d3) — Filter not a v1 carrier | §8.2 / `[TD-FILTER-REACHABILITY]` |
+| Q1 (Round-1) — Closed kind vocabulary, narrow v1 | Survives — closed per carrier (§8.8); v1 realizes two kinds on two carriers (§8.4) | §8.4 / §8.8 |
+| Q2 (Round-1) — No value predicates | Survives — superseded for most cases by `DimensionType::Bucketed` (`18 §4.1`); residual reserved per `[TD-CONSTRAINT-CARRIER-EXT]` | §8.5 |
+| Q3 (Round-1) — No temporal / windowing Constraints | Survives — windowing deferred to post-v1 Metric categories (`19 §4.5`) | §8.5 / `19 §4.5` |
+| Q4 (Round-1) — Cardinality deferred | Re-homed in `[TD-CONSTRAINT-CARRIER-EXT]` (DataKind `row_count:`) | §8.5 |
+| Q5 (Round-1) — No escape-hatch / boolean-predicate kind | Survives — framework boundary (§8 preamble) | §8 preamble |
+| Q6 / Q7 (Round-1) — Declarative-only DSL; inline grammar reserved | Survives — framework-level (§8.8) | §8.8 |
+| Q8 (Round-1) — Reserved tag per kind | Re-framed as **kind sub-block per carrier** (§8.3 + §8.4); not a flat global namespace | §8.3 / §8.4 |
+| Q9 (Round-1) — Wrapper choice (SemanticExpr / PhysicalExpr) | N/A in v1 (no predicate bodies) | §8.8 |
+| Q10 (Round-1) — Stage placement | All v1 kinds at step 0 (§8.6); future per-kind staging via `[TD-CONSTRAINT-CARRIER-EXT]` | §8.6 |
+| Q11 (Round-1) — Accumulation inherits host stage | Re-framed: v1 fail-fast (§8.7); future host-stage inheritance with reserved carriers | §8.7 |
+| Q12 (Round-1) — Hard error only; no severity | Survives — framework-level (§8.7) | §8.7 |
+| Q13 (Round-1) — Caching deferred | Survives — `[TD-MANIFEST-INCR-CACHE]` | n/a (deferred) |
 
 ### 8.10 Code-vs-spec delta (audit)
 
@@ -814,14 +840,17 @@ Spec-level naming and framework shape diverge from the current implementation in
 
 | Spec framework | v1 code reality |
 |---|---|
-| Per-carrier `{Measure,Metric,…}Constraints` types | Single `MeasureConstraints` struct reused for Measures and Metrics — `[TD-CONSTRAINT-RENAME]` |
-| Per-carrier + per-kind stage matrix (§8.6) | Single evaluation point — `ConstraintValidator::check()` at step 0 |
+| Shared `Constraints` type across Measure / Metric carriers | Single `MeasureConstraints` struct reused — `[TD-CONSTRAINT-RENAME]` |
+| `aggregation:` (singular) outer key per Q-R4.3b | `aggregations:` (plural) in code — `[TD-CONSTRAINT-RENAME]` |
+| `dimensions.all_of:` per Q-R4.3b | `dimensions.all:` in code — `[TD-CONSTRAINT-RENAME]` (subsumes `[TD-CONSTRAINT-RENAME-ALL]`) |
+| Category-implied default for `aggregation:` (§8.4.1) | Code does not yet derive defaults from `category:` — `[TD-CATEGORIES-MIGRATE]` |
+| Single step-0 evaluation for v1 (§8.6) | Same — `ConstraintValidator::check()` |
 | Typed `ConstraintError::*` fan-out (future) | `PlannerError::ConstraintViolation { entity, message }` — `[TD-CONSTRAINT-ERROR-FANOUT]` |
-| Reserved carriers (Dimension, Filter, Key, DataKind) | Not in schema — extension points only |
-| `requires:` mechanism (Filter-injection) | Reserved field name per source comment `// This is NOT \`requires\`` — `[TD-REQUIRES-MECHANISM]` |
-| Cardinality kinds (DataKind `row_count:` / `null_fraction:`) | Not in schema — depends on `CatalogProvider` stats — `[TD-CARDINALITY-CONSTRAINT]` |
+| Reserved carriers folded into `[TD-CONSTRAINT-CARRIER-EXT]` | Not in schema — extension points only |
+| `requires:` mechanism (Filter-injection) | Reserved field name per source comment — `[TD-REQUIRES-MECHANISM]` |
+| Filter not a `constraints:` carrier in v1 (Q-R4.3d) | Code matches spec — no `Filter.constraints` field |
 
-`§12.2`'s Preconditions `N-C3` … `N-C9` and `14` / `15`'s structural validate-stage rules remain the home for relational integrity, system-level invariants, and structural reference checks on `expr:` bodies — outside the `§8` framework entirely.
+`§12.2`'s Preconditions `N-C3` … `N-C9` and `14` / `15`'s structural validate-stage rules remain the home for relational integrity, system-level invariants, and structural reference checks on `expr:` bodies — outside the `§8` framework entirely. SR-E-13 … SR-E-19 (category-aware constraint validation) are ratified canonically in [`19 §6`](./19_categories.md#6-structural-rules-sr-e-13--sr-e-19) — the references in this section flow through there.
 
 ## 9. Cross-Kind Reference Rule
 

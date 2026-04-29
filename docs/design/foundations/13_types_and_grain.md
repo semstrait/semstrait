@@ -14,6 +14,7 @@ refined-by:
   - 15 (mapping and binding — physical-type reconciliation at the Binding layer; per-engine catalog type mapping)
   - 16 (composition — `Cardinality`, `JoinType`, cross-kind type unification)
   - 17 (temporal shape — `TemporalShape` gating of Grainset level eligibility and as-of semantics)
+  - 19 (categories — `DimensionType` IS the Dimension category axis; per-variant implicit-constraint contract lives in `19 §2.2`; `13 §4` semantics consumed by `19`)
   - 20–25 (strategies — per-DataKind-variant grain walking, type-preservation invariants at each stage)
   - 34 / 36 / 37 (adapters, catalog — authoritative engine-specific type mapping implementations)
 ---
@@ -284,7 +285,9 @@ Adding non-temporal grains is I10-non-breaking.
 
 ## 4. DimensionType Discriminator
 
-The `DimensionType` enum roster and per-variant body structs (`TemporalDimensionBody`, `BucketedDimensionBody`, `BucketSpec`, `BucketBound`, `MetadataDimensionBody`) are ratified in [`18 §4.1`](./18_entities.md#4-1-dimensiontype-roster). Six variants — `Temporal(TemporalDimensionBody)`, `Categorical`, `Binary`, `Geo`, `Bucketed(BucketedDimensionBody)`, `Metadata(MetadataDimensionBody)` — with the payload-bearing variants (`Temporal` / `Bucketed` / `Metadata`) carrying the fields the planner uses; `Categorical` / `Binary` / `Geo` are payload-free in v1 per the sub-shape-polish posture (see `18 §4.1`'s "Sub-shape polish" note for post-v1 extensions like `CategoricalBody::enum_values` / `GeoBody::{lat,lon}`).
+The `DimensionType` enum roster and per-variant body structs (`TemporalDimensionBody`, `BucketedDimensionBody`, `BucketSpec`, `BucketBound`, `MetadataDimensionBody`) are ratified in [`18 §4.1`](./18_entities.md#41-dimensiontype-roster). Six variants — `Temporal(TemporalDimensionBody)`, `Categorical`, `Binary`, `Geo`, `Bucketed(BucketedDimensionBody)`, `Metadata(MetadataDimensionBody)` — with the payload-bearing variants (`Temporal` / `Bucketed` / `Metadata`) carrying the fields the planner uses; `Categorical` / `Binary` / `Geo` are payload-free in v1 per the sub-shape-polish posture (see `18 §4.1`'s "Sub-shape polish" note for post-v1 extensions like `CategoricalBody::enum_values` / `GeoBody::{lat,lon}`).
+
+> **`DimensionType` IS the Dimension category axis.** Per [`19 §2`](./19_categories.md#2-dimension-categories--dimensiontype), the implicit-constraint contract per variant (planner / adapter behavior, validation locks like `data_type:`-vs-variant) is ratified in `19`. This section (`13 §4`) owns the **planner-level and authoring-level semantics** of each variant; the **category-axis cross-cuts** (e.g. each variant's effect on planner routing, applicability per DataKind variant in `25`) live in `19 §2.2`. The two layers are non-overlapping: shape lives in `18 §4.1`; semantics live here; category-axis contract lives in `19 §2`.
 
 This section owns the **planner-level and authoring-level semantics** of each variant — what the role means, where each type fits in the resolution pipeline, what the v1 v. post-v1 boundary is.
 

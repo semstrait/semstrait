@@ -21,7 +21,7 @@ docs/design/
 ├── 00_overview.md           ← master doc; read first; vocabulary, invariants, map
 ├── STATUS.md                ← session-handoff + phase map + decision snapshots
 ├── INDEX.md                 ← this file (scan-optimized topic index)
-├── foundations/             ← 10 … 18 : cross-cutting rules, entity shapes
+├── foundations/             ← 10 … 19 : cross-cutting rules, entity shapes, category axis
 ├── data-kinds/              ← 20 … 26 : per-variant specs (Dataset, Grainset, Unionset, Joinset) + nesting matrix
 ├── apis/                    ← 30 … 39 : per-crate API contracts
 ├── implementation/          ← 40 … 42 : refactor plan, deprecations, migration notes
@@ -50,7 +50,7 @@ Every row points to **one** canonical doc. Cross-references in the right column 
 | `CatalogProvider` | `apis/37_semstrait_catalog.md` | — |
 | `CanonicalFn` + `FunctionRegistry` | `foundations/14a_function_catalog.md` | `registry/functions_mapping.md` (per-engine rewrite) |
 | `ComposedSemanticInterface` | `foundations/16_composition.md` | `data-kinds/2x` (per-variant specialization) |
-| `Constraint` (planner-time) | `foundations/11_names_and_scopes.md §8` | `questions/open/11_constraints_deferred.md` (deferred items) |
+| `Constraint` (planner-time) | `foundations/11_names_and_scopes.md §8` (post-rewrite — Measure / Metric carriers; explicit refinement on top of category-implicit rules) | `foundations/19_categories.md §5` (implicit-vs-explicit contract); `questions/closed/11_constraints_deferred.md` (closed Q-R4.3a–d) |
 | `DataKind` taxonomy + sealed trait hierarchy | `data-kinds/20_taxonomy.md` + `apis/32_semstrait_model.md §3` | `data-kinds/21`–`24` (per-variant) |
 | `DataKindBase` + variant `*Body` structs | `apis/32_semstrait_model.md §3` | — |
 | `DataKindFilter` / `AggregationFilter` | `foundations/18_entities.md §7` | — |
@@ -58,7 +58,10 @@ Every row points to **one** canonical doc. Cross-references in the right column 
 | `Dialect` / `DialectId` | `apis/36_semstrait_adapter.md` | — |
 | `Diagnostic` + error codes (`*_E_*`) | `apis/30_api_contracts.md §6` | Per-doc: every `3x` doc owns its own diagnostic-code range |
 | `Dimension` (struct shape + body roster) | `foundations/18_entities.md §4` | `foundations/11_names_and_scopes.md §4` (planner role) |
-| `DimensionType` (enum roster) | `foundations/18_entities.md §4.1` | `foundations/13_types_and_grain.md` (authoring-level DimensionType-to-DataType mapping) |
+| `DimensionType` (enum roster) | `foundations/18_entities.md §4.1` | `foundations/13_types_and_grain.md` (authoring-level DimensionType-to-DataType mapping); `foundations/19_categories.md §2` (category-axis contract — implicit-constraint table per variant) |
+| `MeasureCategory` (enum + body structs; implicit-constraint contract) | `foundations/19_categories.md §3` | `foundations/18_entities.md §5` (consumer — `Measure.category:` field) |
+| `MetricCategory` (enum + body structs; implicit-constraint contract) | `foundations/19_categories.md §4` | `foundations/18_entities.md §6` (consumer — `Metric.category:` field) |
+| Categories — growth recipe + expandability invariants (`SR-CAT-FWD`, `SR-CAT-CLOSED`, `SR-E-19`) | `foundations/19_categories.md §1` (invariants) + `§8` (growth recipe) | — |
 | `EngineAdapter` / `EngineArtifact` / `EnginePlan` | `apis/36_semstrait_adapter.md` | — |
 | `Expr` / `SemanticExpr` / `PhysicalExpr` | `foundations/14_expressions.md` | `foundations/14b_expression_resolution.md` (compile-time resolution) |
 | `ExprSource` (YAML → `Expr` parse) | `foundations/14_expressions.md §2` | — |
@@ -82,7 +85,7 @@ Every row points to **one** canonical doc. Cross-references in the right column 
 | Resolution pipeline (end-to-end stages) | `foundations/10_resolution_pipeline.md` | — |
 | `ResolvedColumnMapping` (Manifest-layer) | `apis/33_semstrait_manifest.md §5.3` | — |
 | `ResolvedExprTable` | `foundations/14b_expression_resolution.md` | — |
-| SR-E-* entity-level invariants | `foundations/18_entities.md §11` | `apis/30_api_contracts.md §6.2` (error-code allocation) |
+| SR-E-* entity-level invariants | `foundations/18_entities.md §11` (catalog) | `foundations/19_categories.md §6` (canonical home of SR-E-13 … SR-E-19); `apis/30_api_contracts.md §6.2` (error-code allocation) |
 | SR-* (YAML-structural rules) | `apis/32_semstrait_model.md §3.2–§3.5` | — |
 | `ScdType` (v1 roster `{Type1, Type2}`) | `foundations/18_entities.md §3.1` | `foundations/17_temporal_shape.md §6` (full Kimball `Type0`–`Type6` as forward-reference) |
 | `SemanticInterface` | `foundations/11_names_and_scopes.md` | `foundations/16_composition.md` (composed form) |
@@ -133,9 +136,11 @@ Concepts the 2026-04-17 consolidation pass ratified as owned by **exactly one** 
 | `TemporalShape` struct | `foundations/18_entities.md §3` | `17` discusses semantics only, no struct fields. |
 | `TemporalShapeKind` enum | `foundations/18_entities.md §3` | Same. |
 | `ScdType` v1 roster | `foundations/18_entities.md §3.1` | `17 §6` discusses the wider Kimball Type0–Type6 taxonomy as forward-reference. |
-| `DimensionType` enum | `foundations/18_entities.md §4.1` | `13` discusses authoring-level and planner-level DimensionType semantics; body struct shapes (`TemporalDimensionBody`, `BucketedDimensionBody`, `MetadataDimensionBody`) live in `18 §4.1`. |
-| `Dimension` / `Measure` / `Metric` structs | `foundations/18_entities.md §4` / `§5` / `§6` | `11 §4` / `§5` / `§6` describe roles and field layouts for the planner. |
-| `AdditivityType` | `foundations/18_entities.md §5.2` | `11 §8` owns the planner contract. |
+| `DimensionType` enum | `foundations/18_entities.md §4.1` | `13` discusses authoring-level and planner-level DimensionType semantics; body struct shapes (`TemporalDimensionBody`, `BucketedDimensionBody`, `MetadataDimensionBody`) live in `18 §4.1`; `19 §2` owns the category-axis contract (implicit-constraint table). |
+| `Dimension` / `Measure` / `Metric` structs | `foundations/18_entities.md §4` / `§5` / `§6` | `11 §4` / `§5` / `§6` describe roles and field layouts for the planner. `Measure.category` / `Metric.category` field semantics live in `19 §3` / `§4` (struct field on the canonical home in `18`, behavior in `19`). |
+| `MeasureCategory` enum + body structs | `foundations/19_categories.md §3` | `18 §5` consumes via `Measure.category:`; per-variant planner / adapter contracts cross-cut into `25 §2.11` (variant applicability) and `34` (planner routing). |
+| `MetricCategory` enum + body structs | `foundations/19_categories.md §4` | `18 §6` consumes via `Metric.category:`; expr-shape locks consumed by `14b` resolution. |
+| `AdditivityType` | `foundations/18_entities.md §5.2` | `11 §8` owns the planner contract; `19 §3.3` ratifies that `MeasureCategory::Snapshot` synthesizes `AdditivityType::Semi`, subsuming explicit `additivity: semi` authoring. |
 | `AiContext` | `foundations/18_entities.md §8` | — |
 | `Keys` | `foundations/18_entities.md §9` | — |
 | `DataKindFilter` / `AggregationFilter` | `foundations/18_entities.md §7` | `21` / `22` / `23` / `24` per-variant filter authoring rules. |
@@ -160,11 +165,11 @@ Each numbered doc has one sidecar (`<n>_questions.md`); registry catalogs have p
 
 | Sidecar | Parent doc | Scope |
 |---|---|---|
-| `questions/open/11_constraints_deferred.md` | `foundations/11` | Constraints DSL (post-v1) |
 | `questions/open/14b_questions.md` | `foundations/14b` | Round-1 deferrals for expression resolution |
 | `questions/open/15_questions.md` | `foundations/15` | Mapping / binding deferrals |
 | `questions/open/16_questions.md` | `foundations/16` | Composition / `Relationship` deferrals |
 | `questions/open/17_questions.md` | `foundations/17` | Temporal-shape open items (partial closure after 18 consolidation — see top-of-file status summary) |
+| `questions/open/19_questions.md` | `foundations/19` | Category-axis post-v1 items (Identifier dimension category Q-CAT-001; lenient YAML downgrade `[TD-CAT-LENIENT]`; author-extensible registry `[TD-CAT-REGISTRY]`) |
 | `questions/open/20_questions.md` | `data-kinds/20` | Taxonomy deferrals |
 | `questions/open/21_questions.md` | `data-kinds/21` | Dataset deferrals |
 | `questions/open/22_questions.md` | `data-kinds/22` | Grainset deferrals (Q-GRN-004 / -006 CLOSED by `26` — see top-of-file status summary) |
@@ -193,6 +198,7 @@ Each numbered doc has one sidecar (`<n>_questions.md`); registry catalogs have p
 
 | Sidecar | Parent doc | Scope |
 |---|---|---|
+| `questions/closed/11_constraints_deferred.md` | `foundations/11` | Constraints DSL — Q-R4.3a … Q-R4.3d resolved as part of the 2026-04-27 categories+constraints expansion (rewrite of `11 §8`). |
 | `questions/closed/31b_io_questions.md` | `apis/31b` | I/O layer — all items CLOSED; retained as a historical record. |
 
 **Retired standalone sidecars (folded in 2026-04-17):**

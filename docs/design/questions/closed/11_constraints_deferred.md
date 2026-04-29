@@ -1,6 +1,25 @@
-# Constraints — Deferred Session Snapshot
+# Constraints — Deferred Session Snapshot (CLOSED)
 
-**Status**: Deferred — to be resumed in a dedicated session.
+**Status**: **CLOSED — all four open ratification items (Q-R4.3a … Q-R4.3d) resolved as part of the 2026-04-27 categories+constraints expansion (tenth pass).** This file is retained as a historical record of the deferred-session snapshot that the resolutions resumed from. The resolutions and their consequences are baked into:
+
+- [`../foundations/11_names_and_scopes.md §8`](../foundations/11_names_and_scopes.md) — full rewrite of the Constraint section against ratified Q-R4.3a … Q-R4.3d; carrier roster trimmed to `{Measure, Metric}`; explicit `constraints:` redefined as the refinement layer over category-implicit rules.
+- [`../foundations/19_categories.md`](../foundations/19_categories.md) — the new category axis (`MeasureCategory` / `MetricCategory`) that subsumes most explicit-constraint scaffolding the deferred session was reaching for.
+- [`STATUS.md`](../STATUS.md) §2 item E (now resolved) and §5 tenth-pass checkpoint.
+
+**Resolution summary (per-Q-ID)**:
+
+| Q-ID | Resolution | Lands in |
+|---|---|---|
+| **Q-R4.3a** (`aggregation:` semantics) | **Reading 1, narrowed** — `aggregation:` constrains downstream re-aggregation; default is implied by the carrier's category (`additivity = Non` ⇒ no further agg legal); the block is the override carrier when a category default is too strict / too loose. | `11 §8.4`, `19 §3.3` / §4.3 |
+| **Q-R4.3b** (DSL spelling + rename) | Outer key **`aggregation`** (singular). Third dimensions key **`all_of`** (symmetric with `one_of` / `none_of`); rename of code's `all` ⇒ `[TD-CONSTRAINT-RENAME-ALL]`. Sub-blocks **AND-combined** when multiple are present. Type **`MeasureConstraints` → `Constraints`** (shared across Measure / Metric carriers); `[TD-CONSTRAINT-RENAME]` resolved. | `11 §8.2`, `11 §8.3` |
+| **Q-R4.3c** (`constraints.filter:` inside Measure / Metric) | **(c1) — no sub-block.** Filter intent already lives in category bodies (`SimpleMetricBody.filter`, `RatioMetricBody.filter`) and in the carrier's `filters: Vec<AggregationFilter>` whitelist. | `11 §8.2`, `19 §4` |
+| **Q-R4.3d** (Filter entity-level `constraints:`) | **(d3) — Filter does not carry `constraints:` in v1.** Reachability + admissibility deferred to `[TD-FILTER-REACHABILITY]`. | `11 §8.1` (carrier roster), `[TD-CONSTRAINT-CARRIER-EXT]` (single rolled-up note covering Filter / Key / Dimension / DataKind future carriers) |
+
+**Carrier-roster movement (relative to the snapshot below)**: the §1.2 table previously listed `Filter` as "to-be-ratified"; Q-R4.3d closed that as **out-of-scope for v1**. Reserved future carriers (Dimension, Key, DataKind) — previously contemplated as future scaffolding — are folded into a single `[TD-CONSTRAINT-CARRIER-EXT]` tech-debt note rather than carrying section-level scaffolding.
+
+The remaining body (below) is the original deferred-session snapshot, frozen for historical fidelity. **Do not edit**; new questions land in [`questions/open/19_questions.md`](../open/19_questions.md) (category-extension items) or in a fresh `11_questions.md` sidecar if a follow-up emerges that doesn't fit the category axis.
+
+---
 
 **Parent document**: [`../foundations/11_names_and_scopes.md`](../foundations/11_names_and_scopes.md) §8 (Constraints).
 
