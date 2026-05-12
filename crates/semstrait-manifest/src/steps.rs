@@ -2994,7 +2994,15 @@ fn try_parse_arithmetic(expr: &str) -> Option<Expr> {
         }
         match b {
             b'+' | b'-' if i > 0 => {
-                last_add_sub = Some(i);
+                // Require at least one space adjacent to +/- to distinguish
+                // arithmetic operators from hyphens in identifier names like
+                // `adwords-averageCost`. `revenue - cost` has spaces; column
+                // names with hyphens do not.
+                let prev_space = i > 0 && bytes[i - 1] == b' ';
+                let next_space = i + 1 < bytes.len() && bytes[i + 1] == b' ';
+                if prev_space || next_space {
+                    last_add_sub = Some(i);
+                }
             }
             b'*' | b'/' if i > 0 => {
                 last_mul_div = Some(i);
@@ -3301,6 +3309,38 @@ mod tests {
                 assert_eq!(bin.op, semstrait_core::BinaryOp::Subtract);
             }
             _ => panic!("expected BinaryOp(Subtract), got {:?}", expr),
+        }
+    }
+
+    // Hyphenated names must parse as a single EntityRef, not arithmetic.
+    // Column names like `adwords-averageCost` are atomic identifiers — the
+    // hyphen is part of the name, not a minus operator.
+    #[test]
+    fn test_parse_expr_hyphenated_name_is_entity_ref() {
+        let expr = parse_expr("adwords-averageCost", "adwords-averageCost").unwrap();
+        match &expr {
+            Expr::EntityRef(e) => assert_eq!(e.name, "adwords-averageCost"),
+            other => panic!("expected EntityRef(adwords-averageCost), got {:?}", other),
+        }
+    }
+
+    // Spaced arithmetic must still work.
+    #[test]
+    fn test_parse_expr_spaced_arithmetic_still_works() {
+        let expr = parse_expr("revenue - cost", "profit").unwrap();
+        match &expr {
+            Expr::BinaryOp(bin) => assert_eq!(bin.op, semstrait_core::BinaryOp::Subtract),
+            other => panic!("expected BinaryOp(Subtract), got {:?}", other),
+        }
+    }
+
+    // Multi-hyphen names must also be atomic.
+    #[test]
+    fn test_parse_expr_multi_hyphen_name_is_entity_ref() {
+        let expr = parse_expr("adwords-conversions-cost-per-conversion", "adwords-conversions-cost-per-conversion").unwrap();
+        match &expr {
+            Expr::EntityRef(e) => assert_eq!(e.name, "adwords-conversions-cost-per-conversion"),
+            other => panic!("expected EntityRef, got {:?}", other),
         }
     }
 
