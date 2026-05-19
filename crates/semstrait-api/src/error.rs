@@ -45,8 +45,17 @@ pub enum ParseError {
     #[error("named filter not found: {name} in entity {entity}")]
     FilterNotFound { entity: String, name: String },
 
-    #[error("inline raw filters are not implemented in v1")]
-    RawFiltersNotImplemented,
+    #[error("raw filter operator '{operator}' is not recognized")]
+    RawFilterInvalidOperator { operator: String },
+
+    #[error("raw filter on field '{field}' has invalid value: {message}")]
+    RawFilterInvalidValue { field: String, message: String },
+
+    #[error(
+        "raw filter field '{name}' names a DataKindFilter declared on entity '{entity}'; \
+         use the `filters` request field to activate a named filter"
+    )]
+    RawFilterNamesNamedFilter { entity: String, name: String },
 
     #[error("invalid grain: {0}")]
     InvalidGrain(String),

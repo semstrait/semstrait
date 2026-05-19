@@ -55,13 +55,30 @@ pub struct RawQueryRequest {
     pub model: Option<String>,      // semantic model source (file path or inline YAML/JSON)
     pub from: Option<String>,       // entity to query (None = resolve from select fields)
     pub select: Vec<String>,        // semantic names — auto-classified into dims/measures/metrics
-    pub filters: Vec<String>,       // named filters from the manifest
-    pub raw_filters: Vec<RawFilter>, // inline filter expressions (stub — not yet wired through RequestParser)
+    pub filters: Vec<String>,       // named-filter activations (DataKindFilter names declared on the kind)
+    pub raw_filters: Vec<RawFilter>, // inline operator/value triples — lowered into ResolvedQueryRequest.filters
     pub grain: Option<String>,      // temporal grain override
     pub limit: Option<u64>,
     pub order_by: Vec<RawOrderBy>,
     pub session: HashMap<String, String>,
     pub engine: Option<String>,     // engine for plan generation (e.g., "datafusion", "ansi")
+}
+```
+
+### Filter surfaces
+
+The two filter fields target distinct authoring shapes:
+
+- `filters: Vec<String>` — activates pre-declared `DataKindFilter`s by name (see `docs/design/foundations/18_entities.md` §7.1).
+- `raw_filters: Vec<RawFilter>` — inline `{ field, operator, value }` triples (per `docs/design/apis/34_semstrait_planner.md` §3.5).
+
+Both lower into the single `ResolvedQueryRequest.filters` list and share the same predicate-construction pipeline downstream (see semstrait-planner's _Unified filter pipeline_ section). Cross-reference invariant: `raw_filters[i].field` MUST NOT name a `DataKindFilter` — that's what `filters` is for. Violations are rejected at parse with `ParseError::RawFilterNamesNamedFilter`.
+
+```rust
+pub struct RawFilter {
+    pub field: String,                 // dimension / measure / metric name
+    pub operator: String,              // "=", "!=", "<", "<=", ">", ">=", "in", "not_in", "between", "is_null", "is_not_null"
+    pub value: serde_json::Value,      // scalar or array, shape depends on operator arity
 }
 ```
 

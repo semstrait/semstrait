@@ -178,6 +178,24 @@ Filters are layered in a specific order (inner to outer):
 
 ---
 
+## Unified Filter Pipeline
+
+Both **named filters** (activated via `RawQueryRequest.filters: Vec<String>` — backed by `DataKindFilter` bodies on the kind interface) and **raw filters** (inline `{ field, operator, values }` triples in `RawQueryRequest.raw_filters`, lowered into `ResolvedQueryRequest.filters` by the API parser) share the same predicate-construction engine. Reference specs:
+
+- `docs/design/apis/34_semstrait_planner.md` §3.3 (`Request`) and §3.5 (`Filter` shape — the canonical op/value triple).
+- `docs/design/foundations/19_expression_flow.md` §7.1 (filter placement in the Phase A → Phase B pipeline).
+
+Engine unification happens at `SemanticExpr`:
+
+- **Named filter bodies** are authored as `SemanticExpr` directly (e.g. `region == 'US'`); their bodies walk `ExprResolver::resolve_expr` against the binding's `ResolvedColumnMapping.physical` at scan level.
+- **Raw filter triples** are lowered to `SemanticExpr` by `query_filter_to_semantic_expr` (in `planner.rs`), which builds the predicate with `EntityRef`-based field references (NOT `Column`); the predicate then walks the same `ExprResolver::resolve_expr` path — with an identity resolver at root level, since user filters are injected post-rename.
+
+This guarantees that a named filter `region == 'US'` and a raw filter `{ region, Eq, ['US'] }` produce the same `SemanticExpr` shape, and consequently the same downstream behavior through Phase A folding/translation and Phase B placement.
+
+`In` / `NotIn` use a v1 OR-chain / AND-chain lowering to equalities — tracked under `[TD-RAW-IN-LOWERING]` for a future canonical multi-arity form.
+
+---
+
 ## Dependencies
 
 - `semstrait-core` -- `Expr`, `DataType`, `Grain`

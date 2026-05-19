@@ -501,6 +501,143 @@ semantic_model:
         assert!(matches!(result, Err(EngineError::NotConfigured(_))));
     }
 
+    /// Cross-reference invariant: a `raw_filter` whose `field` names a
+    /// `DataKindFilter` declared on the entity MUST be rejected at parse —
+    /// authors must use the `filters: Vec<String>` field to activate a named
+    /// filter, not put its name in `raw_filters`. Keeps the two API surfaces
+    /// clean.
+    #[tokio::test]
+    async fn test_raw_filter_naming_data_kind_filter_is_rejected() {
+        use crate::error::ParseError;
+        use crate::types::RawFilter;
+
+        let yaml = r#"
+semantic_model:
+  name: cross_ref_test
+  grainsets:
+    - name: orders
+      dimensions:
+        - name: order_date
+          data_type: date
+          type:
+            temporal:
+              grains: [day]
+        - name: status
+          data_type: string
+          type:
+            categorical:
+      measures:
+        - name: revenue
+          data_type: float64
+          agg: sum
+      filters:
+        - name: active_only
+          expr: "status != 'deleted'"
+      datasets:
+        - name: orders_fact
+          extras:
+            column_mapping: auto
+            storage:
+              format: parquet
+              paths:
+                - db.orders_fact
+"#;
+
+        let engine = SemstraitEngine::with_model(yaml)
+            .await
+            .expect("engine should compile manifest with a kind-level filter");
+
+        let raw = RawQueryRequest {
+            from: Some("orders".to_string()),
+            select: vec!["order_date".to_string(), "revenue".to_string()],
+            // Authoring mistake: putting a named filter on the raw_filters surface.
+            raw_filters: vec![RawFilter {
+                field: "active_only".to_string(),
+                operator: "=".to_string(),
+                value: serde_json::json!(true),
+            }],
+            ..Default::default()
+        };
+
+        let result = engine.explain(&raw).await;
+        match result {
+            Err(EngineError::Parse(ParseError::RawFilterNamesNamedFilter { entity, name })) => {
+                assert_eq!(entity, "orders");
+                assert_eq!(name, "active_only");
+            }
+            other => panic!(
+                "expected ParseError::RawFilterNamesNamedFilter, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    /// Round-trip happy path for raw filters: structurally valid
+    /// `raw_filters` flow through `to_resolved()` → `plan()` and produce a
+    /// `FilterNode` in the resulting plan (verified indirectly via SQL).
+    #[tokio::test]
+    async fn test_raw_filter_lowering_round_trip() {
+        use crate::types::RawFilter;
+
+        let yaml = r#"
+semantic_model:
+  name: raw_filter_roundtrip
+  grainsets:
+    - name: orders
+      dimensions:
+        - name: order_date
+          data_type: date
+          type:
+            temporal:
+              grains: [day]
+        - name: region
+          data_type: string
+          type:
+            categorical:
+      measures:
+        - name: revenue
+          data_type: float64
+          agg: sum
+      datasets:
+        - name: orders_fact
+          extras:
+            column_mapping: auto
+            storage:
+              format: parquet
+              paths:
+                - db.orders_fact
+"#;
+
+        let engine = SemstraitEngine::with_model(yaml)
+            .await
+            .expect("engine should compile manifest");
+
+        let raw = RawQueryRequest {
+            from: Some("orders".to_string()),
+            select: vec!["order_date".to_string(), "revenue".to_string()],
+            raw_filters: vec![RawFilter {
+                field: "region".to_string(),
+                operator: "=".to_string(),
+                value: serde_json::json!("US"),
+            }],
+            ..Default::default()
+        };
+
+        let result = engine.explain(&raw).await;
+        assert!(
+            result.is_ok(),
+            "explain should succeed with a raw_filter: {:?}",
+            result.err()
+        );
+
+        let sql = result.unwrap().sql.expect("ANSI SQL fallback");
+        assert!(
+            sql.contains("WHERE") && sql.contains("region") && sql.contains("'US'"),
+            "SQL should contain the raw-filter predicate: {}",
+            sql
+        );
+    }
+
     #[tokio::test]
     async fn test_schema_drift_detection() {
         use semstrait_catalog::NullCatalogProvider;

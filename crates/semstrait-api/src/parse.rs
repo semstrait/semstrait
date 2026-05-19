@@ -1,10 +1,11 @@
 //! RequestParser — converts RawQueryRequest → validated/resolved request.
 
 use crate::error::ParseError;
-use crate::types::RawQueryRequest;
+use crate::types::{RawFilter, RawQueryRequest};
 use semstrait_manifest::{CompiledManifest, CompiledInterface};
 use semstrait_planner::request::{
-    OrderByClause, ResolvedQueryRequest, SortDirection,
+    FilterOperator, FilterValue, OrderByClause, QueryFilter, ResolvedQueryRequest,
+    SortDirection,
 };
 
 /// Parses raw query requests against a compiled manifest.
@@ -12,6 +13,10 @@ pub struct RequestParser;
 
 impl RequestParser {
     /// Basic structural validation (no manifest needed).
+    ///
+    /// Inline `raw_filters` are structurally validated (operator/value shape) but
+    /// the cross-reference check against `DataKindFilter` names lives in
+    /// `to_resolved()` where the manifest is available.
     pub fn parse(raw: &RawQueryRequest) -> Result<ValidatedRequest, ParseError> {
         if raw.select.is_empty() {
             return Err(ParseError::Validation(
@@ -19,9 +24,9 @@ impl RequestParser {
             ));
         }
 
-        // Reject inline raw filters in v1.
-        if !raw.raw_filters.is_empty() {
-            return Err(ParseError::RawFiltersNotImplemented);
+        // Structural validation of any inline raw_filters (op + value arity).
+        for rf in &raw.raw_filters {
+            let _ = lower_raw_filter(rf)?;
         }
 
         Ok(ValidatedRequest {
@@ -59,11 +64,20 @@ impl RequestParser {
         // If `from` is None, pass through to planner for ad-hoc resolution.
         // Select names are passed as-is — the planner classifies them.
         let Some(ref from) = raw.from else {
+            // Without a manifest entity we still lower raw_filters structurally; the
+            // cross-reference check against DataKindFilter names is skipped because
+            // there is no kind to compare against until ad-hoc resolution succeeds.
+            let raw_filters_lowered: Vec<QueryFilter> = raw
+                .raw_filters
+                .iter()
+                .map(lower_raw_filter)
+                .collect::<Result<_, _>>()?;
+
             return Ok(ResolvedQueryRequest {
                 entity_name: String::new(),
                 dimensions: raw.select.clone(), // planner will reclassify
                 measures: vec![],
-                filters: vec![],
+                filters: raw_filters_lowered,
                 grain: None,
                 limit: raw.limit,
                 order_by,
@@ -91,16 +105,154 @@ impl RequestParser {
             }
         }
 
+        // Lower raw_filters into QueryFilter triples. Cross-reference invariant:
+        // a raw_filter MUST NOT name a DataKindFilter declared on the kind —
+        // those belong on `RawQueryRequest.filters` instead.
+        let mut filters: Vec<QueryFilter> = Vec::with_capacity(raw.raw_filters.len());
+        for rf in &raw.raw_filters {
+            if kind.filters.iter().any(|f| f.name == rf.field) {
+                return Err(ParseError::RawFilterNamesNamedFilter {
+                    entity: from.clone(),
+                    name: rf.field.clone(),
+                });
+            }
+            filters.push(lower_raw_filter(rf)?);
+        }
+
         Ok(ResolvedQueryRequest {
             entity_name: from.clone(),
             dimensions,
             measures,
-            filters: vec![],
+            filters,
             grain: None,
             limit: raw.limit,
             order_by,
             session_variables: raw.session.clone(),
         })
+    }
+}
+
+fn lower_raw_filter(rf: &RawFilter) -> Result<QueryFilter, ParseError> {
+    let operator = parse_operator(&rf.operator)?;
+    let values = lower_value(&rf.field, &operator, &rf.value)?;
+    Ok(QueryFilter {
+        field: rf.field.clone(),
+        operator,
+        values,
+    })
+}
+
+
+fn parse_operator(s: &str) -> Result<FilterOperator, ParseError> {
+    let normalised = s.trim().to_ascii_lowercase();
+    let op = match normalised.as_str() {
+        "=" | "==" | "eq" => FilterOperator::Eq,
+        "!=" | "<>" | "ne" | "neq" | "not_eq" | "noteq" => FilterOperator::NotEq,
+        "<" | "lt" => FilterOperator::Lt,
+        "<=" | "le" | "lte" => FilterOperator::LtEq,
+        ">" | "gt" => FilterOperator::Gt,
+        ">=" | "ge" | "gte" => FilterOperator::GtEq,
+        "in" => FilterOperator::In,
+        "not_in" | "notin" | "nin" => FilterOperator::NotIn,
+        "between" => FilterOperator::Between,
+        "is_null" | "isnull" | "null" => FilterOperator::IsNull,
+        "is_not_null" | "isnotnull" | "not_null" => FilterOperator::IsNotNull,
+        _ => {
+            return Err(ParseError::RawFilterInvalidOperator {
+                operator: s.to_string(),
+            });
+        }
+    };
+    Ok(op)
+}
+
+fn lower_value(
+    field: &str,
+    operator: &FilterOperator,
+    value: &serde_json::Value,
+) -> Result<Vec<FilterValue>, ParseError> {
+    match operator {
+        FilterOperator::IsNull | FilterOperator::IsNotNull => {
+            Ok(Vec::new())
+        }
+        FilterOperator::Between => {
+            let arr = value.as_array().ok_or_else(|| ParseError::RawFilterInvalidValue {
+                field: field.to_string(),
+                message: "BETWEEN requires a 2-element array [lo, hi]".to_string(),
+            })?;
+            if arr.len() != 2 {
+                return Err(ParseError::RawFilterInvalidValue {
+                    field: field.to_string(),
+                    message: format!(
+                        "BETWEEN requires exactly 2 values, got {}",
+                        arr.len()
+                    ),
+                });
+            }
+            arr.iter()
+                .map(|v| json_to_filter_value(field, v))
+                .collect()
+        }
+        FilterOperator::In | FilterOperator::NotIn => {
+            let arr = value.as_array().ok_or_else(|| ParseError::RawFilterInvalidValue {
+                field: field.to_string(),
+                message: "IN / NOT IN require an array of values".to_string(),
+            })?;
+            if arr.is_empty() {
+                return Err(ParseError::RawFilterInvalidValue {
+                    field: field.to_string(),
+                    message: "IN / NOT IN require at least one value".to_string(),
+                });
+            }
+            arr.iter()
+                .map(|v| json_to_filter_value(field, v))
+                .collect()
+        }
+        FilterOperator::Eq
+        | FilterOperator::NotEq
+        | FilterOperator::Lt
+        | FilterOperator::LtEq
+        | FilterOperator::Gt
+        | FilterOperator::GtEq => {
+            // Accept either a scalar or a single-element array for convenience.
+            if let Some(arr) = value.as_array() {
+                if arr.len() != 1 {
+                    return Err(ParseError::RawFilterInvalidValue {
+                        field: field.to_string(),
+                        message: format!(
+                            "{:?} requires exactly 1 value, got {}",
+                            operator,
+                            arr.len()
+                        ),
+                    });
+                }
+                Ok(vec![json_to_filter_value(field, &arr[0])?])
+            } else {
+                Ok(vec![json_to_filter_value(field, value)?])
+            }
+        }
+    }
+}
+
+/// Convert a JSON scalar into a typed `FilterValue`.
+fn json_to_filter_value(
+    field: &str,
+    value: &serde_json::Value,
+) -> Result<FilterValue, ParseError> {
+    match value {
+        serde_json::Value::String(s) => Ok(FilterValue::String(s.clone())),
+        serde_json::Value::Bool(b) => Ok(FilterValue::Bool(*b)),
+        serde_json::Value::Number(n) => n.as_f64().map(FilterValue::Number).ok_or_else(|| {
+            ParseError::RawFilterInvalidValue {
+                field: field.to_string(),
+                message: format!("number '{}' is not representable as f64", n),
+            }
+        }),
+        serde_json::Value::Null => Ok(FilterValue::Null),
+        other => Err(ParseError::RawFilterInvalidValue {
+            field: field.to_string(),
+            message: format!("unsupported value shape: {}", other),
+        }),
     }
 }
 
@@ -230,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_filters_rejected() {
+    fn test_raw_filters_accepted_structurally() {
         use crate::types::RawFilter;
 
         let raw = RawQueryRequest {
@@ -245,6 +397,101 @@ mod tests {
         };
 
         let result = RequestParser::parse(&raw);
-        assert!(matches!(result, Err(ParseError::RawFiltersNotImplemented)));
+        assert!(
+            result.is_ok(),
+            "parse() should accept structurally-valid raw_filters: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_raw_filter_unknown_operator() {
+        use crate::types::RawFilter;
+
+        let raw = RawQueryRequest {
+            from: Some("sales".to_string()),
+            select: vec!["revenue".to_string()],
+            raw_filters: vec![RawFilter {
+                field: "region".to_string(),
+                operator: "bogus".to_string(),
+                value: serde_json::json!("US"),
+            }],
+            ..Default::default()
+        };
+
+        let result = RequestParser::parse(&raw);
+        assert!(matches!(
+            result,
+            Err(ParseError::RawFilterInvalidOperator { .. })
+        ));
+    }
+
+    #[test]
+    fn test_raw_filter_between_arity() {
+        use crate::types::RawFilter;
+
+        let raw = RawQueryRequest {
+            from: Some("sales".to_string()),
+            select: vec!["revenue".to_string()],
+            raw_filters: vec![RawFilter {
+                field: "revenue".to_string(),
+                operator: "between".to_string(),
+                value: serde_json::json!([1, 2, 3]),
+            }],
+            ..Default::default()
+        };
+
+        let result = RequestParser::parse(&raw);
+        assert!(matches!(
+            result,
+            Err(ParseError::RawFilterInvalidValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_lower_raw_filter_eq() {
+        use crate::types::RawFilter;
+
+        let rf = RawFilter {
+            field: "region".to_string(),
+            operator: "=".to_string(),
+            value: serde_json::json!("US"),
+        };
+        let q = lower_raw_filter(&rf).expect("lowering should succeed");
+        assert_eq!(q.field, "region");
+        assert_eq!(q.operator, FilterOperator::Eq);
+        assert_eq!(q.values.len(), 1);
+        match &q.values[0] {
+            FilterValue::String(s) => assert_eq!(s, "US"),
+            other => panic!("expected String value, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_lower_raw_filter_in() {
+        use crate::types::RawFilter;
+
+        let rf = RawFilter {
+            field: "region".to_string(),
+            operator: "in".to_string(),
+            value: serde_json::json!(["US", "EU"]),
+        };
+        let q = lower_raw_filter(&rf).expect("lowering should succeed");
+        assert_eq!(q.operator, FilterOperator::In);
+        assert_eq!(q.values.len(), 2);
+    }
+
+    #[test]
+    fn test_lower_raw_filter_is_null() {
+        use crate::types::RawFilter;
+
+        let rf = RawFilter {
+            field: "region".to_string(),
+            operator: "is_null".to_string(),
+            value: serde_json::Value::Null,
+        };
+        let q = lower_raw_filter(&rf).expect("lowering should succeed");
+        assert_eq!(q.operator, FilterOperator::IsNull);
+        assert!(q.values.is_empty());
     }
 }

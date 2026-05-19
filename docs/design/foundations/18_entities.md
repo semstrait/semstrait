@@ -1,5 +1,5 @@
 ---
-prereqs: [00, 10, 11, 13, 14, 19]
+## prereqs: [00, 10, 11, 13, 14, 14b, 19]
 authoritative-for:
   - the shared Semantics pools (`dimensions:`, `measures:`, `metrics:`) at the root level and their per-DataKind reference / override grammar
   - the `Relationship` struct and its companion `RelationshipId` newtype — unified shape used at both root `relationships:` and `JoinsetBody.relationships`
@@ -25,10 +25,9 @@ refined-by:
   - 30 (`apis/30_api_contracts.md` — error-code allocation for `SR-E-*`)
   - 32 (`apis/32_semstrait_model.md` — root YAML shape; hosts `relationships:` and the shared pools this doc ratifies; SR-* enforcement)
   - 32b (`apis/32b_catalogs_yaml.md` — catalog grammar)
-  - 33 (`apis/33_semstrait_manifest.md` — SemanticManifest-layer `Resolved*` counterparts of the types ratified here)
+  - 33 (`apis/33_semstrait_manifest.md` — SemanticManifest-layer `Resolved`* counterparts of the types ratified here)
   - 34 (`apis/34_semstrait_planner.md` — planner consumption of resolved entity types)
   - 35 (`apis/35_semstrait_ir.md` — `PlanNode::Join` carriage of `JoinType`)
----
 
 # 18. Canonical Entity Types
 
@@ -101,11 +100,13 @@ pub struct DimensionRef {
 
 Only a narrow set of fields may be overridden locally at a `Ref` site. Every other attribute is **immutable from the root-pool declaration**:
 
-| Carrier | Overridable at `ref` | Immutable from root pool |
-|---|---|---|
-| `Dimension` | `expr` | `data_type`, `type`, `description`, `ai_context`, `constraints` (future) |
-| `Measure` | `expr`, `filters` | `data_type`, `agg`, `additivity`, `description`, `ai_context`, `constraints` (future) |
-| `Metric` | `expr`, `filters` | `data_type`, `agg`, `additivity`, `description`, `ai_context`, `constraints` (future) |
+
+| Carrier     | Overridable at `ref` | Immutable from root pool                                                              |
+| ----------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `Dimension` | `expr`               | `data_type`, `type`, `description`, `ai_context`, `constraints` (future)              |
+| `Measure`   | `expr`, `filters`    | `data_type`, `agg`, `additivity`, `description`, `ai_context`, `constraints` (future) |
+| `Metric`    | `expr`, `filters`    | `data_type`, `agg`, `additivity`, `description`, `ai_context`, `constraints` (future) |
+
 
 Attempting to author an immutable field at a `Ref` site is `validate.semantics-ref-immutable-override` (SR-E-1).
 
@@ -124,6 +125,7 @@ A Semantic with no downstream `Dataset` binding is `validate.semantics-orphan { 
 ### 1.5 Uniqueness rules
 
 Per-carrier uniqueness (§2.1 of `32`):
+
 - `dimensions[..]` unique by name in the root pool.
 - `measures[..]` unique by name in the root pool.
 - `metrics[..]` unique by name in the root pool.
@@ -270,7 +272,7 @@ pub enum CrossFilter {
 
 `cross_filter:` declares the direction of filter propagation through the join. The value **names the side that receives filters**. Default per `§2.7`. **Required** on `OneToOne` and `ManyToMany` (SR-E-13).
 
-**`ManyToMany` constraint.** When `cardinality == ManyToMany`, `cross_filter ∈ {Left, Right}` is rejected per SR-E-14 (`validate.relationship-many-to-many-cross-filter-directional`). A many-to-many relationship has no natural "one" side, so directional filter propagation is ambiguous; authors MUST declare `Both` or `None`.
+`**ManyToMany` constraint.** When `cardinality == ManyToMany`, `cross_filter ∈ {Left, Right}` is rejected per SR-E-14 (`validate.relationship-many-to-many-cross-filter-directional`). A many-to-many relationship has no natural "one" side, so directional filter propagation is ambiguous; authors MUST declare `Both` or `None`.
 
 **Planner contract.** `cross_filter` is recorded on the canonical `Relationship` and surfaces to the planner via the manifest-layer `ResolvedRelationship`. The exact predicate-placement and pushdown rules driven by this field are owned by the planner doc; `18` ratifies the authoring shape and the validation rules only.
 
@@ -310,23 +312,27 @@ impl Default for Integrity {
 
 The defaults below apply when `optional:` and/or `cross_filter:` are omitted. Required cells must be authored explicitly.
 
-| `cardinality` | `integrity` | `optional` default | `cross_filter` default |
-|---|---|---|---|
-| `ManyToOne` | `Enforced` | `None` | `Left` |
-| `ManyToOne` | `Assumed` | `None` | `Left` |
-| `ManyToOne` | `None`     | `Left` | `Left` |
-| `OneToMany` | `Enforced` | `None` | `Right` |
-| `OneToMany` | `Assumed` | `Left` | `Right` |
-| `OneToMany` | `None`     | `Left` | `Right` |
-| `OneToOne`  | *any*     | **required** | **required** |
-| `ManyToMany`| *any*     | **required** | **required** (Left/Right rejected) |
+
+| `cardinality` | `integrity` | `optional` default | `cross_filter` default             |
+| ------------- | ----------- | ------------------ | ---------------------------------- |
+| `ManyToOne`   | `Enforced`  | `None`             | `Left`                             |
+| `ManyToOne`   | `Assumed`   | `None`             | `Left`                             |
+| `ManyToOne`   | `None`      | `Left`             | `Left`                             |
+| `OneToMany`   | `Enforced`  | `None`             | `Right`                            |
+| `OneToMany`   | `Assumed`   | `Left`             | `Right`                            |
+| `OneToMany`   | `None`      | `Left`             | `Right`                            |
+| `OneToOne`    | *any*       | **required**       | **required**                       |
+| `ManyToMany`  | *any*       | **required**       | **required** (Left/Right rejected) |
+
 
 Reading conventions:
+
 - `from` ≡ left, `to` ≡ right.
 - For `ManyToOne` (typical fact → dim): `optional: None` ⇒ Inner (RI-trusted enrichment); `optional: Left` ⇒ Left from-anchored (preserve facts when dim missing).
 - For `OneToMany + Enforced`: defaults to `Inner` because RI guarantees every to-side row has its from-side parent. Authors wanting all from-side rows (including those with no children) declare `optional: Left` explicitly.
 
 Validation rules:
+
 - `optional` and `cross_filter` required when `cardinality ∈ {OneToOne, ManyToMany}` — `validate.relationship-symmetric-cardinality-incomplete` (SR-E-13).
 - `cross_filter ∈ {Left, Right}` rejected when `cardinality == ManyToMany` — `validate.relationship-many-to-many-cross-filter-directional` (SR-E-14).
 - `integrity: Enforced` is **not** cross-checked at compile (deliberate non-rule per α stance).
@@ -363,21 +369,25 @@ pub enum JoinType {
 
 Derivation table:
 
-| `optional` | Effective `JoinType` |
-|---|---|
-| `Optional::None`  | `Inner` |
-| `Optional::Left`  | `Left` |
-| `Optional::Right` | `Right` |
-| `Optional::Both`  | `Full` |
+
+| `optional`        | Effective `JoinType` |
+| ----------------- | -------------------- |
+| `Optional::None`  | `Inner`              |
+| `Optional::Left`  | `Left`               |
+| `Optional::Right` | `Right`              |
+| `Optional::Both`  | `Full`               |
+
 
 Temporal / as-of joins (`AsOf`) remain out of scope for v1; see `17 §5` for the temporal-shape activation matrix.
 
 ### 2.10 Authoring sites and scope
 
-| Site | Semantics |
-|---|---|
-| Root-level `semantic_model.relationships:` | Visible to every DataKind in the model; feeds `16 §11`'s implicit composition graph; the planner synthesizes Joinsets per Request when the relationship graph permits. |
-| `JoinsetBody.relationships:` | Scope-local to that Joinset. The Relationship struct shape, validation rules, defaults matrix, and derivation table are identical to root-level. A Joinset-local `Relationship` MAY redeclare a root-level name, in which case the Joinset-local entry takes precedence **within the Joinset's scope only**. Scope shadow is the sole mechanism for divergent join semantics inside a Joinset — there is no separate override surface. |
+
+| Site                                       | Semantics                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root-level `semantic_model.relationships:` | Visible to every DataKind in the model; feeds `16 §11`'s implicit composition graph; the planner synthesizes Joinsets per Request when the relationship graph permits.                                                                                                                                                                                                                                                                 |
+| `JoinsetBody.relationships:`               | Scope-local to that Joinset. The Relationship struct shape, validation rules, defaults matrix, and derivation table are identical to root-level. A Joinset-local `Relationship` MAY redeclare a root-level name, in which case the Joinset-local entry takes precedence **within the Joinset's scope only**. Scope shadow is the sole mechanism for divergent join semantics inside a Joinset — there is no separate override surface. |
+
 
 Root-level relationships with no corresponding DataKind (`from:` / `to:` resolves to no known data kind) are `validate.relationship-dangling-endpoint` (SR-E-5).
 
@@ -490,11 +500,13 @@ Only one of `timeseries: / events: / snapshot: / scd:` may appear under `tempora
 
 `temporal:` may appear in `extras` at any complex-DataKind level as a **shape default**, but the `grain:` field is forbidden at complex levels — only the shape cascades down, not the grain.
 
-| Site | `temporal.<variant>:` | `temporal.grain:` |
-|---|---|---|
-| `Dataset` (leaf) | Authored directly OR inherited | Authored directly — **required** when `temporal:` is present (SR-E-6) |
-| `ComplexDataKind` (any) | Authored as a default for descendant leaves | **Forbidden** (SR-E-7) |
-| `Grainset` child | See §3.4 |
+
+| Site                    | `temporal.<variant>:`                       | `temporal.grain:`                                                     |
+| ----------------------- | ------------------------------------------- | --------------------------------------------------------------------- |
+| `Dataset` (leaf)        | Authored directly OR inherited              | Authored directly — **required** when `temporal:` is present (SR-E-6) |
+| `ComplexDataKind` (any) | Authored as a default for descendant leaves | **Forbidden** (SR-E-7)                                                |
+| `Grainset` child        | See §3.4                                    |                                                                       |
+
 
 A `ComplexDataKind.extras.temporal.<variant>:` declaration cascades down to every descendant leaf that does not override. A descendant leaf that inherits a shape but does not declare its own `grain:` is `validate.temporal-leaf-missing-grain` (SR-E-6).
 
@@ -527,7 +539,7 @@ grainsets:
 
 ### 3.5 `Grain` — pointer only
 
-The `Grain` enum is owned by [`13 §3.1`](./13_types_and_grain.md#31-enum); the v1 roster is `{Minute, Hour, Day, Week, Month, Quarter, Year}` with total coarseness order in declaration order (finest first). `18 §3` consumes `Grain` through the optional `TemporalShape.grain` field and the `TimeseriesBody.grain` / `SnapshotBody.cadence` payloads; it does not redefine the enum. Non-temporal grains (geographic, entity) are a deferred extensibility axis per `13`.
+The `Grain` enum is owned by `[13 §3.1](./13_types_and_grain.md#31-enum)`; the v1 roster is `{Minute, Hour, Day, Week, Month, Quarter, Year}` with total coarseness order in declaration order (finest first). `18 §3` consumes `Grain` through the optional `TemporalShape.grain` field and the `TimeseriesBody.grain` / `SnapshotBody.cadence` payloads; it does not redefine the enum. Non-temporal grains (geographic, entity) are a deferred extensibility axis per `13`.
 
 > **Note (2026-04-17 consolidation).** An earlier draft of this section inlined a `pub enum Grain` block that accidentally introduced a `Second` variant not present in `13 §3.1`. Per the precedence rule in `00 §4.4` + the directionality rule in `00 §8`, `13` is the canonical home; the divergent roster has been removed. Any future addition to `Grain` (e.g., `Second`) must land in `13 §3.1` first.
 
@@ -1162,24 +1174,26 @@ The recipe is **never serialized at the author surface** — it is a compile-out
 
 ## 11. Structural Rules (SR-E-*)
 
-Entity-level invariants. Each rule has a stable kebab-case diagnostic code per `30 §6`. Numbered independently from `32`'s root-level `SR-*` rules so additions do not perturb the other series.
+Entity-level invariants. Each rule has a stable kebab-case diagnostic code per `30 §6`. Numbered independently from `32`'s root-level `SR-`* rules so additions do not perturb the other series.
 
-| ID | Rule | Diagnostic |
-|---|---|---|
-| **SR-E-1** | Reference-site override MAY NOT author immutable fields (`data_type`, `type`, `agg`, `additivity`, `description`, `ai_context`). See §1.3. | `validate.semantics-ref-immutable-override` |
-| **SR-E-2** | A `Ref` site missing `expr:` AND root-pool entry missing `expr:` is ill-formed. | `validate.semantics-ref-missing-expr` |
-| **SR-E-3** | Every Semantic (root-pool or inline) MUST physically bind at least once. | `validate.semantics-orphan` |
-| **SR-E-4** | `Relationship.cardinality:` is required at every authoring site. | `parse.relationship-missing-cardinality` |
-| **SR-E-5** | `Relationship.from:` / `.to:` MUST resolve to a declared DataKind. | `validate.relationship-dangling-endpoint` |
-| **SR-E-6** | A leaf `Dataset` with `extras.temporal:` authored MUST declare `temporal.grain:`. | `validate.temporal-leaf-missing-grain` |
-| **SR-E-7** | A `ComplexDataKind` MUST NOT author `extras.temporal.grain:` (only shape cascades). | `validate.temporal-grain-on-complex` |
-| **SR-E-8** | Every `Grainset` child MUST author its own `extras.temporal.grain:` explicitly (no inheritance). | `validate.grainset-child-grain-required` |
-| **SR-E-9** | A `Measure` MUST declare `agg:` at its declaration site. | `parse.measure-missing-agg` |
-| **SR-E-10** | A `Dimension` / `Measure` / `Metric` MUST declare `data_type:` at its declaration site. | `parse.semantics-missing-data-type` |
-| **SR-E-11** | Filter names are not cross-referenceable between `DataKindFilter` and `AggregationFilter`. | `validate.wrong-filter-error` |
-| **SR-E-12** | `data_type:` is immutable across all levels — root-pool and Ref sites must agree; local overrides are forbidden. | `validate.semantics-data-type-mismatch` |
-| **SR-E-13** | `Relationship.optional:` and `Relationship.cross_filter:` are REQUIRED when `cardinality ∈ {OneToOne, ManyToMany}`. Asymmetric cardinalities (`ManyToOne`, `OneToMany`) accept defaults from `§2.7`. | `validate.relationship-symmetric-cardinality-incomplete` |
+
+| ID          | Rule                                                                                                                                                                                                                                    | Diagnostic                                                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **SR-E-1**  | Reference-site override MAY NOT author immutable fields (`data_type`, `type`, `agg`, `additivity`, `description`, `ai_context`). See §1.3.                                                                                              | `validate.semantics-ref-immutable-override`                   |
+| **SR-E-2**  | A `Ref` site missing `expr:` AND root-pool entry missing `expr:` is ill-formed.                                                                                                                                                         | `validate.semantics-ref-missing-expr`                         |
+| **SR-E-3**  | Every Semantic (root-pool or inline) MUST physically bind at least once.                                                                                                                                                                | `validate.semantics-orphan`                                   |
+| **SR-E-4**  | `Relationship.cardinality:` is required at every authoring site.                                                                                                                                                                        | `parse.relationship-missing-cardinality`                      |
+| **SR-E-5**  | `Relationship.from:` / `.to:` MUST resolve to a declared DataKind.                                                                                                                                                                      | `validate.relationship-dangling-endpoint`                     |
+| **SR-E-6**  | A leaf `Dataset` with `extras.temporal:` authored MUST declare `temporal.grain:`.                                                                                                                                                       | `validate.temporal-leaf-missing-grain`                        |
+| **SR-E-7**  | A `ComplexDataKind` MUST NOT author `extras.temporal.grain:` (only shape cascades).                                                                                                                                                     | `validate.temporal-grain-on-complex`                          |
+| **SR-E-8**  | Every `Grainset` child MUST author its own `extras.temporal.grain:` explicitly (no inheritance).                                                                                                                                        | `validate.grainset-child-grain-required`                      |
+| **SR-E-9**  | A `Measure` MUST declare `agg:` at its declaration site.                                                                                                                                                                                | `parse.measure-missing-agg`                                   |
+| **SR-E-10** | A `Dimension` / `Measure` / `Metric` MUST declare `data_type:` at its declaration site.                                                                                                                                                 | `parse.semantics-missing-data-type`                           |
+| **SR-E-11** | Filter names are not cross-referenceable between `DataKindFilter` and `AggregationFilter`.                                                                                                                                              | `validate.wrong-filter-error`                                 |
+| **SR-E-12** | `data_type:` is immutable across all levels — root-pool and Ref sites must agree; local overrides are forbidden.                                                                                                                        | `validate.semantics-data-type-mismatch`                       |
+| **SR-E-13** | `Relationship.optional:` and `Relationship.cross_filter:` are REQUIRED when `cardinality ∈ {OneToOne, ManyToMany}`. Asymmetric cardinalities (`ManyToOne`, `OneToMany`) accept defaults from `§2.7`.                                    | `validate.relationship-symmetric-cardinality-incomplete`      |
 | **SR-E-14** | `Relationship.cross_filter ∈ {Left, Right}` is REJECTED when `cardinality == ManyToMany`. A many-to-many relationship has no natural "one" side; directional filter propagation is ambiguous and authors MUST declare `Both` or `None`. | `validate.relationship-many-to-many-cross-filter-directional` |
+
 
 SR-E-* numbering is append-only; adding a rule is MINOR per `30 §2`.
 
@@ -1190,7 +1204,7 @@ SR-E-* numbering is append-only; adding a rule is MINOR per `30 §2`.
 - `32 §1` — root YAML shape and where the shared pools / relationships / data-kinds / semantic-mapping blocks live.
 - `32 §3` — `DataKind` hierarchy; `DatasetBody` / `GrainsetBody` / `UnionsetBody` / `JoinsetBody`. `JoinsetBody.relationships: Vec<Relationship>` uses the unified struct from §2.
 - `32 §4` — `LeafExtras` / `ComplexExtras` blocks; `semantic_mapping:` lives inside `LeafExtras`, value shape per §10.
-- `32 §6` — root `SR-*` rules; complementary to `SR-E-*` here.
+- `32 §6` — root `SR-`* rules; complementary to `SR-E-*` here.
 - `32b` — catalog grammar; `CatalogRef` referenced from `extras.catalog:`.
 - `26` — nesting matrix; complements the ≥ 2 children structural rule.
 - `11` — name / scope rules for Semantics.

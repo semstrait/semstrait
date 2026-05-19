@@ -18,6 +18,7 @@ use semstrait_ir::{
 use semstrait_manifest::CompiledManifest;
 
 use crate::additivity::AdditivityResolver;
+use crate::resolver::{ExprResolver, PhysicalResolver};
 use crate::validator::ConstraintValidator;
 use crate::error::PlannerError;
 use crate::data_kind::{
@@ -274,24 +275,43 @@ impl Default for SemanticPlannerBuilder {
 // ============================================================================
 
 /// Convert user QueryFilters into FilterNodes wrapping the plan root.
+///
+/// Each `QueryFilter` is lowered into a `SemanticExpr` predicate that references
+/// fields via `EntityRef` (the same shape named-filter bodies use), then routed
+/// through `ExprResolver::resolve_expr` — the same path that lowers
+/// `DataKindFilter` and `AggregationFilter` bodies in the kind planners (see
+/// `data_kind/plan_layers.rs` and `decomposer.rs`). At this point in the
+/// pipeline the plan root is post-rename, so we use an identity resolver
+/// (empty physical map): `EntityRef("region")` resolves to `Column("region")`
+/// against the semantic-domain schema. The predicate then flows into a
+/// `FilterNode` wrapping the root.
 pub(crate) fn inject_user_filters(
     mut root: PlanNode,
     request: &ResolvedQueryRequest,
     plan_builder: &dyn PlanBuilder,
 ) -> Result<PlanNode, PlannerError> {
+    let identity_physical: indexmap::IndexMap<String, String> = indexmap::IndexMap::new();
+    let identity_resolver = PhysicalResolver::new(&identity_physical);
     for filter in &request.filters {
-        let predicate = query_filter_to_expr(filter)?;
+        let semantic = query_filter_to_semantic_expr(filter)?;
+        let predicate = identity_resolver.resolve_expr(&semantic)?;
         let schema = (*root.meta().output_schema).clone();
         root = plan_builder.build_filter(schema, root, predicate);
     }
     Ok(root)
 }
 
-/// Convert a QueryFilter into an Expr predicate.
-fn query_filter_to_expr(
+/// Lower a `QueryFilter` (op/value triple) into a `SemanticExpr` predicate that
+/// references its target field via `EntityRef`, NOT a physical `Column`.
+///
+/// This is the shared lowering surface for both raw and named filters: both
+/// produce a `SemanticExpr` that subsequently walks `ExprResolver::resolve_expr`
+/// to translate semantic refs into the appropriate physical/identity column
+/// references for the layer they're being injected at.
+fn query_filter_to_semantic_expr(
     filter: &crate::request::QueryFilter,
 ) -> Result<Expr, PlannerError> {
-    let column = Expr::column(filter.field.clone());
+    let field = Expr::entity_ref(filter.field.clone());
 
     match &filter.operator {
         FilterOperator::Eq
@@ -316,13 +336,14 @@ fn query_filter_to_expr(
                 FilterOperator::GtEq => BinaryOp::GtEq,
                 _ => unreachable!(),
             };
-            Ok(Expr::binary(column, op, value))
+            Ok(Expr::binary(field, op, value))
         }
         FilterOperator::In => {
-            // IN is translated as OR chain: col = v1 OR col = v2 OR ...
+            // v1 lowering: IN → OR chain of equalities. Tracked under
+            // [TD-RAW-IN-LOWERING] for a future canonical multi-arity form.
             let mut expr: Option<Expr> = None;
             for val in &filter.values {
-                let eq = Expr::eq(column.clone(), filter_value_to_expr(val)?);
+                let eq = Expr::eq(field.clone(), filter_value_to_expr(val)?);
                 expr = Some(match expr {
                     None => eq,
                     Some(prev) => Expr::or(prev, eq),
@@ -331,10 +352,11 @@ fn query_filter_to_expr(
             expr.ok_or_else(|| PlannerError::Internal("IN filter with no values".to_string()))
         }
         FilterOperator::NotIn => {
-            // NOT IN is translated as AND chain: col != v1 AND col != v2 AND ...
+            // v1 lowering: NOT IN → AND chain of inequalities. See
+            // [TD-RAW-IN-LOWERING].
             let mut expr: Option<Expr> = None;
             for val in &filter.values {
-                let neq = Expr::ne(column.clone(), filter_value_to_expr(val)?);
+                let neq = Expr::ne(field.clone(), filter_value_to_expr(val)?);
                 expr = Some(match expr {
                     None => neq,
                     Some(prev) => Expr::and(prev, neq),
@@ -345,7 +367,6 @@ fn query_filter_to_expr(
             })
         }
         FilterOperator::Between => {
-            // BETWEEN is: col >= low AND col <= high
             if filter.values.len() != 2 {
                 return Err(PlannerError::Internal(
                     "BETWEEN filter requires exactly 2 values".to_string(),
@@ -354,12 +375,12 @@ fn query_filter_to_expr(
             let low = filter_value_to_expr(&filter.values[0])?;
             let high = filter_value_to_expr(&filter.values[1])?;
             Ok(Expr::and(
-                Expr::gte(column.clone(), low),
-                Expr::lte(column, high),
+                Expr::gte(field.clone(), low),
+                Expr::lte(field, high),
             ))
         }
-        FilterOperator::IsNull => Ok(Expr::is_null(column)),
-        FilterOperator::IsNotNull => Ok(Expr::is_not_null(column)),
+        FilterOperator::IsNull => Ok(Expr::is_null(field)),
+        FilterOperator::IsNotNull => Ok(Expr::is_not_null(field)),
     }
 }
 
@@ -423,6 +444,54 @@ mod tests {
     use super::*;
     use crate::tests::helpers::*;
     use crate::request::{FilterOperator, FilterValue, OrderByClause, QueryFilter, SortDirection};
+
+    /// Engine-unification equivalence: a raw filter triple `{ field, op, values }`
+    /// lowered via `query_filter_to_semantic_expr` MUST produce the same
+    /// `SemanticExpr` an author would write as a `DataKindFilter` body.
+    ///
+    /// This guarantees that both forms walk the same `ExprResolver::resolve_expr`
+    /// path downstream (see `19 §7.1` Phase A) — they are interchangeable at the
+    /// SemanticExpr level, satisfying the U-1 unification point.
+    #[test]
+    fn test_raw_and_named_lower_to_identical_semantic_expr() {
+        let named_body = Expr::eq(Expr::entity_ref("region"), Expr::string("US"));
+
+        let raw_triple = QueryFilter {
+            field: "region".to_string(),
+            operator: FilterOperator::Eq,
+            values: vec![FilterValue::String("US".to_string())],
+        };
+        let raw_semantic = query_filter_to_semantic_expr(&raw_triple)
+            .expect("raw triple must lower to a SemanticExpr");
+
+        assert_eq!(
+            raw_semantic, named_body,
+            "raw and named must produce identical SemanticExpr predicates"
+        );
+    }
+
+    /// Same equivalence as above, but for IN — exercises the v1 OR-chain
+    /// lowering rule. Tracked under [TD-RAW-IN-LOWERING] for a future
+    /// canonical multi-arity form.
+    #[test]
+    fn test_raw_in_lowers_to_or_chain_of_eq_against_entity_ref() {
+        let raw_triple = QueryFilter {
+            field: "region".to_string(),
+            operator: FilterOperator::In,
+            values: vec![
+                FilterValue::String("US".to_string()),
+                FilterValue::String("EU".to_string()),
+            ],
+        };
+        let raw_semantic = query_filter_to_semantic_expr(&raw_triple)
+            .expect("IN triple must lower to a SemanticExpr");
+
+        let expected = Expr::or(
+            Expr::eq(Expr::entity_ref("region"), Expr::string("US")),
+            Expr::eq(Expr::entity_ref("region"), Expr::string("EU")),
+        );
+        assert_eq!(raw_semantic, expected);
+    }
 
     #[test]
     fn test_plan_basic_grainset() {
