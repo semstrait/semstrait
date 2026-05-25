@@ -2507,6 +2507,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "indexmap",
  "prost",
  "semstrait-adapter",
  "semstrait-catalog",

@@ -414,6 +414,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_explain_with_inline_raw_filter_produces_where_clause() {
+        // End-to-end: API parses RawQueryRequest with `raw_filters`, translates
+        // through `resolve_raw_filter` into a CompiledFilter, planner injects
+        // it at the scan layer (same engine as named DataKind filters per
+        // `11 §6.4.2` / `19 §7.1`), adapter emits a WHERE in the SQL.
+        let yaml = load_model("orders_with_metrics");
+
+        let engine = SemstraitEngine::with_model(&yaml)
+            .await
+            .expect("engine should compile manifest");
+
+        let raw = RawQueryRequest {
+            from: Some("orders".to_string()),
+            select: vec!["date".to_string(), "region".to_string(), "revenue".to_string()],
+            raw_filters: vec![crate::types::RawFilter {
+                field: "region".to_string(),
+                operator: "eq".to_string(),
+                value: serde_json::json!("US"),
+            }],
+            ..Default::default()
+        };
+
+        let result = engine.explain(&raw).await;
+        assert!(
+            result.is_ok(),
+            "explain with inline raw filter should succeed: {:?}",
+            result.err()
+        );
+
+        let sql = result.unwrap().sql.expect("should have SQL");
+        let upper = sql.to_uppercase();
+        assert!(
+            upper.contains("WHERE"),
+            "inline raw filter should emit a WHERE clause: {}",
+            sql
+        );
+        // The string literal should be present.
+        assert!(
+            sql.contains("'US'") || upper.contains("'US'"),
+            "WHERE should constrain to 'US': {}",
+            sql
+        );
+    }
+
+    #[tokio::test]
+    async fn test_inline_raw_filter_unknown_field_rejected() {
+        // Unknown field at request-resolution time produces a typed parse
+        // error per `11 §6.4.2` validation contract.
+        let yaml = load_model("orders_with_metrics");
+        let engine = SemstraitEngine::with_model(&yaml).await.unwrap();
+
+        let raw = RawQueryRequest {
+            from: Some("orders".to_string()),
+            select: vec!["date".to_string(), "revenue".to_string()],
+            raw_filters: vec![crate::types::RawFilter {
+                field: "nonexistent_field".to_string(),
+                operator: "eq".to_string(),
+                value: serde_json::json!("X"),
+            }],
+            ..Default::default()
+        };
+
+        let result = engine.explain(&raw).await;
+        assert!(matches!(
+            result,
+            Err(EngineError::Parse(crate::error::ParseError::RawFilterFieldNotFound { .. }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_inline_raw_filter_requires_entity() {
+        // Without `from`, inline raw filters can't be validated and must error.
+        let engine = SemstraitEngine::new();
+        let raw = RawQueryRequest {
+            from: None,
+            select: vec!["revenue".to_string()],
+            raw_filters: vec![crate::types::RawFilter {
+                field: "region".to_string(),
+                operator: "eq".to_string(),
+                value: serde_json::json!("US"),
+            }],
+            ..Default::default()
+        };
+
+        // `validate` runs structural parse only (no manifest) — that accepts.
+        // The full resolution path is what enforces the requirement.
+        // To trigger it, call validate with a manifest-bearing engine OR
+        // attempt to_resolved directly through a planned engine.
+        let _ = engine.validate(&raw); // structural pass — accepts
+
+        // With a manifest-bearing engine, to_resolved rejects.
+        let yaml = load_model("orders_with_metrics");
+        let engine_with_manifest = SemstraitEngine::with_model(&yaml).await.unwrap();
+        let result = engine_with_manifest.explain(&raw).await;
+        assert!(matches!(
+            result,
+            Err(EngineError::Parse(crate::error::ParseError::RawFiltersRequireEntity))
+        ));
+    }
+
+    #[tokio::test]
     async fn test_validate_against_manifest() {
         let yaml = load_model("orders_simple");
 

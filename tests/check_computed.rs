@@ -13,7 +13,7 @@ async fn check_computed() {
         entity_name: "orders_daily".to_string(),
         dimensions: vec!["date".to_string(), "market".to_string()],
         measures: vec!["revenue".to_string()],
-        filters: vec![], grain: None, limit: None, order_by: vec![],
+        filters: vec![], inline_filters: vec![], grain: None, limit: None, order_by: vec![],
         session_variables: HashMap::new(),
     };
     let plan = SemanticPlanner::builder().build().plan(&req, &m).unwrap();

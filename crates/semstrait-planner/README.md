@@ -156,7 +156,8 @@ pub struct ResolvedQueryRequest {
     pub entity_name: String,
     pub dimensions: Vec<String>,
     pub measures: Vec<String>,
-    pub filters: Vec<QueryFilter>,
+    pub filters: Vec<QueryFilter>,           // user `QueryFilter` predicates (outermost FilterNodes)
+    pub inline_filters: Vec<CompiledFilter>, // anonymous request-scope filters — share the kind-filter scan-layer engine
     pub order_by: Vec<OrderByClause>,
     pub limit: Option<u64>,
     pub grain: Option<String>,
@@ -173,8 +174,9 @@ Filters are layered in a specific order (inner to outer):
 
 1. **Measure filters** -- conditional aggregation (`CASE WHEN filter THEN expr ELSE NULL END`), applied inside KindPlanner
 2. **Metric filters** -- same conditional aggregation pattern, applied during expression lowering
-3. **Kind-level filters** -- injected before user filters, apply to all queries against the kind
-4. **User filters** -- from the request, outermost `FilterNode`s
+3. **Kind-level filters** -- injected at the scan layer (before rename), apply to all queries against the kind. Drawn from `CompiledInterface.filters`.
+4. **Inline request filters** -- request-scope, anonymous `{field, operator, value}` predicates carried on `ResolvedQueryRequest.inline_filters`. Injected at the **same scan-layer pass** as kind-level filters — both are `CompiledFilter`-shaped values and become indistinguishable downstream. Translated by the API layer (`semstrait-api::RequestParser`) from `RawFilter`s into canonical boolean `Expr`s. See [`docs/design/foundations/11_names_and_scopes.md §6.4.2`](../../docs/design/foundations/11_names_and_scopes.md).
+5. **User filters** -- legacy `QueryFilter`s from the request (`request.filters: Vec<QueryFilter>`), outermost `FilterNode`s
 
 ---
 

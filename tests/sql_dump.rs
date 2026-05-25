@@ -28,6 +28,7 @@ fn sql(
         dimensions: dims.iter().map(|s| s.to_string()).collect(),
         measures: measures.iter().map(|s| s.to_string()).collect(),
         filters: vec![],
+        inline_filters: vec![],
         grain: None,
         limit: None,
         order_by: vec![],

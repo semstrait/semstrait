@@ -47,6 +47,7 @@ Historical long-form narrative is archived in:
 - **Advisory field payload `[TD-19-ADVISORY-FIELDS]`** — exact context fields on `PLAN_W_2101 LossyReaggregation { data_kind, .. }` beyond `data_kind` deferred to single-pass ratification at `34_semstrait_planner.md` Strategy chapter rebase.
 - **Per-DataKind advisory specialisation `[TD-19-ADVISORY-SPECIALISATION]`** — flag for future split if a `LossyReaggregation` root cause structurally diverges per DataKind (currently unified under `PLAN_W_2101`).
 - **`30 §6` typed-diagnostics framing codification** — Rust-encoding convention (numeric `*_W_*` / `*_E_*` codes as adjacent comments on typed-enum variants for grep-ability, NOT runtime fields) is project-wide; lift into `30 §6` next session.
+- **Inline request-time filters (`11 §6.4.2`, 2026-05-22).** Scoped extension under §6.4 Filter: request-scope anonymous `{field, operator, value}` predicate. Normalized at request resolution into a canonical boolean `SemanticExpr`; rides the same Phase B placement engine as a named DataKindFilter (`19 §7.1` `filters.<f>.expr` row). Validation owned by the API/request-resolution layer (unknown field / bad operator / value type mismatch). Cross-refs added in `19 §7.1` (placement) and `INDEX.md` (concept map). Spec hook for the code-side wiring tracked separately.
 
 ---
 

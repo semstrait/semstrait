@@ -4,6 +4,7 @@
 //! Contains only resolved names (no raw SQL, no unresolved references).
 
 use semstrait_core::Grain;
+use semstrait_manifest::CompiledFilter;
 use std::collections::HashMap;
 
 /// The resolved query request — input to `SemanticPlanner::plan()`.
@@ -18,6 +19,17 @@ pub struct ResolvedQueryRequest {
     pub measures: Vec<String>,
     /// User-supplied filter predicates.
     pub filters: Vec<QueryFilter>,
+    /// Inline request-time filters (anonymous, request-scope boolean predicates).
+    ///
+    /// Translated by the API layer from `RawFilter { field, operator, value }`
+    /// triples into canonical boolean `Expr`s. These ride the same scan-layer
+    /// injection engine as `CompiledInterface.filters` (named DataKind filters),
+    /// per `docs/design/foundations/11_names_and_scopes.md §6.4.2` and
+    /// `docs/design/foundations/19_expression_flow.md §7.1`.
+    ///
+    /// Each carries a synthetic `__inline_filter_<N>` name; they are not
+    /// addressable by `Request.filters: [name]`.
+    pub inline_filters: Vec<CompiledFilter>,
     /// Temporal grain for date grouping.
     pub grain: Option<Grain>,
     /// Maximum number of rows to return.

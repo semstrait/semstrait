@@ -20,7 +20,10 @@ pub struct RawQueryRequest {
     /// Named filters from the manifest.
     #[serde(default)]
     pub filters: Vec<String>,
-    /// Inline filter expressions (stub — not implemented in v1).
+    /// Inline filter expressions — anonymous, request-scope predicates that share
+    /// the named-filter engine. See `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
+    /// Each `RawFilter { field, operator, value }` is translated at request
+    /// resolution into a canonical boolean `Expr` and injected at the scan layer.
     #[serde(default)]
     pub raw_filters: Vec<RawFilter>,
     pub grain: Option<String>,
@@ -38,7 +41,20 @@ pub struct RawQueryRequest {
 /// Convenience alias — same as RawQueryRequest for now.
 pub type QueryRequest = RawQueryRequest;
 
-/// A filter in the raw query request (inline expression — stub, not implemented in v1).
+/// An inline filter on the raw query request.
+///
+/// Translated by `RequestParser::to_resolved` into a canonical boolean `Expr`
+/// and carried on the resolved request as a request-scope, anonymous
+/// `CompiledFilter`. Rides the same scan-layer injection engine as named
+/// DataKind filters per `docs/design/foundations/11_names_and_scopes.md §6.4.2`
+/// and `docs/design/foundations/19_expression_flow.md §7.1`.
+///
+/// - `field`: a semantics name resolved against the entity's interface
+///   (Dimension / Measure / Metric / Key per SR-E-11).
+/// - `operator`: one of `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `like`
+///   (plus common symbolic aliases like `=`, `!=`, `<`, etc.).
+/// - `value`: a JSON literal that type-checks against the field's `DataType`,
+///   or an array of literals for `in`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawFilter {
     pub field: String,

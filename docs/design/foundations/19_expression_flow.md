@@ -359,6 +359,8 @@ Placement is determined by **where the filter is authored**, then by **what the 
 
 **Canonical form.** `Aggregate.filter` is the canonical PhysicalExpr representation; adapters compensate for engines lacking native `FILTER (WHERE)` via `CASE WHEN` rewrite (`36 §<rewrite>`).
 
+**Inline request-time filters.** A request MAY carry inline filters (`{field, operator, value}` triples — `11 §6.4.2`). These are normalized to a canonical boolean `SemanticExpr` and ride the **same Phase B placement** as the `filters.<f>.expr` row above (WHERE-scope by default; HAVING-scope when the referenced field is a Measure / Metric per the split rule). They are request-scope, anonymous, and not addressable by `Request.filters: [name]`.
+
 ### 7.2 `group_by` Handoff
 
 `GROUP BY` is built from `Request` context per uniform rule:

@@ -30,6 +30,7 @@ fn make_request(
         dimensions: dims.iter().map(|s| s.to_string()).collect(),
         measures: measures.iter().map(|s| s.to_string()).collect(),
         filters: vec![],
+        inline_filters: vec![],
         grain: None,
         limit: None,
         order_by: vec![],
@@ -108,6 +109,50 @@ async fn e2e_compile_plan_sql_with_filters() {
 
     let sql_upper = sql.to_uppercase();
     assert!(sql_upper.contains("WHERE"), "Filtered SQL should contain WHERE: {}", sql);
+}
+
+#[tokio::test]
+async fn e2e_compile_plan_sql_with_inline_filter() {
+    // Inline request-scope filter (CompiledFilter on `inline_filters`) rides
+    // the same scan-layer engine as a named DataKind filter — see
+    // `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
+    let yaml = load_model("orders_basic");
+
+    let compiler = ManifestCompiler::new();
+    let manifest = compiler
+        .compile(CompileSource::Yaml(yaml))
+        .await
+        .expect("compilation should succeed");
+
+    let planner = SemanticPlanner::builder().build();
+    let mut request = make_request("orders", &["order_date"], &["revenue"]);
+    request.inline_filters = vec![semstrait_manifest::CompiledFilter {
+        name: "__inline_filter_0".to_string(),
+        expr: semstrait_core::Expr::eq(
+            semstrait_core::Expr::entity_ref("region"),
+            semstrait_core::Expr::string("US"),
+        ),
+        expr_source: "region = 'US'".to_string(),
+    }];
+
+    let plan = planner
+        .plan(&request, &manifest)
+        .expect("planning with inline filter should succeed");
+
+    let emitter = AnsiSqlEmitter::new(AnsiDialect);
+    let sql = emitter.emit(&plan).expect("SQL emission should succeed");
+
+    let sql_upper = sql.to_uppercase();
+    assert!(
+        sql_upper.contains("WHERE"),
+        "inline-filtered SQL should contain WHERE: {}",
+        sql
+    );
+    assert!(
+        sql.contains("'US'"),
+        "inline filter literal should appear in SQL: {}",
+        sql
+    );
 }
 
 #[tokio::test]
