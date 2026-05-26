@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use crate::inline_filter::InlineFilterError;
+
 /// Errors that can occur during query planning.
 #[derive(Debug, Error)]
 pub enum PlannerError {
@@ -51,4 +53,10 @@ pub enum PlannerError {
         pass: String,
         reason: String,
     },
+
+    /// Inline raw filter lowering failed in ad-hoc mode (where `from` was
+    /// omitted and the lowering is deferred until entity resolution).
+    /// Carries the typed cause from `inline_filter::lower_inline_filter`.
+    #[error("inline filter resolution failed: {0}")]
+    InlineFilterResolution(#[from] InlineFilterError),
 }

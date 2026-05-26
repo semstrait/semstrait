@@ -400,7 +400,9 @@ fn build_layered_plan(
     }
 
     // ── D8: Entity-level filter columns — ALWAYS collected ─────────
-    for filter in &iface.filters {
+    // Request inline filters (`11 §6.4.2`) ride the same scan-layer engine as
+    // `iface.filters`; chain them so they contribute to scan column collection.
+    for filter in iface.filters.iter().chain(request.inline_filters.iter()) {
         let lowered_filter = phys_resolver.resolve_expr(&filter.expr)?;
         collect_column_refs(&lowered_filter, &mut scan_columns, &mut scan_seen);
     }
@@ -574,9 +576,14 @@ fn build_layered_plan(
     let catalog_types = build_catalog_type_map(binding);
 
     // ── D8: Pre-resolve entity filters — ALWAYS injected ──────────
+    // `iface.filters` are compile-time DataKind filters (`18 §7.1`);
+    // `request.inline_filters` are request-scope anonymous filters
+    // (`11 §6.4.2`). Both share this scan-layer injection engine per
+    // `19 §7.1` — they become indistinguishable downstream.
     let physical_entity_filters: Vec<Expr> = iface
         .filters
         .iter()
+        .chain(request.inline_filters.iter())
         .map(|f| phys_resolver.resolve_expr(&f.expr))
         .collect::<Result<Vec<_>, _>>()?;
 

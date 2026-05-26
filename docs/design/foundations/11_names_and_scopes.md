@@ -353,6 +353,46 @@ Initial design deliberately avoids always-on Filters. Rationale: always-on Filte
 
 **Future design — Filter-injection.** A future extension MAY let a Measure / Metric / DataKind declare Filter(s) as required (informally: "any Request using `premium_customer_revenue` must apply `is_premium_customer`"), with the planner auto-injecting them and recording the Constraint-injected provenance in `SemanticPlan` lineage per `35`. The current model has no carrier for this — see `[TD-REQUIRES-MECHANISM]` in `§8.5.2`. The field name is deliberately left open (`requires:` is reserved per the source comment in `semstrait-core::constraints` — `// This is NOT \`requires\``).
 
+#### 6.4.2 Inline request-time filters
+
+An **inline filter** is a request-scope, anonymous boolean predicate carried on the `Request` (not authored in YAML, not part of the manifest). It exists for callers that want to narrow rows by an ad-hoc predicate without declaring a named Filter in the model.
+
+**Status:** scoped extension per `00 §8` — refines §6.4 with a request-scope variant of Filter. Named, model-scope Filter (§6.4.1) remains the primary form; inline filters do not replace it.
+
+**Wire shape.** A single inline filter is a `{ field, operator, value }` triple:
+
+| Field | Role |
+|---|---|
+| `field` | semantics name resolved against the request's scope (Dimension / Measure / Metric / Key per SR-E-11) |
+| `operator` | one of the canonical comparison / set ops: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `like` |
+| `value` | literal scalar (or list for `in`) that type-checks against `field`'s `DataType` (`13`) |
+
+The `{field, operator, value}` triple is an authoring convenience — it is **not** a separate evaluation engine. At request resolution, an inline filter is **normalized into a canonical boolean `SemanticExpr`** (and resolved to `PhysicalExpr` along the same path as a named Filter; see `14b §3`).
+
+**Engine and placement.** Once normalized, an inline filter rides the same evaluation engine as a named DataKindFilter (§6.4.1, `18 §7.1`):
+
+- the predicate becomes a `CompiledFilter`-shaped value scoped to the Request;
+- the planner injects it at the **scan layer** alongside `CompiledInterface.filters` per `19 §7.1` (filter placement — DataKind-level `filters.<f>.expr` row).
+
+**Differences from named Filters:**
+
+- No identity. An inline filter has no name and is not addressable by `Request.filters: [name]`.
+- Request-scope, not model-scope. The model carries no record of the inline filter; only the `Request` does.
+- Not subject to §12 compile-time Preconditions for named Filters (the filter does not exist at compile time). Instead, inline filters are validated at **request-resolution time** against the live `SemanticManifest`.
+
+**Validation (at request resolution):**
+
+- Unknown `field` → request-stage typed-diagnostic variant (analogous to `N-C3 SemanticNotInInterface`, but emitted by the API layer, not by `compile`).
+- `operator` outside the canonical set → request-stage typed-diagnostic variant.
+- `value` that fails type-check against `field`'s `DataType` → request-stage typed-diagnostic variant.
+
+The first violation aborts request resolution; the planner is not invoked with a malformed inline filter.
+
+**Not in this clause:**
+
+- Free-form expression-string inline filters (e.g. `filter: "cost > 100 AND status = 'paid'"`) are not authoring-legal in v1. Authors that want a compound predicate declare a named Filter in YAML.
+- Opt-in semantics for named DataKind filters (§6.4.1) are unchanged by this clause. The always-on vs opt-in question for named filters is tracked separately and not resolved here.
+
 ### 6.5 Key
 
 A Key is a **structural declaration** on a top-level DataKind naming an ordered list of Dimension references that together uniquely identify a row at the DataKind's grain. Keys are not Semantics in the same sense as the preceding four — they do not have their own `data_type`, `expr`, or `description`. They are arrangements of Dimensions.

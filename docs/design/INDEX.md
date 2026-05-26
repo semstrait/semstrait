@@ -102,6 +102,7 @@ Use `00_overview.md` when you need the governing contract (vocabulary, invariant
 | Expression substitution/resolution | [`foundations/14b_expression_resolution.md`](foundations/14b_expression_resolution.md) |
 | Two-phase expression flow, `resolve`, sugar (Family A/B) | [`foundations/19_expression_flow.md`](foundations/19_expression_flow.md) |
 | `Accessor`, `MeasureAccessor`, `DimensionAccessor`, `MetricAccessor`, `KeyAccessor`, `Parameter` | [`foundations/19_expression_flow.md`](foundations/19_expression_flow.md) |
+| Inline request-time filter (anonymous `{field, operator, value}` predicate) | [`foundations/11_names_and_scopes.md`](foundations/11_names_and_scopes.md) §6.4.2 |
 | `DimensionRef`, `DimensionVariation` (Request shape) | [`foundations/19_expression_flow.md`](foundations/19_expression_flow.md) |
 | `Additivity`, `DimensionAxis` (function-tag axis) | [`foundations/19_expression_flow.md`](foundations/19_expression_flow.md), [`foundations/14a_function_catalog.md`](foundations/14a_function_catalog.md), [`foundations/18_entities.md`](foundations/18_entities.md) |
 | `SemanticMapping` and binding flow | [`foundations/15_mapping_and_binding.md`](foundations/15_mapping_and_binding.md) |

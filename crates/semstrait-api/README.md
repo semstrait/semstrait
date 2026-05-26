@@ -56,7 +56,7 @@ pub struct RawQueryRequest {
     pub from: Option<String>,       // entity to query (None = resolve from select fields)
     pub select: Vec<String>,        // semantic names — auto-classified into dims/measures/metrics
     pub filters: Vec<String>,       // named filters from the manifest
-    pub raw_filters: Vec<RawFilter>, // inline filter expressions (stub — not yet wired through RequestParser)
+    pub raw_filters: Vec<RawFilter>, // inline filter expressions (see "Inline raw filters" below)
     pub grain: Option<String>,      // temporal grain override
     pub limit: Option<u64>,
     pub order_by: Vec<RawOrderBy>,
@@ -64,6 +64,33 @@ pub struct RawQueryRequest {
     pub engine: Option<String>,     // engine for plan generation (e.g., "datafusion", "ansi")
 }
 ```
+
+### Inline raw filters
+
+`raw_filters` carries anonymous, request-scope `{ field, operator, value }` predicates that are translated into canonical boolean `Expr`s by `RequestParser::to_resolved` and injected into the plan at the **scan layer** — the same engine that lifts named DataKind filters. See [`docs/design/foundations/11_names_and_scopes.md §6.4.2`](../../docs/design/foundations/11_names_and_scopes.md) and [`docs/design/foundations/19_expression_flow.md §7.1`](../../docs/design/foundations/19_expression_flow.md).
+
+```rust
+let raw = RawQueryRequest {
+    from: Some("orders".to_string()),
+    select: vec!["date".into(), "revenue".into()],
+    raw_filters: vec![RawFilter {
+        field: "region".into(),
+        operator: "eq".into(),         // also: ne, lt, le, gt, ge, in, like (+ symbolic aliases)
+        value: serde_json::json!("US"),
+    }],
+    ..Default::default()
+};
+```
+
+Validation runs at request resolution time against the live `CompiledManifest`:
+
+- Unknown field → `ParseError::RawFilterFieldNotFound`
+- Operator outside the canonical set → `ParseError::RawFilterOperatorInvalid`
+- Value that fails type-check against the field's `DataType` → `ParseError::RawFilterValueTypeMismatch`
+
+When `from` is omitted (ad-hoc mode), `raw_filters` are not rejected — `to_resolved` stashes them as `PendingInlineFilter`s on the `ResolvedQueryRequest`, and the planner finalises them against the entity it resolves from the select fields: the winning interface in the single-entity branch, or the leftmost owning entity (anchor-first tiebreak) in the multi-entity branch. In every case the resulting `CompiledFilter` rides the same scan-layer engine as named DataKind filters.
+
+Inline filters do not enter the manifest; they have no name and are not addressable by `Request.filters: [name]`. Each becomes a `CompiledFilter` with a synthetic `__inline_filter_<N>` name internally.
 
 ---
 

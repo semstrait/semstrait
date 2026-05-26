@@ -4,6 +4,7 @@
 //! Contains only resolved names (no raw SQL, no unresolved references).
 
 use semstrait_core::Grain;
+use semstrait_manifest::CompiledFilter;
 use std::collections::HashMap;
 
 /// The resolved query request — input to `SemanticPlanner::plan()`.
@@ -18,6 +19,29 @@ pub struct ResolvedQueryRequest {
     pub measures: Vec<String>,
     /// User-supplied filter predicates.
     pub filters: Vec<QueryFilter>,
+    /// Inline request-time filters (anonymous, request-scope boolean predicates).
+    ///
+    /// Translated by the API layer from `RawFilter { field, operator, value }`
+    /// triples into canonical boolean `Expr`s. These ride the same scan-layer
+    /// injection engine as `CompiledInterface.filters` (named DataKind filters),
+    /// per `docs/design/foundations/11_names_and_scopes.md §6.4.2` and
+    /// `docs/design/foundations/19_expression_flow.md §7.1`.
+    ///
+    /// Each carries a synthetic `__inline_filter_<N>` name; they are not
+    /// addressable by `Request.filters: [name]`.
+    pub inline_filters: Vec<CompiledFilter>,
+    /// Inline request-time filters carried in unresolved form because the
+    /// entity scope wasn't known at parse time (ad-hoc mode, `from` omitted).
+    ///
+    /// These are lowered to `CompiledFilter`s by the planner after entity
+    /// resolution — by `plan_ad_hoc` in the single-entity case, or by
+    /// `build_ad_hoc_join_plan` in the multi-entity case (where each filter's
+    /// `field` is attributed to its owning `MatchedEntity`). Once lowered they
+    /// ride the same scan-layer engine as `inline_filters`.
+    ///
+    /// Empty in the explicit-`from` path: the parser lowers raw filters
+    /// directly into `inline_filters` when the entity is known.
+    pub pending_inline_filters: Vec<PendingInlineFilter>,
     /// Temporal grain for date grouping.
     pub grain: Option<Grain>,
     /// Maximum number of rows to return.
@@ -26,6 +50,25 @@ pub struct ResolvedQueryRequest {
     pub order_by: Vec<OrderByClause>,
     /// Runtime session variables (tenant_id, user_id, etc.).
     pub session_variables: SessionVariables,
+}
+
+/// An inline request-time filter carried in unresolved form.
+///
+/// Planner-side mirror of the API-layer `RawFilter`, used when entity
+/// resolution is deferred to the planner (ad-hoc mode). The planner lowers
+/// these into `CompiledFilter`s against the resolved interface; see
+/// `crate::inline_filter::lower_inline_filter`.
+#[derive(Debug, Clone)]
+pub struct PendingInlineFilter {
+    /// Semantic name to look up on the resolved entity's `CompiledInterface`
+    /// (Dimension / Measure / Metric / Key per `§6.5`).
+    pub field: String,
+    /// Operator wire token: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `like`
+    /// (plus the symbolic aliases `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`).
+    pub operator: String,
+    /// JSON value type-checked against `field`'s `DataType` at lowering time.
+    /// Arrays accepted for `in`; null is admissible on any type.
+    pub value: serde_json::Value,
 }
 
 /// A user-supplied filter predicate.

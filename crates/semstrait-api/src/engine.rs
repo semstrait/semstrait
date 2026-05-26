@@ -414,6 +414,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_explain_with_inline_raw_filter_produces_where_clause() {
+        // End-to-end: API parses RawQueryRequest with `raw_filters`, translates
+        // through `resolve_raw_filter` into a CompiledFilter, planner injects
+        // it at the scan layer (same engine as named DataKind filters per
+        // `11 §6.4.2` / `19 §7.1`), adapter emits a WHERE in the SQL.
+        let yaml = load_model("orders_with_metrics");
+
+        let engine = SemstraitEngine::with_model(&yaml)
+            .await
+            .expect("engine should compile manifest");
+
+        let raw = RawQueryRequest {
+            from: Some("orders".to_string()),
+            select: vec!["date".to_string(), "region".to_string(), "revenue".to_string()],
+            raw_filters: vec![crate::types::RawFilter {
+                field: "region".to_string(),
+                operator: "eq".to_string(),
+                value: serde_json::json!("US"),
+            }],
+            ..Default::default()
+        };
+
+        let result = engine.explain(&raw).await;
+        assert!(
+            result.is_ok(),
+            "explain with inline raw filter should succeed: {:?}",
+            result.err()
+        );
+
+        let sql = result.unwrap().sql.expect("should have SQL");
+        let upper = sql.to_uppercase();
+        assert!(
+            upper.contains("WHERE"),
+            "inline raw filter should emit a WHERE clause: {}",
+            sql
+        );
+        // The string literal should be present.
+        assert!(
+            sql.contains("'US'") || upper.contains("'US'"),
+            "WHERE should constrain to 'US': {}",
+            sql
+        );
+    }
+
+    #[tokio::test]
+    async fn test_inline_raw_filter_unknown_field_rejected() {
+        // Unknown field at request-resolution time produces a typed parse
+        // error per `11 §6.4.2` validation contract.
+        let yaml = load_model("orders_with_metrics");
+        let engine = SemstraitEngine::with_model(&yaml).await.unwrap();
+
+        let raw = RawQueryRequest {
+            from: Some("orders".to_string()),
+            select: vec!["date".to_string(), "revenue".to_string()],
+            raw_filters: vec![crate::types::RawFilter {
+                field: "nonexistent_field".to_string(),
+                operator: "eq".to_string(),
+                value: serde_json::json!("X"),
+            }],
+            ..Default::default()
+        };
+
+        let result = engine.explain(&raw).await;
+        assert!(matches!(
+            result,
+            Err(EngineError::Parse(crate::error::ParseError::RawFilterFieldNotFound { .. }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_inline_raw_filter_adhoc_resolves_against_planner_chosen_entity() {
+        // Ad-hoc mode (no `from`) + raw_filters used to be rejected up-front.
+        // It now resolves end-to-end: the parser stashes the raw_filter as a
+        // `PendingInlineFilter`, and `plan_ad_hoc` lowers it against the
+        // entity chosen by `find_covering_entities`. The lowered
+        // `CompiledFilter` rides the scan-layer engine alongside named
+        // DataKind filters per §6.4.2.
+        let engine = SemstraitEngine::new();
+        let raw = RawQueryRequest {
+            from: None,
+            select: vec!["revenue".to_string()],
+            raw_filters: vec![crate::types::RawFilter {
+                field: "region".to_string(),
+                operator: "eq".to_string(),
+                value: serde_json::json!("US"),
+            }],
+            ..Default::default()
+        };
+
+        // Structural validate (no manifest) accepts.
+        let _ = engine.validate(&raw);
+
+        // With a manifest-bearing engine, end-to-end resolution succeeds:
+        // the `orders_with_metrics` model has `revenue` and `region` on the
+        // same `orders` grainset, so `find_covering_entities(["revenue"])`
+        // picks `orders` and the inline filter lowers against its interface.
+        let yaml = load_model("orders_with_metrics");
+        let engine_with_manifest = SemstraitEngine::with_model(&yaml).await.unwrap();
+        let result = engine_with_manifest.explain(&raw).await;
+        assert!(
+            result.is_ok(),
+            "ad-hoc inline raw filter should resolve: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
     async fn test_validate_against_manifest() {
         let yaml = load_model("orders_simple");
 

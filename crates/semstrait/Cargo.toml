@@ -31,3 +31,6 @@ api-grpc = ["dep:semstrait-api", "semstrait-api/grpc"]
 [dependencies.semstrait-api]
 workspace = true
 optional = true
+
+[dev-dependencies]
+serde_json = { workspace = true }

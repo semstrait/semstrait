@@ -166,6 +166,8 @@ pub fn make_test_request(
         dimensions: dimensions.into_iter().map(String::from).collect(),
         measures: measures.into_iter().map(String::from).collect(),
         filters: vec![],
+        inline_filters: vec![],
+        pending_inline_filters: vec![],
         grain: None,
         limit: None,
         order_by: vec![],

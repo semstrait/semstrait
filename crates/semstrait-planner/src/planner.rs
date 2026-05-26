@@ -166,14 +166,22 @@ impl SemanticPlanner {
     ///
     /// Uses `entity_resolver::find_covering_entities()` to score all entities and find
     /// the best covering set. For single-entity resolution, reclassifies the requested
+    /// fields and delegates to `plan()`. Multi-entity resolution delegates to
+    /// `ad_hoc_join::build_ad_hoc_join_plan` for cross-entity join synthesis.
     ///
-    /// Multi-entity join synthesis returns an error until Phase 4.
+    /// Inline raw filters carried as `request.pending_inline_filters` are
+    /// finalised here against the resolved interface (single-entity branch)
+    /// or attributed per-field to their owning `MatchedEntity` inside
+    /// `build_entity_requests` (multi-entity branch). In every case the
+    /// resulting `CompiledFilter`s ride the same scan-layer engine as named
+    /// DataKindFilter per `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
     pub fn plan_ad_hoc(
         &self,
         request: &ResolvedQueryRequest,
         manifest: &CompiledManifest,
     ) -> Result<LogicalPlan, PlannerError> {
         use crate::entity_resolver;
+        use crate::inline_filter::lower_inline_filter;
 
         // parse.rs puts ALL select names in request.dimensions for ad-hoc.
         let all_fields: Vec<String> = request
@@ -192,7 +200,8 @@ impl SemanticPlanner {
             let entity = manifest
                 .resolve(&matched.entity_name)
                 .ok_or_else(|| PlannerError::KindNotFound(matched.entity_name.clone()))?;
-            let reclassified = entity_resolver::reclassify_fields(&all_fields, entity.interface())?;
+            let iface = entity.interface();
+            let reclassified = entity_resolver::reclassify_fields(&all_fields, iface)?;
 
             let mut targeted = request.clone();
             targeted.entity_name = matched.entity_name.clone();
@@ -208,9 +217,24 @@ impl SemanticPlanner {
                 .chain(reclassified.metrics)
                 .collect();
 
+            // Finalise any deferred inline filters against the resolved
+            // interface. Index offset preserves uniqueness of synthetic
+            // `__inline_filter_<N>` names across both lanes (already-resolved
+            // + deferred), even though only one lane is populated in
+            // practice for ad-hoc requests.
+            let base_index = targeted.inline_filters.len();
+            for (i, pending) in request.pending_inline_filters.iter().enumerate() {
+                let lowered =
+                    lower_inline_filter(pending, iface, &matched.entity_name, base_index + i)?;
+                targeted.inline_filters.push(lowered);
+            }
+            targeted.pending_inline_filters.clear();
+
             self.plan(&targeted, manifest)
         } else {
-            // Multi-entity join synthesis.
+            // Multi-entity join synthesis. Pending inline filters are
+            // attributed per-field to their owning entity inside
+            // `build_entity_requests`.
             crate::ad_hoc_join::build_ad_hoc_join_plan(
                 self, &match_result, request, manifest,
             )
@@ -618,6 +642,164 @@ mod tests {
             PlanNode::Union(n) => n.inputs.iter().map(count_filter_nodes).sum(),
             PlanNode::Scan(_) => 0,
         }
+    }
+
+    #[test]
+    fn test_plan_with_inline_filter_produces_filter_node() {
+        // Request-scope inline filter (via request.inline_filters) should
+        // produce a FilterNode at the scan layer — identical engine to
+        // named DataKind filters. See `11 §6.4.2` and `19 §7.1`.
+        let manifest = make_test_manifest();
+
+        let mut request = make_test_request("orders", vec!["date", "region"], vec!["revenue"]);
+        request.inline_filters = vec![semstrait_manifest::CompiledFilter {
+            name: "__inline_filter_0".to_string(),
+            expr: semstrait_core::Expr::eq(
+                semstrait_core::Expr::entity_ref("region"),
+                semstrait_core::Expr::string("US"),
+            ),
+            expr_source: "region = 'US'".to_string(),
+        }];
+
+        let planner = SemanticPlanner::builder().build();
+        let result = planner.plan(&request, &manifest);
+        assert!(result.is_ok(), "plan with inline filter should succeed: {:?}", result.err());
+
+        let plan = result.unwrap();
+        assert!(
+            contains_filter_node(&plan.root),
+            "plan should contain a FilterNode from the inline filter"
+        );
+    }
+
+    #[test]
+    fn test_plan_inline_filter_equivalent_to_named_filter() {
+        // Inline filters share the named-filter scan-layer engine: the resulting
+        // plan tree should be structurally identical whether the predicate is
+        // carried as an iface-level CompiledFilter or as a request-scope
+        // inline filter.
+
+        // Variant A: predicate as a named DataKind filter on the interface.
+        let mut manifest_named = make_test_manifest();
+        if let Some(dk) = manifest_named.entities.get_mut("orders") {
+            dk.interface_mut().filters.push(semstrait_manifest::CompiledFilter {
+                name: "us_only".to_string(),
+                expr: semstrait_core::Expr::eq(
+                    semstrait_core::Expr::entity_ref("region"),
+                    semstrait_core::Expr::string("US"),
+                ),
+                expr_source: "region = 'US'".to_string(),
+            });
+        }
+        let request_named = make_test_request("orders", vec!["date", "region"], vec!["revenue"]);
+        let plan_named = SemanticPlanner::builder()
+            .build()
+            .plan(&request_named, &manifest_named)
+            .expect("named-filter plan should succeed");
+
+        // Variant B: same predicate as a request-scope inline filter.
+        let manifest_inline = make_test_manifest();
+        let mut request_inline =
+            make_test_request("orders", vec!["date", "region"], vec!["revenue"]);
+        request_inline.inline_filters = vec![semstrait_manifest::CompiledFilter {
+            name: "__inline_filter_0".to_string(),
+            expr: semstrait_core::Expr::eq(
+                semstrait_core::Expr::entity_ref("region"),
+                semstrait_core::Expr::string("US"),
+            ),
+            expr_source: "region = 'US'".to_string(),
+        }];
+        let plan_inline = SemanticPlanner::builder()
+            .build()
+            .plan(&request_inline, &manifest_inline)
+            .expect("inline-filter plan should succeed");
+
+        // Both plans must contain exactly the same number of FilterNodes.
+        assert_eq!(
+            count_filter_nodes(&plan_named.root),
+            count_filter_nodes(&plan_inline.root),
+            "inline and named filters should produce the same number of FilterNodes"
+        );
+
+        // Output names match.
+        assert_eq!(plan_named.output_names, plan_inline.output_names);
+
+        // The extracted Filter predicates must be byte-identical — the
+        // CompiledFilter.name doesn't reach the plan tree, only the Expr
+        // does, so named vs inline carrier choice is structurally invisible
+        // past scan-layer injection.
+        let preds_named = collect_filter_predicates(&plan_named.root);
+        let preds_inline = collect_filter_predicates(&plan_inline.root);
+        assert_eq!(
+            preds_named, preds_inline,
+            "inline filter should produce the same FilterNode predicates as a named filter"
+        );
+    }
+
+    fn collect_filter_predicates(node: &PlanNode) -> Vec<semstrait_ir::Expr> {
+        let mut out = Vec::new();
+        walk_filter_predicates(node, &mut out);
+        out
+    }
+
+    fn walk_filter_predicates(node: &PlanNode, out: &mut Vec<semstrait_ir::Expr>) {
+        match node {
+            PlanNode::Filter(n) => {
+                out.push(n.predicate.clone());
+                walk_filter_predicates(&n.input, out);
+            }
+            PlanNode::Project(n) => walk_filter_predicates(&n.input, out),
+            PlanNode::Aggregate(n) => walk_filter_predicates(&n.input, out),
+            PlanNode::Sort(n) => walk_filter_predicates(&n.input, out),
+            PlanNode::Fetch(n) => walk_filter_predicates(&n.input, out),
+            PlanNode::Join(n) => {
+                walk_filter_predicates(&n.left, out);
+                walk_filter_predicates(&n.right, out);
+            }
+            PlanNode::Union(n) => {
+                for input in &n.inputs {
+                    walk_filter_predicates(input, out);
+                }
+            }
+            PlanNode::Scan(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_plan_inline_filter_combined_with_named_filter() {
+        // Inline filters compose with named DataKind filters — both should
+        // emit a FilterNode in the same scan-layer pass.
+        let mut manifest = make_test_manifest();
+        if let Some(dk) = manifest.entities.get_mut("orders") {
+            dk.interface_mut().filters.push(semstrait_manifest::CompiledFilter {
+                name: "active_only".to_string(),
+                expr: semstrait_core::Expr::eq(
+                    semstrait_core::Expr::entity_ref("region"),
+                    semstrait_core::Expr::string("US"),
+                ),
+                expr_source: "region = 'US'".to_string(),
+            });
+        }
+
+        let mut request = make_test_request("orders", vec!["date", "region"], vec!["revenue"]);
+        request.inline_filters = vec![semstrait_manifest::CompiledFilter {
+            name: "__inline_filter_0".to_string(),
+            expr: semstrait_core::Expr::eq(
+                semstrait_core::Expr::entity_ref("date"),
+                semstrait_core::Expr::string("2024-01-01"),
+            ),
+            expr_source: "date = '2024-01-01'".to_string(),
+        }];
+
+        let planner = SemanticPlanner::builder().build();
+        let plan = planner.plan(&request, &manifest).expect("combined plan should succeed");
+
+        let n_filters = count_filter_nodes(&plan.root);
+        assert!(
+            n_filters >= 2,
+            "expected at least 2 FilterNodes (named + inline), got {}",
+            n_filters
+        );
     }
 
     #[test]
