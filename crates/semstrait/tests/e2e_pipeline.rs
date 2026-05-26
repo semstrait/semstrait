@@ -31,6 +31,7 @@ fn make_request(
         measures: measures.iter().map(|s| s.to_string()).collect(),
         filters: vec![],
         inline_filters: vec![],
+        pending_inline_filters: vec![],
         grain: None,
         limit: None,
         order_by: vec![],
@@ -284,6 +285,93 @@ async fn e2e_raw_sql_rejected_at_compile() {
         msg.contains("raw SQL rejected"),
         "should reject raw SQL: {}",
         msg
+    );
+}
+
+// ============================================================================
+// Ad-hoc + inline raw filters (deferred lowering)
+//
+// Reproduces the `ga4_mta_rudimentary`-shaped scenario: a single-grainset
+// model, a request with `from` omitted, and inline raw_filters carried as
+// `PendingInlineFilter`s. The planner's `plan_ad_hoc` finalises the filters
+// against the entity it resolves from the select fields and the inline
+// filters land at the scan layer alongside any named DataKind filters
+// per `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
+// ============================================================================
+
+#[tokio::test]
+async fn e2e_adhoc_inline_raw_filters_land_at_scan_layer() {
+    let yaml = load_model("orders_basic");
+
+    let manifest = ManifestCompiler::new()
+        .compile(CompileSource::Yaml(yaml))
+        .await
+        .expect("manifest compile");
+
+    // Build an ad-hoc request (no `from`) with two inline raw_filters on
+    // the temporal dimension. The parser would normally turn these into
+    // `pending_inline_filters`; we build the same shape directly here so
+    // this test stays as a planner-side e2e check.
+    use semstrait_planner::PendingInlineFilter;
+    let request = ResolvedQueryRequest {
+        entity_name: String::new(),
+        dimensions: vec!["order_date".into(), "region".into()],
+        measures: vec!["revenue".into()],
+        filters: vec![],
+        inline_filters: vec![],
+        pending_inline_filters: vec![
+            PendingInlineFilter {
+                field: "order_date".to_string(),
+                operator: ">=".to_string(),
+                value: serde_json::json!("2026-05-01"),
+            },
+            PendingInlineFilter {
+                field: "order_date".to_string(),
+                operator: "<=".to_string(),
+                value: serde_json::json!("2026-05-31"),
+            },
+        ],
+        grain: None,
+        limit: None,
+        order_by: vec![],
+        session_variables: HashMap::new(),
+    };
+
+    let planner = SemanticPlanner::builder().build();
+    let plan = planner
+        .plan(&request, &manifest)
+        .expect("ad-hoc plan with inline raw filters should succeed");
+
+    // Walk the plan tree and count FilterNodes — the two raw_filters
+    // should each materialise as a FilterNode at the scan layer.
+    use semstrait_ir::PlanNode;
+    fn count_filter_nodes(node: &PlanNode) -> usize {
+        match node {
+            PlanNode::Filter(n) => 1 + count_filter_nodes(&n.input),
+            PlanNode::Project(n) => count_filter_nodes(&n.input),
+            PlanNode::Aggregate(n) => count_filter_nodes(&n.input),
+            PlanNode::Sort(n) => count_filter_nodes(&n.input),
+            PlanNode::Fetch(n) => count_filter_nodes(&n.input),
+            PlanNode::Join(n) => count_filter_nodes(&n.left) + count_filter_nodes(&n.right),
+            PlanNode::Union(n) => n.inputs.iter().map(count_filter_nodes).sum(),
+            PlanNode::Scan(_) => 0,
+        }
+    }
+    let n_filters = count_filter_nodes(&plan.root);
+    assert_eq!(
+        n_filters, 2,
+        "two inline raw filters should produce two FilterNodes at the scan layer, got {}",
+        n_filters
+    );
+
+    // The emitted SQL contains the predicate values.
+    let sql = AnsiSqlEmitter::new(AnsiDialect)
+        .emit(&plan)
+        .expect("SQL emission should succeed");
+    assert!(
+        sql.contains("2026-05-01") && sql.contains("2026-05-31"),
+        "SQL should contain both inline filter literals: {}",
+        sql
     );
 }
 

@@ -87,7 +87,8 @@ Validation runs at request resolution time against the live `CompiledManifest`:
 - Unknown field → `ParseError::RawFilterFieldNotFound`
 - Operator outside the canonical set → `ParseError::RawFilterOperatorInvalid`
 - Value that fails type-check against the field's `DataType` → `ParseError::RawFilterValueTypeMismatch`
-- Missing `from` (ad-hoc mode) + non-empty `raw_filters` → `ParseError::RawFiltersRequireEntity`
+
+When `from` is omitted (ad-hoc mode), `raw_filters` are not rejected — `to_resolved` stashes them as `PendingInlineFilter`s on the `ResolvedQueryRequest`, and the planner finalises them against the entity it resolves from the select fields: the winning interface in the single-entity branch, or the leftmost owning entity (anchor-first tiebreak) in the multi-entity branch. In every case the resulting `CompiledFilter` rides the same scan-layer engine as named DataKind filters.
 
 Inline filters do not enter the manifest; they have no name and are not addressable by `Request.filters: [name]`. Each becomes a `CompiledFilter` with a synthetic `__inline_filter_<N>` name internally.
 

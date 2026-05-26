@@ -164,6 +164,7 @@ mod tests {
                 values: vec![FilterValue::String("US".to_string())],
             }],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],
@@ -224,6 +225,7 @@ mod tests {
                 },
             ],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],
@@ -254,6 +256,7 @@ mod tests {
             measures: vec!["revenue".to_string()],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![OrderByClause {
@@ -281,6 +284,7 @@ mod tests {
             measures: vec!["revenue".to_string()],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: Some(10),
             order_by: vec![],
@@ -512,6 +516,7 @@ mod tests {
             measures: vec!["revenue".into()],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],
@@ -560,6 +565,7 @@ mod tests {
             measures: vec![],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],
@@ -583,6 +589,7 @@ mod tests {
             measures: vec!["revenue".into()],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: Some(50),
             order_by: vec![OrderByClause {
@@ -625,6 +632,7 @@ mod tests {
                 values: vec![FilterValue::String("2024-01-01".to_string())],
             }],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],
@@ -641,6 +649,285 @@ mod tests {
             matches!(&plan.root, PlanNode::Filter(_)),
             "root should be Filter when user filters are present"
         );
+    }
+
+    // ========================================================================
+    // Ad-hoc + inline raw filters
+    //
+    // Exercise the deferred-lowering path: parser stashes raw_filters as
+    // `PendingInlineFilter`s; `plan_ad_hoc` (single-entity) or
+    // `build_ad_hoc_join_plan::build_entity_requests` (multi-entity) lowers
+    // them into `CompiledFilter`s against the resolved interface(s). The
+    // result rides the same scan-layer engine as named DataKind filters per
+    // `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
+    // ========================================================================
+
+    fn contains_filter_node(node: &PlanNode) -> bool {
+        match node {
+            PlanNode::Filter(_) => true,
+            PlanNode::Project(n) => contains_filter_node(&n.input),
+            PlanNode::Aggregate(n) => contains_filter_node(&n.input),
+            PlanNode::Sort(n) => contains_filter_node(&n.input),
+            PlanNode::Fetch(n) => contains_filter_node(&n.input),
+            PlanNode::Join(n) => {
+                contains_filter_node(&n.left) || contains_filter_node(&n.right)
+            }
+            PlanNode::Union(n) => n.inputs.iter().any(contains_filter_node),
+            PlanNode::Scan(_) => false,
+        }
+    }
+
+    fn count_filter_nodes(node: &PlanNode) -> usize {
+        match node {
+            PlanNode::Filter(n) => 1 + count_filter_nodes(&n.input),
+            PlanNode::Project(n) => count_filter_nodes(&n.input),
+            PlanNode::Aggregate(n) => count_filter_nodes(&n.input),
+            PlanNode::Sort(n) => count_filter_nodes(&n.input),
+            PlanNode::Fetch(n) => count_filter_nodes(&n.input),
+            PlanNode::Join(n) => count_filter_nodes(&n.left) + count_filter_nodes(&n.right),
+            PlanNode::Union(n) => n.inputs.iter().map(count_filter_nodes).sum(),
+            PlanNode::Scan(_) => 0,
+        }
+    }
+
+    /// Count FilterNodes that appear strictly underneath any Join in the
+    /// plan tree (i.e. per-entity scan-side filters in multi-entity ad-hoc).
+    /// Filters above the topmost Join are user filters / post-join filters
+    /// and are excluded.
+    fn count_filter_nodes_under_join(node: &PlanNode) -> usize {
+        match node {
+            PlanNode::Join(_) => count_filter_nodes(node),
+            PlanNode::Project(n) => count_filter_nodes_under_join(&n.input),
+            PlanNode::Aggregate(n) => count_filter_nodes_under_join(&n.input),
+            PlanNode::Sort(n) => count_filter_nodes_under_join(&n.input),
+            PlanNode::Fetch(n) => count_filter_nodes_under_join(&n.input),
+            PlanNode::Filter(n) => count_filter_nodes_under_join(&n.input),
+            PlanNode::Union(n) => n.inputs.iter().map(count_filter_nodes_under_join).sum(),
+            PlanNode::Scan(_) => 0,
+        }
+    }
+
+    fn adhoc_request_with_pending(
+        select: Vec<&str>,
+        pending: Vec<crate::request::PendingInlineFilter>,
+    ) -> ResolvedQueryRequest {
+        ResolvedQueryRequest {
+            entity_name: String::new(),
+            dimensions: select.into_iter().map(String::from).collect(),
+            measures: vec![],
+            filters: vec![],
+            inline_filters: vec![],
+            pending_inline_filters: pending,
+            grain: None,
+            limit: None,
+            order_by: vec![],
+            session_variables: HashMap::new(),
+        }
+    }
+
+    fn pending(field: &str, op: &str, value: serde_json::Value) -> crate::request::PendingInlineFilter {
+        crate::request::PendingInlineFilter {
+            field: field.to_string(),
+            operator: op.to_string(),
+            value,
+        }
+    }
+
+    #[test]
+    fn test_ad_hoc_single_entity_with_inline_filter_on_dim() {
+        // `region` is a String dimension on the single `orders` entity.
+        // Ad-hoc resolution picks `orders` from the select fields and lowers
+        // the pending filter against its interface.
+        let manifest = make_test_manifest();
+        let request = adhoc_request_with_pending(
+            vec!["date", "region", "revenue"],
+            vec![pending("region", "eq", serde_json::json!("US"))],
+        );
+
+        let planner = SemanticPlanner::builder().build();
+        let result = planner.plan(&request, &manifest);
+        assert!(
+            result.is_ok(),
+            "ad-hoc single-entity + inline filter should succeed: {:?}",
+            result.err()
+        );
+
+        let plan = result.unwrap();
+        assert!(
+            contains_filter_node(&plan.root),
+            "plan should contain a FilterNode from the inline filter"
+        );
+    }
+
+    #[test]
+    fn test_ad_hoc_single_entity_inline_filter_unknown_field() {
+        // `nonexistent` is not on the `orders` interface — lowering must
+        // surface InlineFilterError::FieldNotFound, which the planner
+        // wraps as PlannerError::InlineFilterResolution.
+        let manifest = make_test_manifest();
+        let request = adhoc_request_with_pending(
+            vec!["date", "revenue"],
+            vec![pending("nonexistent", "eq", serde_json::json!("X"))],
+        );
+
+        let planner = SemanticPlanner::builder().build();
+        let err = planner.plan(&request, &manifest).unwrap_err();
+        match err {
+            PlannerError::InlineFilterResolution(
+                crate::inline_filter::InlineFilterError::FieldNotFound { .. },
+            ) => {}
+            other => panic!("expected FieldNotFound, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ad_hoc_single_entity_inline_filter_bad_operator() {
+        let manifest = make_test_manifest();
+        let request = adhoc_request_with_pending(
+            vec!["date", "region", "revenue"],
+            vec![pending("region", "regex", serde_json::json!("US"))],
+        );
+
+        let planner = SemanticPlanner::builder().build();
+        let err = planner.plan(&request, &manifest).unwrap_err();
+        match err {
+            PlannerError::InlineFilterResolution(
+                crate::inline_filter::InlineFilterError::OperatorInvalid { .. },
+            ) => {}
+            other => panic!("expected OperatorInvalid, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ad_hoc_single_entity_inline_filter_type_mismatch() {
+        // `revenue` is Number; a string literal doesn't coerce.
+        let manifest = make_test_manifest();
+        let request = adhoc_request_with_pending(
+            vec!["date", "revenue"],
+            vec![pending("revenue", ">", serde_json::json!("not_a_number"))],
+        );
+
+        let planner = SemanticPlanner::builder().build();
+        let err = planner.plan(&request, &manifest).unwrap_err();
+        match err {
+            PlannerError::InlineFilterResolution(
+                crate::inline_filter::InlineFilterError::ValueTypeMismatch { .. },
+            ) => {}
+            other => panic!("expected ValueTypeMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ad_hoc_multi_entity_inline_filter_per_owner() {
+        // Two raw filters, each owned by a different entity:
+        //   - `region` is on `orders`
+        //   - `customer_name` is on `customers`
+        // Each filter must be attributed to its owning entity and placed on
+        // that entity's per-entity scan. The resulting plan contains exactly
+        // two FilterNodes under the Join.
+        let manifest = make_multi_entity_manifest();
+        let request = ResolvedQueryRequest {
+            entity_name: String::new(),
+            dimensions: vec!["date".into(), "customer_name".into()],
+            measures: vec!["revenue".into()],
+            filters: vec![],
+            inline_filters: vec![],
+            pending_inline_filters: vec![
+                pending("region", "eq", serde_json::json!("EU")),
+                pending("customer_name", "eq", serde_json::json!("Acme")),
+            ],
+            grain: None,
+            limit: None,
+            order_by: vec![],
+            session_variables: HashMap::new(),
+        };
+
+        let planner = SemanticPlanner::builder().build();
+        let plan = planner
+            .plan(&request, &manifest)
+            .expect("multi-entity ad-hoc with per-owner inline filters should succeed");
+
+        // Each filter lands on its owning entity's scan branch, beneath the
+        // top-level Join. We expect at least two FilterNodes under the Join.
+        let under_join = count_filter_nodes_under_join(&plan.root);
+        assert!(
+            under_join >= 2,
+            "expected at least 2 FilterNodes under the Join (one per owning entity), got {}",
+            under_join
+        );
+    }
+
+    #[test]
+    fn test_ad_hoc_multi_entity_inline_filter_shared_key_anchor_tiebreak() {
+        // `customer_id` is the foreign-key column on `orders`. `customers`
+        // has the corresponding key as `id`, so `customer_id` is owned only
+        // by `orders` in this manifest. The anchor-first tiebreak code path
+        // still runs because attribution searches MatchedEntity.covered_*
+        // left-to-right; we assert here that the filter lands on the
+        // `orders` scan exactly once and does not duplicate.
+        let manifest = make_multi_entity_manifest();
+        let request = ResolvedQueryRequest {
+            entity_name: String::new(),
+            dimensions: vec!["date".into(), "customer_name".into()],
+            measures: vec!["revenue".into()],
+            filters: vec![],
+            inline_filters: vec![],
+            pending_inline_filters: vec![pending(
+                "customer_id",
+                "eq",
+                serde_json::json!("c-123"),
+            )],
+            grain: None,
+            limit: None,
+            order_by: vec![],
+            session_variables: HashMap::new(),
+        };
+
+        let planner = SemanticPlanner::builder().build();
+        let plan = planner
+            .plan(&request, &manifest)
+            .expect("multi-entity ad-hoc with shared-side key filter should succeed");
+
+        // Exactly one FilterNode under the Join (placed on the `orders`
+        // scan side), not duplicated across both branches.
+        let under_join = count_filter_nodes_under_join(&plan.root);
+        assert_eq!(
+            under_join, 1,
+            "shared-key inline filter should be placed once (anchor-first), got {} FilterNode(s) under Join",
+            under_join
+        );
+    }
+
+    #[test]
+    fn test_ad_hoc_multi_entity_inline_filter_field_on_no_entity() {
+        // `does_not_exist` is on neither entity. Attribution must fail with
+        // FieldOnNoEntity wrapped as PlannerError::InlineFilterResolution.
+        let manifest = make_multi_entity_manifest();
+        let request = ResolvedQueryRequest {
+            entity_name: String::new(),
+            dimensions: vec!["date".into(), "customer_name".into()],
+            measures: vec!["revenue".into()],
+            filters: vec![],
+            inline_filters: vec![],
+            pending_inline_filters: vec![pending(
+                "does_not_exist",
+                "eq",
+                serde_json::json!("X"),
+            )],
+            grain: None,
+            limit: None,
+            order_by: vec![],
+            session_variables: HashMap::new(),
+        };
+
+        let planner = SemanticPlanner::builder().build();
+        let err = planner.plan(&request, &manifest).unwrap_err();
+        match err {
+            PlannerError::InlineFilterResolution(
+                crate::inline_filter::InlineFilterError::FieldOnNoEntity { .. },
+            ) => {}
+            other => panic!("expected FieldOnNoEntity, got {:?}", other),
+        }
     }
 
     #[test]

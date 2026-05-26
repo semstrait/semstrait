@@ -13,6 +13,7 @@ semstrait-catalog = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 indexmap = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 semstrait-model = { workspace = true }

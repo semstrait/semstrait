@@ -2485,6 +2485,7 @@ dependencies = [
  "semstrait-manifest",
  "semstrait-model",
  "semstrait-planner",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -2625,6 +2626,7 @@ dependencies = [
  "semstrait-ir",
  "semstrait-manifest",
  "semstrait-model",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

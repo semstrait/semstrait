@@ -16,6 +16,7 @@
 //! 6. `Optimizer::apply()` — identity by default
 
 pub mod error;
+pub mod inline_filter;
 pub mod request;
 pub(crate) mod validator;
 pub(crate) mod expr;
@@ -35,7 +36,7 @@ mod tests;
 // Re-export primary public API.
 pub use error::PlannerError;
 pub use request::{
-    FilterOperator, FilterValue, OrderByClause, QueryFilter, ResolvedQueryRequest,
-    SessionVariables, SortDirection,
+    FilterOperator, FilterValue, OrderByClause, PendingInlineFilter, QueryFilter,
+    ResolvedQueryRequest, SessionVariables, SortDirection,
 };
 pub use planner::{SemanticPlanner, SemanticPlannerBuilder};

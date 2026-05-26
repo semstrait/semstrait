@@ -166,14 +166,22 @@ impl SemanticPlanner {
     ///
     /// Uses `entity_resolver::find_covering_entities()` to score all entities and find
     /// the best covering set. For single-entity resolution, reclassifies the requested
+    /// fields and delegates to `plan()`. Multi-entity resolution delegates to
+    /// `ad_hoc_join::build_ad_hoc_join_plan` for cross-entity join synthesis.
     ///
-    /// Multi-entity join synthesis returns an error until Phase 4.
+    /// Inline raw filters carried as `request.pending_inline_filters` are
+    /// finalised here against the resolved interface (single-entity branch)
+    /// or attributed per-field to their owning `MatchedEntity` inside
+    /// `build_entity_requests` (multi-entity branch). In every case the
+    /// resulting `CompiledFilter`s ride the same scan-layer engine as named
+    /// DataKindFilter per `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
     pub fn plan_ad_hoc(
         &self,
         request: &ResolvedQueryRequest,
         manifest: &CompiledManifest,
     ) -> Result<LogicalPlan, PlannerError> {
         use crate::entity_resolver;
+        use crate::inline_filter::lower_inline_filter;
 
         // parse.rs puts ALL select names in request.dimensions for ad-hoc.
         let all_fields: Vec<String> = request
@@ -192,7 +200,8 @@ impl SemanticPlanner {
             let entity = manifest
                 .resolve(&matched.entity_name)
                 .ok_or_else(|| PlannerError::KindNotFound(matched.entity_name.clone()))?;
-            let reclassified = entity_resolver::reclassify_fields(&all_fields, entity.interface())?;
+            let iface = entity.interface();
+            let reclassified = entity_resolver::reclassify_fields(&all_fields, iface)?;
 
             let mut targeted = request.clone();
             targeted.entity_name = matched.entity_name.clone();
@@ -208,9 +217,24 @@ impl SemanticPlanner {
                 .chain(reclassified.metrics)
                 .collect();
 
+            // Finalise any deferred inline filters against the resolved
+            // interface. Index offset preserves uniqueness of synthetic
+            // `__inline_filter_<N>` names across both lanes (already-resolved
+            // + deferred), even though only one lane is populated in
+            // practice for ad-hoc requests.
+            let base_index = targeted.inline_filters.len();
+            for (i, pending) in request.pending_inline_filters.iter().enumerate() {
+                let lowered =
+                    lower_inline_filter(pending, iface, &matched.entity_name, base_index + i)?;
+                targeted.inline_filters.push(lowered);
+            }
+            targeted.pending_inline_filters.clear();
+
             self.plan(&targeted, manifest)
         } else {
-            // Multi-entity join synthesis.
+            // Multi-entity join synthesis. Pending inline filters are
+            // attributed per-field to their owning entity inside
+            // `build_entity_requests`.
             crate::ad_hoc_join::build_ad_hoc_join_plan(
                 self, &match_result, request, manifest,
             )

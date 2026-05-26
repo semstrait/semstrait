@@ -1,5 +1,6 @@
 //! API error types.
 
+use semstrait_planner::inline_filter::InlineFilterError;
 use thiserror::Error;
 
 /// Errors from the SemstraitEngine.
@@ -64,12 +65,6 @@ pub enum ParseError {
         got: String,
     },
 
-    /// Inline raw filters require an explicit `from` (entity name).
-    /// In ad-hoc resolution mode (no `from`), inline filters cannot be validated
-    /// against an interface and are rejected.
-    #[error("inline raw filters require an explicit 'from' entity")]
-    RawFiltersRequireEntity,
-
     #[error("invalid grain: {0}")]
     InvalidGrain(String),
 
@@ -78,4 +73,39 @@ pub enum ParseError {
 
     #[error("validation error: {0}")]
     Validation(String),
+}
+
+/// Map planner-side inline-filter lowering errors back to API-layer variants.
+/// Used in the explicit-`from` path where the parser lowers raw filters
+/// against the named entity's interface via
+/// `semstrait_planner::inline_filter::lower_inline_filter`.
+impl From<InlineFilterError> for ParseError {
+    fn from(err: InlineFilterError) -> Self {
+        match err {
+            InlineFilterError::FieldNotFound { entity, field } => {
+                ParseError::RawFilterFieldNotFound { entity, field }
+            }
+            InlineFilterError::OperatorInvalid { field, operator } => {
+                ParseError::RawFilterOperatorInvalid { field, operator }
+            }
+            InlineFilterError::ValueTypeMismatch {
+                field,
+                expected,
+                got,
+            } => ParseError::RawFilterValueTypeMismatch {
+                field,
+                expected,
+                got,
+            },
+            // FieldOnNoEntity is multi-entity ad-hoc only; never surfaces in
+            // the explicit-`from` parser path. Map defensively to a flat
+            // ValueTypeMismatch shape so the API doesn't silently swallow it.
+            InlineFilterError::FieldOnNoEntity { field, candidates } => {
+                ParseError::RawFilterFieldNotFound {
+                    entity: candidates.join(", "),
+                    field,
+                }
+            }
+        }
+    }
 }

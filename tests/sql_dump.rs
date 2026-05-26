@@ -29,6 +29,7 @@ fn sql(
         measures: measures.iter().map(|s| s.to_string()).collect(),
         filters: vec![],
         inline_filters: vec![],
+        pending_inline_filters: vec![],
         grain: None,
         limit: None,
         order_by: vec![],

@@ -23,6 +23,7 @@ use crate::entity_resolver::{MatchResult, MatchedEntity};
 use crate::error::PlannerError;
 use crate::data_kind::PlannerContext;
 use crate::data_kind::joinset::map_join_type;
+use crate::inline_filter::{lower_inline_filter, InlineFilterError};
 use crate::planner::{
     SemanticPlanner, apply_limit, apply_order_by, inject_user_filters,
 };
@@ -228,6 +229,14 @@ fn compute_join_order(
 /// For each entity, starts with the fields assigned by entity_resolver,
 /// then adds join key columns from relationships that reference this entity.
 /// Tracks extra join keys for removal in final projection.
+///
+/// Inline raw filters carried as `original_request.pending_inline_filters`
+/// are attributed per-field to their owning `MatchedEntity` via anchor-first
+/// tiebreak (the leftmost entity in `match_result.entities` whose covered
+/// fields include the filter's `field`). Each attributed filter is lowered
+/// against that entity's `CompiledInterface` and placed on that entity's
+/// `request.inline_filters`, riding the same scan-layer engine as named
+/// DataKind filters per `docs/design/foundations/11_names_and_scopes.md §6.4.2`.
 fn build_entity_requests(
     match_result: &MatchResult,
     join_order: &[JoinStep],
@@ -248,9 +257,43 @@ fn build_entity_requests(
         .map(|s| s.as_str())
         .collect();
 
+    // Attribute each pending inline filter to its owning MatchedEntity.
+    // Anchor-first tiebreak: pick the leftmost entity in
+    // `match_result.entities` (sorted by coverage best-first) whose
+    // `CompiledInterface` lists the field as a Dimension / Key / Measure /
+    // Metric. We consult the interface (not `MatchedEntity.covered_*`)
+    // because covered_* only mirrors the user's select coverage, while
+    // raw_filter fields are independent of the select. Abort with
+    // FieldOnNoEntity if no covering entity exists.
+    let pending_assignments: Vec<usize> = original_request
+        .pending_inline_filters
+        .iter()
+        .map(|pf| {
+            match_result
+                .entities
+                .iter()
+                .position(|me| {
+                    manifest
+                        .resolve(&me.entity_name)
+                        .map(|dk| interface_has_field(dk.interface(), &pf.field))
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| {
+                    PlannerError::from(InlineFilterError::FieldOnNoEntity {
+                        field: pf.field.clone(),
+                        candidates: match_result
+                            .entities
+                            .iter()
+                            .map(|e| e.entity_name.clone())
+                            .collect(),
+                    })
+                })
+        })
+        .collect::<Result<Vec<_>, PlannerError>>()?;
+
     let mut requests = Vec::new();
 
-    for matched in &match_result.entities {
+    for (entity_idx, matched) in match_result.entities.iter().enumerate() {
         let entity_name = &matched.entity_name;
 
         // Start with this entity's covered fields — reclassify into dims and measures.
@@ -303,6 +346,29 @@ fn build_entity_requests(
             }
         }
 
+        // Lower the pending inline filters assigned to this entity against
+        // the entity's interface. Synthetic `__inline_filter_<i>` names use
+        // the original per-request index so they remain globally unique
+        // across the per-entity scans. We resolve the interface lazily —
+        // skipping the lookup entirely when no filter lands on this entity
+        // keeps the path test-friendly for manifests built without entities.
+        let mut lowered_inline_filters = Vec::new();
+        let has_pending_for_entity = pending_assignments
+            .iter()
+            .any(|&assigned| assigned == entity_idx);
+        if has_pending_for_entity {
+            let iface = manifest
+                .resolve(entity_name)
+                .ok_or_else(|| PlannerError::KindNotFound(entity_name.clone()))?
+                .interface();
+            for (i, pending) in original_request.pending_inline_filters.iter().enumerate() {
+                if pending_assignments[i] == entity_idx {
+                    let cf = lower_inline_filter(pending, iface, entity_name, i)?;
+                    lowered_inline_filters.push(cf);
+                }
+            }
+        }
+
         let mut request = original_request.clone();
         request.entity_name = entity_name.clone();
         request.dimensions = dims;
@@ -311,6 +377,13 @@ fn build_entity_requests(
         request.filters = Vec::new();
         request.order_by = Vec::new();
         request.limit = None;
+        // Replace any pre-existing inline_filters with this entity's lowered
+        // subset. Multi-entity ad-hoc has no source of pre-lowered
+        // inline_filters (the parser always emits empty when `from` is
+        // None), but we overwrite defensively to guarantee per-entity
+        // attribution holds.
+        request.inline_filters = lowered_inline_filters;
+        request.pending_inline_filters = Vec::new();
 
         requests.push(EntityRequest {
             entity_name: entity_name.clone(),
@@ -320,6 +393,25 @@ fn build_entity_requests(
     }
 
     Ok(requests)
+}
+
+/// Check whether `iface` lists `field` as a Dimension / Key / Measure /
+/// Metric. Used by pending-inline-filter attribution in multi-entity
+/// ad-hoc mode. Matches `inline_filter::lookup_field_type` shape but
+/// returns a bool — we only need existence, not the type.
+fn interface_has_field(iface: &semstrait_manifest::CompiledInterface, field: &str) -> bool {
+    if iface.dimensions.contains_key(field)
+        || iface.measures.contains_key(field)
+        || iface.metrics.contains_key(field)
+    {
+        return true;
+    }
+    if let Some(keys) = &iface.keys {
+        if keys.all_column_names().iter().any(|s| s == field) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Build a join condition using semantic column names from a relationship.
@@ -515,6 +607,7 @@ mod tests {
             measures: vec!["revenue".into()],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],
@@ -573,6 +666,7 @@ mod tests {
             measures: vec!["revenue".into()],
             filters: vec![],
             inline_filters: vec![],
+            pending_inline_filters: vec![],
             grain: None,
             limit: None,
             order_by: vec![],

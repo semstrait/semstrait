@@ -484,8 +484,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_inline_raw_filter_requires_entity() {
-        // Without `from`, inline raw filters can't be validated and must error.
+    async fn test_inline_raw_filter_adhoc_resolves_against_planner_chosen_entity() {
+        // Ad-hoc mode (no `from`) + raw_filters used to be rejected up-front.
+        // It now resolves end-to-end: the parser stashes the raw_filter as a
+        // `PendingInlineFilter`, and `plan_ad_hoc` lowers it against the
+        // entity chosen by `find_covering_entities`. The lowered
+        // `CompiledFilter` rides the scan-layer engine alongside named
+        // DataKind filters per §6.4.2.
         let engine = SemstraitEngine::new();
         let raw = RawQueryRequest {
             from: None,
@@ -498,20 +503,21 @@ mod tests {
             ..Default::default()
         };
 
-        // `validate` runs structural parse only (no manifest) — that accepts.
-        // The full resolution path is what enforces the requirement.
-        // To trigger it, call validate with a manifest-bearing engine OR
-        // attempt to_resolved directly through a planned engine.
-        let _ = engine.validate(&raw); // structural pass — accepts
+        // Structural validate (no manifest) accepts.
+        let _ = engine.validate(&raw);
 
-        // With a manifest-bearing engine, to_resolved rejects.
+        // With a manifest-bearing engine, end-to-end resolution succeeds:
+        // the `orders_with_metrics` model has `revenue` and `region` on the
+        // same `orders` grainset, so `find_covering_entities(["revenue"])`
+        // picks `orders` and the inline filter lowers against its interface.
         let yaml = load_model("orders_with_metrics");
         let engine_with_manifest = SemstraitEngine::with_model(&yaml).await.unwrap();
         let result = engine_with_manifest.explain(&raw).await;
-        assert!(matches!(
-            result,
-            Err(EngineError::Parse(crate::error::ParseError::RawFiltersRequireEntity))
-        ));
+        assert!(
+            result.is_ok(),
+            "ad-hoc inline raw filter should resolve: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
