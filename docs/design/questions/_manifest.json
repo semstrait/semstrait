@@ -1,0 +1,525 @@
+{
+  "space": "questions",
+  "leaves": [
+    {
+      "id": "closed-14b-questions",
+      "file": "closed/14b_questions.md",
+      "concern": "Closed questions for doc 14b (retired)",
+      "use_when": "historical ratification record for doc 14b",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-15-questions",
+      "file": "closed/15_questions.md",
+      "concern": "Closed questions for doc 15 (mapping and binding)",
+      "use_when": "historical ratification record for mapping/binding decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-16-questions",
+      "file": "closed/16_questions.md",
+      "concern": "Closed questions for doc 16 (composition)",
+      "use_when": "historical ratification record for composition decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-17-questions",
+      "file": "closed/17_questions.md",
+      "concern": "Closed questions for doc 17 (temporal shape)",
+      "use_when": "historical ratification record for temporal shape decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-19-questions",
+      "file": "closed/19_questions.md",
+      "concern": "Closed questions for doc 19 (expression flow)",
+      "use_when": "historical ratification record for expression flow decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-20-questions",
+      "file": "closed/20_questions.md",
+      "concern": "Closed questions for doc 20 (taxonomy)",
+      "use_when": "historical ratification record for taxonomy decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-21-questions",
+      "file": "closed/21_questions.md",
+      "concern": "Closed questions for doc 21 (Dataset)",
+      "use_when": "historical ratification record for Dataset decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-22-questions",
+      "file": "closed/22_questions.md",
+      "concern": "Closed questions for doc 22 (Grainset)",
+      "use_when": "historical ratification record for Grainset decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-23-questions",
+      "file": "closed/23_questions.md",
+      "concern": "Closed questions for doc 23 (Unionset)",
+      "use_when": "historical ratification record for Unionset decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-24-questions",
+      "file": "closed/24_questions.md",
+      "concern": "Closed questions for doc 24 (Joinset)",
+      "use_when": "historical ratification record for Joinset decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-30-questions",
+      "file": "closed/30_questions.md",
+      "concern": "Closed questions for doc 30 (API contracts)",
+      "use_when": "historical ratification record for API contract decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-31-questions",
+      "file": "closed/31_questions.md",
+      "concern": "Closed questions for doc 31 (semstrait-common)",
+      "use_when": "historical ratification record for semstrait-common decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-31b-io-questions",
+      "file": "closed/31b_io_questions.md",
+      "concern": "Closed questions for doc 31b (semstrait-common::io)",
+      "use_when": "historical ratification record for io submodule decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-32-questions",
+      "file": "closed/32_questions.md",
+      "concern": "Closed questions for doc 32 (semstrait-model)",
+      "use_when": "historical ratification record for model crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-33-questions",
+      "file": "closed/33_questions.md",
+      "concern": "Closed questions for doc 33 (semstrait-manifest)",
+      "use_when": "historical ratification record for manifest crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-34-questions",
+      "file": "closed/34_questions.md",
+      "concern": "Closed questions for doc 34 (semstrait-planner)",
+      "use_when": "historical ratification record for planner crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-35-questions",
+      "file": "closed/35_questions.md",
+      "concern": "Closed questions for doc 35 (semstrait-ir)",
+      "use_when": "historical ratification record for IR crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-36-questions",
+      "file": "closed/36_questions.md",
+      "concern": "Closed questions for doc 36 (semstrait-adapter)",
+      "use_when": "historical ratification record for adapter crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-37-questions",
+      "file": "closed/37_questions.md",
+      "concern": "Closed questions for doc 37 (semstrait-catalog)",
+      "use_when": "historical ratification record for catalog crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-38-questions",
+      "file": "closed/38_questions.md",
+      "concern": "Closed questions for doc 38 (semstrait-api)",
+      "use_when": "historical ratification record for api crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "closed-39-questions",
+      "file": "closed/39_questions.md",
+      "concern": "Closed questions for doc 39 (semstrait-facade)",
+      "use_when": "historical ratification record for facade crate decisions",
+      "skip_when": "active questions (see open/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-11-questions",
+      "file": "deferred/11_questions.md",
+      "concern": "Deferred questions for doc 11 (names and scopes)",
+      "use_when": "post-v1 questions for names/scopes",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-15-questions",
+      "file": "deferred/15_questions.md",
+      "concern": "Deferred questions for doc 15 (mapping and binding)",
+      "use_when": "post-v1 questions for mapping/binding",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-16-questions",
+      "file": "deferred/16_questions.md",
+      "concern": "Deferred questions for doc 16 (composition)",
+      "use_when": "post-v1 questions for composition",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-17-questions",
+      "file": "deferred/17_questions.md",
+      "concern": "Deferred questions for doc 17 (temporal shape)",
+      "use_when": "post-v1 questions for temporal shape",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-22-questions",
+      "file": "deferred/22_questions.md",
+      "concern": "Deferred questions for doc 22 (Grainset)",
+      "use_when": "post-v1 questions for Grainset",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-24-questions",
+      "file": "deferred/24_questions.md",
+      "concern": "Deferred questions for doc 24 (Joinset)",
+      "use_when": "post-v1 questions for Joinset",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-30-questions",
+      "file": "deferred/30_questions.md",
+      "concern": "Deferred questions for doc 30 (API contracts)",
+      "use_when": "post-v1 questions for API contracts",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-31-questions",
+      "file": "deferred/31_questions.md",
+      "concern": "Deferred questions for doc 31 (semstrait-common)",
+      "use_when": "post-v1 questions for semstrait-common",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-32-questions",
+      "file": "deferred/32_questions.md",
+      "concern": "Deferred questions for doc 32 (semstrait-model)",
+      "use_when": "post-v1 questions for model crate",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-33-questions",
+      "file": "deferred/33_questions.md",
+      "concern": "Deferred questions for doc 33 (semstrait-manifest)",
+      "use_when": "post-v1 questions for manifest crate",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-35-questions",
+      "file": "deferred/35_questions.md",
+      "concern": "Deferred questions for doc 35 (semstrait-ir)",
+      "use_when": "post-v1 questions for IR crate",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-36-questions",
+      "file": "deferred/36_questions.md",
+      "concern": "Deferred questions for doc 36 (semstrait-adapter)",
+      "use_when": "post-v1 questions for adapter crate",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-37-questions",
+      "file": "deferred/37_questions.md",
+      "concern": "Deferred questions for doc 37 (semstrait-catalog)",
+      "use_when": "post-v1 questions for catalog crate",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-39-questions",
+      "file": "deferred/39_questions.md",
+      "concern": "Deferred questions for doc 39 (semstrait-facade)",
+      "use_when": "post-v1 questions for facade crate",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-40-questions",
+      "file": "deferred/40_questions.md",
+      "concern": "Deferred questions for doc 40 (refactor plan)",
+      "use_when": "post-v1 questions for refactor planning",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-41-questions",
+      "file": "deferred/41_questions.md",
+      "concern": "Deferred questions for doc 41 (deprecations)",
+      "use_when": "post-v1 questions for deprecation lifecycle",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-42-questions",
+      "file": "deferred/42_questions.md",
+      "concern": "Deferred questions for doc 42 (migration notes)",
+      "use_when": "post-v1 questions for migration guidance",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-functions-mapping-questions",
+      "file": "deferred/functions_mapping_questions.md",
+      "concern": "Deferred questions for functions mapping registry",
+      "use_when": "post-v1 questions for function mapping catalog",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-join-types-mapping-questions",
+      "file": "deferred/join_types_mapping_questions.md",
+      "concern": "Deferred questions for join types mapping registry",
+      "use_when": "post-v1 questions for join types mapping catalog",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "deferred-temporal-shape-mapping-questions",
+      "file": "deferred/temporal_shape_mapping_questions.md",
+      "concern": "Deferred questions for temporal shape mapping registry",
+      "use_when": "post-v1 questions for temporal shape mapping catalog",
+      "skip_when": "active questions (see open/); closed questions (see closed/)",
+      "migrated": false
+    },
+    {
+      "id": "open-14b-questions",
+      "file": "open/14b_questions.md",
+      "concern": "Open questions for doc 14b (retired)",
+      "use_when": "active questions for doc 14b",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-15-questions",
+      "file": "open/15_questions.md",
+      "concern": "Open questions for doc 15 (mapping and binding)",
+      "use_when": "active v1 questions for mapping/binding",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-16-questions",
+      "file": "open/16_questions.md",
+      "concern": "Open questions for doc 16 (composition)",
+      "use_when": "active v1 questions for composition",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-17-questions",
+      "file": "open/17_questions.md",
+      "concern": "Open questions for doc 17 (temporal shape)",
+      "use_when": "active v1 questions for temporal shape",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-20-questions",
+      "file": "open/20_questions.md",
+      "concern": "Open questions for doc 20 (taxonomy)",
+      "use_when": "active v1 questions for taxonomy",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-21-questions",
+      "file": "open/21_questions.md",
+      "concern": "Open questions for doc 21 (Dataset)",
+      "use_when": "active v1 questions for Dataset",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-22-questions",
+      "file": "open/22_questions.md",
+      "concern": "Open questions for doc 22 (Grainset)",
+      "use_when": "active v1 questions for Grainset",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-23-questions",
+      "file": "open/23_questions.md",
+      "concern": "Open questions for doc 23 (Unionset)",
+      "use_when": "active v1 questions for Unionset",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-25-questions",
+      "file": "open/25_questions.md",
+      "concern": "Open questions for doc 25 (applicability matrix)",
+      "use_when": "active v1 questions for applicability matrix",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-30-questions",
+      "file": "open/30_questions.md",
+      "concern": "Open questions for doc 30 (API contracts)",
+      "use_when": "active v1 questions for API contracts",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-31-questions",
+      "file": "open/31_questions.md",
+      "concern": "Open questions for doc 31 (semstrait-common)",
+      "use_when": "active v1 questions for semstrait-common",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-32-questions",
+      "file": "open/32_questions.md",
+      "concern": "Open questions for doc 32 (semstrait-model)",
+      "use_when": "active v1 questions for model crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-33-questions",
+      "file": "open/33_questions.md",
+      "concern": "Open questions for doc 33 (semstrait-manifest)",
+      "use_when": "active v1 questions for manifest crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-34-questions",
+      "file": "open/34_questions.md",
+      "concern": "Open questions for doc 34 (semstrait-planner)",
+      "use_when": "active v1 questions for planner crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-35-questions",
+      "file": "open/35_questions.md",
+      "concern": "Open questions for doc 35 (semstrait-ir)",
+      "use_when": "active v1 questions for IR crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-36-questions",
+      "file": "open/36_questions.md",
+      "concern": "Open questions for doc 36 (semstrait-adapter)",
+      "use_when": "active v1 questions for adapter crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-37-questions",
+      "file": "open/37_questions.md",
+      "concern": "Open questions for doc 37 (semstrait-catalog)",
+      "use_when": "active v1 questions for catalog crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-38-questions",
+      "file": "open/38_questions.md",
+      "concern": "Open questions for doc 38 (semstrait-api)",
+      "use_when": "active v1 questions for api crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-39-questions",
+      "file": "open/39_questions.md",
+      "concern": "Open questions for doc 39 (semstrait-facade)",
+      "use_when": "active v1 questions for facade crate",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-functions-mapping-questions",
+      "file": "open/functions_mapping_questions.md",
+      "concern": "Open questions for functions mapping registry",
+      "use_when": "active v1 questions for function mapping catalog",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-join-types-mapping-questions",
+      "file": "open/join_types_mapping_questions.md",
+      "concern": "Open questions for join types mapping registry",
+      "use_when": "active v1 questions for join types mapping catalog",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-registry-questions",
+      "file": "open/registry_questions.md",
+      "concern": "Open questions for registry (aggregate)",
+      "use_when": "active v1 questions for registry organization and policy",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/); specific mapping questions (see per-catalog question files)",
+      "migrated": false
+    },
+    {
+      "id": "open-temporal-shape-mapping-questions",
+      "file": "open/temporal_shape_mapping_questions.md",
+      "concern": "Open questions for temporal shape mapping registry",
+      "use_when": "active v1 questions for temporal shape mapping catalog",
+      "skip_when": "closed questions (see closed/); deferred questions (see deferred/)",
+      "migrated": false
+    },
+    {
+      "id": "open-31b-repository-questions",
+      "file": "open/31b_repository_questions.md",
+      "concern": "Open questions for the proposed 31b repository persistence seam (Persistable, Repository<T>, FileSystemRepository<T>)",
+      "use_when": "active ratification questions for the io repository seam (Q-IO-K..N: codec binding, error home, load-time integrity, key collision)",
+      "skip_when": "closed io questions (see closed/31b_io_questions.md); other active questions (see open/)",
+      "migrated": false
+    }
+  ]
+}

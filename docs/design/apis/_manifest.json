@@ -1,0 +1,1782 @@
+{
+ "space": "apis",
+ "leaves": [
+  {
+   "id": "30-api-contracts",
+   "file": "30_api_contracts.md",
+   "concern": "Cross-crate API and stability policy",
+   "use_when": "semver posture, public surface policy, non_exhaustive policy, Diagnostic envelope, typed-error-per-stage, observability policy",
+   "skip_when": "per-crate specifics (see 31-39); pipeline stage contracts (see foundations/10)",
+   "migrated": false
+  },
+  {
+   "id": "31-semstrait-common",
+   "cluster": "31_semstrait_common",
+   "file": "31_semstrait_common.md",
+   "concern": "The semstrait-common crate public-API surface (types, traits, free functions), module layout, traversal trait family, diagnostic primitives, constraint-DSL toolkit, feature flags, dependency posture, and invariants upheld by the crate",
+   "use_when": "semstrait-common public-API surface; EntityId; Diagnostic<K>/Diagnostics<K>/Severity/Location/Span/SourceId/Diagnose; Tree/Visitor<N>/Rewriter<N>/ValidateError; MeasureConstraints/DimensionConstraints/AggregationConstraints; io transport (FileSystem byte primitive + Persistable/Repository<T> persistence seam per 31b; the Source/Sink lane was deleted by 47 4a R6); module layout (identity/tree/diagnostic/constraints/io); feature flags (serde, schemars, io, io-aws); dependency posture; invariants I7/I11/I12",
+   "skip_when": "per-stage typed-kind enums (ParseErrorKind, CompileError, IrErrorKind, etc. — see 32-39); expression-tree types (Expr<L>, leaves, support enums — see 14, 32); plan-tree types (PlanNode, SemanticPlan — see 35); io submodule detail (see 31b)",
+   "status": "ratified",
+   "version": "2.4",
+   "impl": "implemented",
+   "prereqs": [
+    "11",
+    "30"
+   ],
+   "refined_by": [
+    "11",
+    "30",
+    "31b",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "38"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the semstrait-common public-API surface (types, traits, free functions)",
+    "module layout within semstrait-common (top-level pub mods)",
+    "the expression traversal trait family (Tree, Visitor<N>, Rewriter<N>) — DAG-leaf home, impl'd by both model::Expr<L> and ir::PlanNode (item Y / V5)",
+    "the narrow expression-side ValidateError kind — co-moves with Tree as with_new_children's return type, primitive-only (item Y / V5)",
+    "the cross-cutting diagnostic primitives (Diagnostic<K>, Diagnostics<K>, Severity, Location, Span, SourceId, Diagnose trait)",
+    "the constraint-DSL toolkit types (MeasureConstraints, DimensionConstraints, AggregationConstraints) — shape-only DSL, no expression vocabulary",
+    "the boundary rule between shape-only constraints (here) and expression-bodied future constraints (in semstrait-ir)",
+    "feature-flag surface (serde, schemars, io, io-aws) and dependency posture",
+    "mapping of design invariants I7, I11, I12 to concrete crate-level guarantees"
+   ],
+   "cross_cut": [],
+   "tests": "31_semstrait_common.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "31b-semstrait-common-io",
+   "file": "31b_semstrait_common_io.md",
+   "concern": "semstrait-common::io submodule",
+   "use_when": "YAML parse utilities, SourceId, file I/O abstractions",
+   "skip_when": "core common types (see 31); model parse (see 32)",
+   "migrated": false
+  },
+  {
+   "id": "32-semstrait-model",
+   "file": "32_semstrait_model.md",
+   "concern": "semstrait-model crate (YAML parse, SemanticModel, authored vocabulary)",
+   "use_when": "parse(), validate(), SemanticModel, DataKind authoring surface, DataType/Grain/Expr<L>/CanonicalFn, UnresolvedSemanticExpr/Leaf, semantic leaves (Field/Dimension/Measure/Metric/Key), accessors",
+   "skip_when": "compile/manifest (see 33); resolved IR types (see 35); catalogs YAML (see 32b)",
+   "migrated": false
+  },
+  {
+   "id": "32b-catalogs-yaml",
+   "cluster": "32b_catalogs_yaml",
+   "file": "32b_catalogs_yaml.md",
+   "concern": "The catalogs.yaml file shape, CatalogEntry / CatalogAuthMethod typed roster, CatalogRef reference shape, parse_catalogs loader contract, and deterministic-ordering guarantees",
+   "use_when": "catalogs.yaml structure; CatalogEntry fields (type, name, url, realm, default_namespace, auth); CatalogAuthMethod variants (Oauth2/Bearer/AwsSecrets with per-variant required/optional fields); CatalogRef (bare alias string newtype, no reference-site namespace override); parse_catalogs loader (pure, synchronous, no I/O beyond std::env::var); CatalogsParseErrorKind roster; environment-variable substitution (${VAR} → std::env::var); structural rules SR-C1 through SR-C6; composition with parse (model loader); reading catalog bytes through the loader setters (with_catalogs / from_catalogs_yaml_*)",
+   "skip_when": "model parse (see 32); manifest compile (see 33); catalog resolution at compile time (see 33, 37); CatalogProvider trait (see 37)",
+   "status": "ratified",
+   "version": "2.2",
+   "impl": "drift",
+   "prereqs": [
+    "00",
+    "10",
+    "15",
+    "30",
+    "31",
+    "31b",
+    "32"
+   ],
+   "refined_by": [
+    "15",
+    "31b",
+    "33",
+    "37"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the catalogs.yaml file shape: root key (catalogs:), per-entry alias, type, name, url, realm, default_namespace, auth",
+    "the CatalogEntry / CatalogAuthMethod typed roster (Oauth2 / Bearer / AwsSecrets variants)",
+    "the CatalogRef reference shape authored inside a model's extras.catalog: — a bare alias string newtype (no reference-site namespace override)",
+    "the parse_catalogs loader contract — pure, synchronous, no I/O beyond std::env::var",
+    "the model-side load door that parses catalogs alongside the model (see 32-model-loader)",
+    "deterministic-ordering guarantees (I4) for CatalogsConfig (BTreeMap, not HashMap)"
+   ],
+   "cross_cut": [],
+   "tests": "32b_catalogs_yaml.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "33-semstrait-manifest",
+   "file": "33_semstrait_manifest.md",
+   "concern": "semstrait-manifest crate (compile, SemanticManifest)",
+   "use_when": "compile(), SemanticManifest, ResolvedDataKind, ResolvedRelationship, ResolvedJoinKey, TemporalShape manifest form, ManifestExpressions, EntityId keys, deterministic id synthesis",
+   "skip_when": "model parse (see 32); planning (see 34); graph runtime (see 35)",
+   "migrated": false
+  },
+  {
+   "id": "34-semstrait-planner",
+   "file": "34_semstrait_planner.md",
+   "concern": "semstrait-planner crate (plan, optimize, Request)",
+   "use_when": "plan(), optimize(), Request, SemanticPlanner, RequestDimensionRef, DimensionVariation, Strategy trait dispatch",
+   "skip_when": "manifest compile (see 33); IR plan tree (see 35); adapter emit (see 36)",
+   "migrated": false
+  },
+  {
+   "id": "35-semstrait-ir",
+   "file": "35_semstrait_ir.md",
+   "concern": "semstrait-ir crate (SemanticPlan, PhysicalExpr, SemanticGraph, resolved types)",
+   "use_when": "SemanticPlan, PlanNode (Scan/Filter/Project/Agg/Join/Union/Sort/Fetch), PhysicalExpr/PhysicalLeaf, Parameter, SemanticGraph/Node/Edge/Fragment, FunctionRegistry, CompileError, Capability",
+   "skip_when": "authored model types (see 32); manifest compile (see 33); planner runtime (see 34)",
+   "migrated": false
+  },
+  {
+   "id": "36-semstrait-adapter",
+   "file": "36_semstrait_adapter.md",
+   "concern": "semstrait-adapter crate (EngineAdapter, DialectEmit, emit to SQL/Substrait)",
+   "use_when": "adapt(), EngineAdapter trait, DialectEmit trait, DialectId, EngineArtifact, AdapterCapabilities, RegistryExtension",
+   "skip_when": "canonical plan (see 35); planner (see 34); engine mapping catalogs (see registry)",
+   "migrated": false
+  },
+  {
+   "id": "37-semstrait-catalog",
+   "file": "37_semstrait_catalog.md",
+   "concern": "semstrait-catalog crate (CatalogProvider, metadata fetching)",
+   "use_when": "CatalogProvider trait, FileSystem trait, async catalog resolution, CatalogProviderErrorKind, FileSystemErrorKind",
+   "skip_when": "catalogs.yaml authoring (see 32b); manifest compile (see 33)",
+   "migrated": false
+  },
+  {
+   "id": "38-semstrait-api",
+   "file": "38_semstrait_api.md",
+   "concern": "semstrait-api crate (unified entry point, SemStraitErrorKind sum)",
+   "use_when": "unified API, SemStraitErrorKind, warning propagation, cross-stage error aggregation",
+   "skip_when": "per-crate typed errors (see 31-37); facade convenience (see 39)",
+   "migrated": false
+  },
+  {
+   "id": "39-semstrait-facade",
+   "cluster": "39_semstrait_facade",
+   "file": "39_semstrait_facade.md",
+   "concern": "The semstrait facade crate public-API surface (re-export roster, prelude::*, one-shot convenience), zero-new-logic principle, version alignment, and v1 stability promise",
+   "use_when": "semstrait facade crate; re-export roster (core/model/manifest/planner/ir/adapter/catalog/api modules); prelude::* curated import set (use semstrait::prelude::*;); semstrait::run one-shot convenience (compile + plan + optimize + adapt); per-adapter feature flags (datafusion, duckdb, spark, substrait, ansi-sql); per-catalog feature flags (iceberg-rest, unity); version alignment (lockstep coordinated release, exact =VERSION pins); v1 stability promise on prelude::*",
+   "skip_when": "per-crate specifics (see 31-39); pipeline stage contracts (see foundations/10); per-engine adapter specifics (see 36); per-catalog-provider specifics (see 37)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "planned",
+   "prereqs": [
+    "30",
+    "31",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "37",
+    "38"
+   ],
+   "refined_by": [
+    "per-adapter-crate appendices",
+    "per-catalog-provider-crate appendices"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the semstrait facade crate public-API surface (re-export roster, prelude::*, one-shot convenience)",
+    "the zero-new-logic principle (facade adds NO new types, NO new traits, NO new algorithms)",
+    "the prelude::* module — the named, curated import set callers bring in via use semstrait::prelude::*;",
+    "the semstrait::run one-shot convenience free function (compile + plan + adapt, single call)",
+    "per-adapter and per-catalog feature flags (datafusion, duckdb, spark, substrait, iceberg-rest, unity) and their default-feature composition",
+    "version alignment posture — facade pins exact versions of every semstrait-* sub-crate it re-exports",
+    "stability tier — facade is the MOST stable surface in the workspace (v1 promise on prelude::*)",
+    "crate-boundary negatives: nothing but re-exports + prelude::* + thin conveniences"
+   ],
+   "cross_cut": [],
+   "tests": "39_semstrait_facade.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "39b-facade-fluent-api",
+   "cluster": "39b_facade_fluent_api",
+   "file": "39b_facade_fluent_api.md",
+   "concern": "V1 reservation for base abstractions, their crate locations, per-crate responsibility split, pipeline-stage vocabulary, stage-transition mechanism, prelude composition, and resolution of model↔expr coupling",
+   "use_when": "v1 base abstraction inventory (SemanticModel/Dataset/Grainset/Unionset/Joinset, Dimension/Measure/Metric/Filter/Relationship/Keys, SemanticInterface, SemanticMapping, YAML authoring expression surface, UnresolvedSemanticExpr/UnresolvedPhysicalExpr, PhysicalExpr, Expr<L>/leaves/support-enums, Tree/Visitor/Rewriter/ExprLeaf, Parameter, Window, CanonicalFn/FunctionRegistry, ValidateError/CompileError, SemanticManifest, ResolvedExprTable, Request/RequestDimensionRef, SemanticPlan/PlanNode, EngineArtifact, EngineAdapter, CatalogProvider/FileSystem, DataType/Grain/Schema, Diagnostic<K>/Diagnostics<K>/Severity/Diagnose); per-crate responsibilities (what each crate owns and does NOT own); control-flow stages (build/compile/query/adapt/execute); stage-transition mechanism (Compile/Query/Adapt extension traits); prelude composition by category; resolution of model↔expr coupling at import level",
+   "skip_when": "concrete builder method signatures (deferred to per-crate API docs); per-stage internal mechanics (see 32-36); engine-specific execute() shapes (per-engine adapter crates); formal facade contract (see 39)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "planned",
+   "prereqs": [
+    "14",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "38",
+    "39"
+   ],
+   "refined_by": [
+    "39",
+    "32",
+    "33",
+    "34",
+    "36",
+    "14"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the v1 inventory of base abstractions that participate in the user-facing fluent surface",
+    "the per-abstraction crate location (where each type lives)",
+    "the per-crate responsibility split — what each crate owns and (importantly) what it does NOT own",
+    "the canonical pipeline-stage vocabulary (build / compile / query / adapt / execute) and the owning crate for each transition",
+    "the stage-transition mechanism — extension traits in the owning crate, re-exported through semstrait::prelude::*",
+    "the prelude composition by category (what use semstrait::prelude::*; is contractually required to bring into scope)",
+    "the resolution of the model authoring needs expression authoring coupling concern at the import level"
+   ],
+   "cross_cut": [],
+   "tests": "39b_facade_fluent_api.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "35-ir-crate-charter",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-crate-charter.md",
+   "concern": "The semstrait-ir crate charter, module layout, and canonical semantic_graph surface",
+   "use_when": "semstrait-ir crate scope, module organization, SemanticGraph types, graph-local handles, graph invariants, dependency posture, stability guarantees, invariants I1-I12",
+   "skip_when": "resolved expression types (35-ir-resolved-expr), plan-tree types (35-ir-plan-nodes), function registry (35-ir-function-registry)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "13",
+    "14",
+    "14a",
+    "16",
+    "17"
+   ],
+   "refined_by": [
+    "35-ir-resolved-expr",
+    "35-ir-type-vocabulary",
+    "35-ir-function-registry",
+    "35-ir-plan-nodes",
+    "35-ir-plan-primitives",
+    "35-ir-adapter-artifacts",
+    "35-ir-serde-substrait",
+    "35-ir-errors"
+   ],
+   "authoritative_for": [
+    "semstrait-ir crate charter and module layout",
+    "SemanticGraph canonical graph types",
+    "SemanticGraphRead and SemanticGraphFragmentRead contracts",
+    "graph-local handle types (SemanticNodeId, SemanticEdgeId)"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-crate-charter.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-resolved-expr",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-resolved-expr.md",
+   "concern": "The resolved ir::PhysicalExpr type (alias Expr<PhysicalLeaf>), PhysicalLeaf set, and ExprLayer classification",
+   "use_when": "ir::PhysicalExpr, PhysicalLeaf, Parameter, PhysicalExprId, ExprLayer (Scalar/Aggregate/PostAggregate), Tree impl for Expr<L>, expression-pool ID, expression resolvability path",
+   "skip_when": "authoring expression types (model::UnresolvedSemanticExpr — see 32), plan-tree types (35-ir-plan-nodes)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "13",
+    "14"
+   ],
+   "refined_by": [
+    "35-ir-function-registry",
+    "35-ir-plan-nodes",
+    "35-ir-serde-substrait",
+    "19-phase-b-placement"
+   ],
+   "authoritative_for": [
+    "ir::PhysicalExpr resolved expression type (alias Expr<PhysicalLeaf>)",
+    "PhysicalLeaf owned leaf set",
+    "PhysicalExprId expression-pool ID newtype",
+    "ExprLayer relational-pipeline classification"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "35-ir-serde-substrait"
+   ],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-resolved-expr.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-type-vocabulary",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-type-vocabulary.md",
+   "concern": "Canonical type vocabulary — TypeClass, Schema, SchemaColumn (non-authored; DataType/Grain imported from model)",
+   "use_when": "TypeClass, Schema, SchemaColumn, non-authored type vocabulary, plan-side output schema, nullability representation",
+   "skip_when": "authored DataType/Grain (imported from model — see 32), resolved expression types (35-ir-resolved-expr)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "13"
+   ],
+   "refined_by": [
+    "35-ir-resolved-expr",
+    "35-ir-function-registry",
+    "35-ir-plan-primitives"
+   ],
+   "authoritative_for": [
+    "TypeClass type-class grouping enum",
+    "Schema plan-side output schema",
+    "SchemaColumn schema column descriptor",
+    "nullability representation (bool field on SchemaColumn, not standalone enum)"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-type-vocabulary.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-function-registry",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-function-registry.md",
+   "concern": "FunctionRegistry shape, FunctionSpec, Parameter/ParameterKey, and per-kind accessor enums (imported)",
+   "use_when": "FunctionRegistry, FunctionSpec, FnSignature, ParamType, ReturnTypeRule, FunctionCategory, RegistryExtension, function_registry(), Parameter, ParameterKey, function resolution",
+   "skip_when": "CanonicalFn name identity (imported from model — see 32), resolved expression types (35-ir-resolved-expr), plan-tree types (35-ir-plan-nodes)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14",
+    "14a"
+   ],
+   "refined_by": [
+    "35-ir-errors"
+   ],
+   "authoritative_for": [
+    "FunctionRegistry sealed registry shape",
+    "FunctionSpec per-function specification",
+    "FnSignature signature overload",
+    "ParamType parameter-type carrier",
+    "ReturnTypeRule return-type computation rule",
+    "FunctionCategory function-category axis",
+    "RegistryExtension adapter extension hook",
+    "function_registry() process-wide accessor",
+    "Parameter compile-emitted placeholder struct",
+    "ParameterKey closed parameter-key enum"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-function-registry.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-plan-nodes",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-plan-nodes.md",
+   "concern": "SemanticPlan root, PlanNode sum type (8 variants + per-variant shapes), tree invariants, and visitor/traversal API",
+   "use_when": "SemanticPlan, PlanNode (Scan/Filter/Project/Agg/Join/Union/Sort/Fetch), tree invariants (§13), PlanVisitor, walk_pre/walk_post/transform, SemanticPlan::validate",
+   "skip_when": "plan-level primitives (35-ir-plan-primitives), adapter artifacts (35-ir-adapter-artifacts), resolved expression types (35-ir-resolved-expr)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "15",
+    "16"
+   ],
+   "refined_by": [
+    "35-ir-serde-substrait",
+    "35-ir-errors"
+   ],
+   "authoritative_for": [
+    "SemanticPlan root structure",
+    "PlanNode sum type (8 variants)",
+    "ScanNode through FetchNode per-variant shapes",
+    "tree well-formedness invariants (§13)",
+    "PlanVisitor and traversal API"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "35-ir-serde-substrait",
+    "35-ir-errors"
+   ],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-plan-nodes.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-plan-primitives",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-plan-primitives.md",
+   "concern": "Plan-level shared primitives — SourceRef, ResolvedColumn, Name, KeyPair, SortDir, NullOrdering, AggregateExpr, NodeMeta",
+   "use_when": "NodeMeta, SourceRef, ResolvedColumn, Name, KeyPair, SortDir, NullOrdering, AggregateExpr, SemAnnotation (PLAN vs TRACE class), reserved plan-tree tags",
+   "skip_when": "PlanNode variants (35-ir-plan-nodes), adapter artifacts (35-ir-adapter-artifacts)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "15",
+    "16"
+   ],
+   "refined_by": [
+    "35-ir-plan-nodes",
+    "35-ir-serde-substrait",
+    "35-ir-errors"
+   ],
+   "authoritative_for": [
+    "NodeMeta per-node metadata container",
+    "SourceRef opaque manifest source handle",
+    "ResolvedColumn projected column descriptor",
+    "Name identifier newtype",
+    "KeyPair join-key pair",
+    "SortDir sort direction + null-ordering bundle",
+    "NullOrdering null placement enum",
+    "AggregateExpr plan-level aggregate carrier",
+    "SemAnnotation plan-node annotation enum"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-plan-primitives.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-adapter-artifacts",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-adapter-artifacts.md",
+   "concern": "Adapter artifact family — EngineArtifact, EnginePlan, SqlArtifact, DialectId, Dialect trait, Capability",
+   "use_when": "EngineArtifact, EnginePlan (Substrait), SqlArtifact, DialectId (artifact-side only), Dialect trait, Capability (cross-boundary vocabulary)",
+   "skip_when": "PlanNode types (35-ir-plan-nodes), adapter emission semantics (36)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [],
+   "authoritative_for": [
+    "EngineArtifact adapter output enum",
+    "EnginePlan structured-IR output",
+    "SqlArtifact text-based output",
+    "DialectId artifact-side dialect identity",
+    "Dialect capability/identity trait",
+    "Capability cross-boundary capability vocabulary"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-adapter-artifacts.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-serde-substrait",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-serde-substrait.md",
+   "concern": "Serde posture for SemanticPlan/PhysicalExpr, Substrait mapping table, and load-time integrity contract",
+   "use_when": "serde wire-form rules, expression serialization contract (C18), Substrait mapping (PlanNode ↔ substrait::proto::Rel), annotation Substrait carrier, load-time integrity (CX1), PhysicalExprId pool resolution",
+   "skip_when": "adapter emission code (36), inbound Substrait conversion (out of scope v1)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14",
+    "19",
+    "33",
+    "35-ir-resolved-expr",
+    "35-ir-plan-nodes"
+   ],
+   "refined_by": [],
+   "authoritative_for": [
+    "Serde derivations for SemanticPlan and all IR types",
+    "Expression serialization contract (per C18)",
+    "Substrait mapping table (PlanNode ↔ substrait::proto::Rel)",
+    "Annotation Substrait carrier (optimization[] slot)",
+    "Load-time integrity contract (per CX1)"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "35-ir-resolved-expr",
+    "35-ir-plan-nodes",
+    "35-ir-plan-primitives"
+   ],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-serde-substrait.md#testing-strategy"
+  },
+  {
+   "id": "35-ir-errors",
+   "cluster": "35_semstrait_ir",
+   "file": "35_semstrait_ir/ir-errors.md",
+   "concern": "IR error types — ValidateError (imported), CompileError (function resolution), IrErrorKind (plan-shape diagnostics)",
+   "use_when": "ValidateError (Tree machinery), CompileError (function resolution, ReturnTypeRule::Custom), IrErrorKind (plan-tree construction, validation, artifact serialization), variant identity identification",
+   "skip_when": "manifest::CompileError (33), PlanErrorKind (34), AdaptErrorKind (36)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14a",
+    "30",
+    "35-ir-plan-nodes"
+   ],
+   "refined_by": [],
+   "authoritative_for": [
+    "CompileError function-resolution diagnostic",
+    "IrErrorKind plan-tree / validation typed-kind enum"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "35-ir-function-registry",
+    "35-ir-plan-nodes",
+    "35-ir-plan-primitives"
+   ],
+   "migrated": true,
+   "tests": "35_semstrait_ir/ir-errors.md#testing-strategy"
+  },
+  {
+   "id": "32-model-root-shape",
+   "cluster": "32_semstrait_model",
+   "file": "32_semstrait_model/model-root-shape.md",
+   "concern": "Root YAML shape and SemanticModel in-memory type for the semantic_model envelope",
+   "use_when": "semantic_model: root key; per-variant plural arrays (datasets/grainsets/unionsets/joinsets); top-level vs nested data kinds; optional named-entity id field; model-root id and persistence key; catalog reference; SemanticModel root type; global name uniqueness; cross-variant iteration helpers; inline identity field",
+   "skip_when": "DataKind hierarchy (32-model-datakind-hierarchy); extras blocks (32-model-extras-mapping); parse/validate stages (32-model-parse-validate); builder API (32-model-builder-api); crate boundaries (32-model-crate-boundaries)",
+   "status": "ratified",
+   "version": "2.5",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "14a",
+    "15",
+    "16",
+    "17",
+    "18",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "26",
+    "30",
+    "31",
+    "31b"
+   ],
+   "refined_by": [
+    "32b",
+    "33",
+    "35"
+   ],
+   "authoritative_for": [
+    "root YAML shape",
+    "SemanticModel root type",
+    "optional named-entity identity policy"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-root-shape.md#testing-strategy"
+  },
+  {
+   "id": "32-model-datakind-hierarchy",
+   "cluster": "32_semstrait_model",
+   "file": "32_semstrait_model/model-datakind-hierarchy.md",
+   "concern": "DataKind type hierarchy — DataKindBase common struct, per-variant bodies, sealed traits, trait matrix, view enums, and storage layout",
+   "use_when": "DataKindBase<E>; per-variant body structs (DatasetBody/GrainsetBody/UnionsetBody/JoinsetBody); Public vs Nested concrete forms; sealed DataKind trait + structural axis (SimpleDataKind/ComplexDataKind) + behavioral axis (PublicDataKind/NestedDataKind); trait implementation matrix; view enums (AnyDataKindRef/PublicDataKindRef/NestedDataKindRef/SimpleDataKindRef/ComplexDataKindRef); storage layout; EntityBTreeMap wrapper",
+   "skip_when": "root YAML shape (32-model-root-shape); extras blocks (32-model-extras-mapping); parse/validate (32-model-parse-validate)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "18",
+    "26"
+   ],
+   "refined_by": [
+    "21",
+    "22",
+    "23",
+    "24",
+    "33"
+   ],
+   "authoritative_for": [
+    "DataKind type hierarchy"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-datakind-hierarchy.md#testing-strategy"
+  },
+  {
+   "id": "32-model-extras-mapping",
+   "cluster": "32_semstrait_model",
+   "file": "32_semstrait_model/model-extras-mapping.md",
+   "concern": "Extras blocks (LeafExtras and ComplexExtras) and semantic mapping grammar with Binding process",
+   "use_when": "LeafExtras (catalog/storage/semantic_mapping/temporal); ComplexExtras (temporal only); StorageConfig (paths/tables/format/partition_def); per-effective-level validity; semantic_mapping authoring grammar (auto vs explicit map); SemanticMappingValue variants (Column/Literal/Expr/Metadata); Binding process; aggregate synthesis from (agg:, expr:)",
+   "skip_when": "DataKind hierarchy (32-model-datakind-hierarchy); parse/validate (32-model-parse-validate); root shape (32-model-root-shape)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "13",
+    "14",
+    "15",
+    "18",
+    "32b"
+   ],
+   "refined_by": [
+    "21",
+    "22",
+    "23",
+    "24",
+    "33"
+   ],
+   "authoritative_for": [
+    "per-axis extras shapes",
+    "semantic mapping and Binding"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-extras-mapping.md#testing-strategy"
+  },
+  {
+   "id": "32-model-expr-vocabulary",
+   "cluster": "32_semstrait_model",
+   "file": "32_semstrait_model/model-expr-vocabulary.md",
+   "concern": "Crate-level home of the authoring expression vocabulary (stub — ratified in doc 14)",
+   "use_when": "crate-level home of Expr<L> family; UnresolvedSemanticExpr / UnresolvedPhysicalExpr; ExprLeaf trait; BinaryOpKind / UnaryOpKind / AggregationOp / AggregateKind / LikeKind / CastFailure; Window support enums (WindowFn / WindowFrame / WindowFrameKind / WindowBound); Literal / ColumnRef / SemanticsName carriers; CanonicalFn name; bare Expr<L> at expression-bearing sites (no ExprSource wrapper)",
+   "skip_when": "expression variant rosters and semantics (14); parse/validate (32-model-parse-validate); extras/mapping (32-model-extras-mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "14"
+   ],
+   "refined_by": [
+    "35"
+   ],
+   "authoritative_for": [
+    "crate-level home of authoring expression vocabulary",
+    "bare Expr<L> at expression-bearing sites"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-expr-vocabulary.md#testing-strategy"
+  },
+  {
+   "id": "32-model-parse-validate",
+   "cluster": "32_semstrait_model_parse",
+   "file": "32_semstrait_model/model-parse-validate.md",
+   "concern": "Parse and validate stage APIs — parse signature, ParseErrorKind roster, validate signature, ValidateError roster, parse/build pipeline, identity profiles",
+   "use_when": "parse(&str) entry; parse_with_profile; ParseErrorKind roster (YamlSyntax/UnsetEnvVar/UnknownField/InvalidIdentifier/InvalidEntityId/InvalidDecimalParameters/InlineExprUnsupported/RelationshipMissingCardinality/MeasureMissingAgg/SemanticsMissingDataType); validate(model) entry; ValidateError roster (ComplexDataKindInsufficientChildren/EmptyModel/DuplicateDataKindName/DuplicateSharedSemanticsName/DuplicateEntityId/MissingEntityId/OrphanSharedSemantics/TemporalGrainOnComplex/GrainsetChildMissingGrain/SemanticsShadowRootPool/Tree); parse/build pipeline; IdentityProfile (ConvenienceGenerateMissing/StrictRequireProvided); EntityId; what parse does NOT do",
+   "skip_when": "fluent loader (32-model-loader); builder API (32-model-builder-api); crate boundaries (32-model-crate-boundaries)",
+   "status": "ratified",
+   "version": "2.4",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "30",
+    "31"
+   ],
+   "refined_by": [
+    "32-model-loader",
+    "32-model-builder-api",
+    "33",
+    "11-precondition-catalog"
+   ],
+   "authoritative_for": [
+    "parse and validate signatures",
+    "ParseErrorKind roster",
+    "ValidateError roster"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-parse-validate.md#testing-strategy"
+  },
+  {
+   "id": "32-model-loader",
+   "cluster": "32_semstrait_model_parse",
+   "file": "32_semstrait_model/model-loader.md",
+   "concern": "Fluent loader API — SemanticModel::loader() ergonomic wrapper over parse + validate",
+   "use_when": "SemanticModel::loader(); SemanticModelLoader<F>; SourceFs trait; LocalFs / InMemoryFs; from_yaml_str / from_yaml_file / from_catalogs_yaml_str / from_catalogs_yaml_file / with_catalogs / skip_validate / with_identity_profile / with_fs setters; build() terminator; ModelBuildErrorKind (NoSource/SourceIo/Parse/CatalogsParse/Validate/BuilderField); stage composition (read → parse → identity finalize → validate)",
+   "skip_when": "parse(&str) primitives (32-model-parse-validate); builder API (32-model-builder-api)",
+   "status": "ratified",
+   "version": "2.3",
+   "impl": "drift",
+   "prereqs": [
+    "00",
+    "30",
+    "31b",
+    "32-model-parse-validate"
+   ],
+   "refined_by": [],
+   "authoritative_for": [],
+   "refines": [
+    "32-model-parse-validate"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-loader.md#testing-strategy"
+  },
+  {
+   "id": "32-model-builder-api",
+   "cluster": "32_semstrait_model_parse",
+   "file": "32_semstrait_model/model-builder-api.md",
+   "concern": "Builder API — per-struct fluent builders with structural fidelity rules, variant-body 1:1 constructors, ergonomic facade",
+   "use_when": "code-built model construction; per-struct builders (Dataset::builder / Dimension::builder / Measure::builder / Metric::builder / Relationship::builder / SemanticMapping::builder / SemanticInterface::builder); two-surface principle (primary structural surface vs ergonomic facade); R1/R2/R3 structural fidelity rules; variant-body 1:1 constructors (DimensionType::temporal / TemporalShape::timeseries / JoinKeyExprPair::fields / DimensionEntry::inline); SemanticMapping authoring; bespoke validation in .build(); ergonomic facade roster (temporal/categorical/binary/geo shortcuts; agg shortcuts sum/avg/count/min/max; additivity shortcuts full/semi/non; cardinality shortcuts one_to_one/many_to_one; container inserters dimension/measure/metric; DataKind flatteners catalog/storage/format/path/temporal); entity id in builders",
+   "skip_when": "parse(&str) primitives (32-model-parse-validate); fluent loader (32-model-loader)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "18",
+    "30",
+    "32-model-parse-validate"
+   ],
+   "refined_by": [],
+   "authoritative_for": [],
+   "refines": [
+    "32-model-parse-validate"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-builder-api.md#testing-strategy"
+  },
+  {
+   "id": "32-model-crate-boundaries",
+   "cluster": "32_semstrait_model",
+   "file": "32_semstrait_model/model-crate-boundaries.md",
+   "concern": "Structural rules (SR-*), deterministic ordering (I4), ${VAR} substitution, crate boundaries, feature flags, pointers to child docs, hand-rolled authoring serde",
+   "use_when": "SR-1 through SR-12 structural rules; I4 deterministic ordering (name-ordered projection, relationship ordering change, identity determinism by profile); ${VAR} substitution; crate boundaries (semstrait-common → semstrait-model → semstrait-ir DAG, item Y edge inversion); no direct I/O in parse; no resolution; no planning; DataType / Grain vocabulary (parse_scalar, coarseness, Unknown sentinel refusal, hand-written serde); hand-rolled authoring serde + schemars field-level adapters; feature flags (schemars only; no io/transport axis); pointers to child docs",
+   "skip_when": "root YAML shape (32-model-root-shape); DataKind hierarchy (32-model-datakind-hierarchy); extras/mapping (32-model-extras-mapping); parse/validate (32-model-parse-validate); loader (32-model-loader); builder API (32-model-builder-api)",
+   "status": "ratified",
+   "version": "2.5",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "13",
+    "14",
+    "18",
+    "21",
+    "22",
+    "23",
+    "24",
+    "26",
+    "30",
+    "31",
+    "31b",
+    "32b"
+   ],
+   "refined_by": [
+    "33",
+    "35"
+   ],
+   "authoritative_for": [
+    "structural rules (SR-*)",
+    "deterministic ordering (I4)",
+    "crate boundaries",
+    "DataType / Grain vocabulary",
+    "hand-rolled authoring serde"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "32_semstrait_model/model-crate-boundaries.md#testing-strategy"
+  },
+  {
+   "id": "30-api-versioning-surface-extensibility",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/api-versioning-surface-extensibility.md",
+   "concern": "Cross-crate semver posture, public vs internal surface policy, and non-exhaustive-by-default policy",
+   "use_when": "semver posture (MAJOR/MINOR/PATCH triggers); public vs internal surface discipline; #[non_exhaustive]-by-default policy; type rosters subject to non-exhaustive; match discipline for non-exhaustive types; stability tier assignment",
+   "skip_when": "diagnostic structure (see 30-diagnostic-structure); error-emission mechanics (see 30-error-emission-policy); trait rules (see 30-trait-surface-rules)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "cross-cutting semver posture for every semstrait-* crate",
+    "public vs internal surface policy (what pub means workspace-wide)",
+    "#[non_exhaustive]-by-default policy; the concrete non-exhaustive type roster"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/api-versioning-surface-extensibility.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-diagnostic-structure",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/diagnostic-structure.md",
+   "concern": "Generic Diagnostic<K> envelope, Severity, Location, Span, SourceId, Diagnose trait, per-stage typed-kind discipline, cross-stage aggregation",
+   "use_when": "Diagnostic<K> canonical shapes; Severity enum; Location/Span/SourceId; Diagnose trait; per-stage typed-kind discipline (no central error-code allocation; variant identity is the stable contract); cross-stage aggregation (SemStraitErrorKind sum); banned patterns (Result<T,String>, Result<T,Box<dyn Error>>)",
+   "skip_when": "observability/tracing (see 30-observability-tracing); error-emission classification (see 30-error-emission-policy); per-crate error-kind rosters (see 31-39)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [
+    "31"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "generic Diagnostic<K> envelope, Severity, Location, Span canonical shapes (authoritative)",
+    "per-stage typed-kind discipline (no central error-code allocation; variant identity is the stable contract)"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/diagnostic-structure.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-observability-tracing",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/observability-tracing.md",
+   "concern": "Workspace observability policy — tracing adoption, no stdout/stderr from library code, canonical field names, Diagnostic ↔ tracing orthogonality",
+   "use_when": "tracing is the observability channel; no direct stdout/stderr from library code; level discipline (error/warn/info/debug/trace); Diagnostic ↔ tracing orthogonality; canonical field-name vocabulary (stage, entities, sources, duration_ms, engine, adapter, kind); subscriber configuration; async span propagation",
+   "skip_when": "Diagnostic envelope shape (see 30-diagnostic-structure); per-stage error-emission policy (see 30-error-emission-policy)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "workspace observability policy (tracing adoption, no stdout/stderr from library code, canonical field names)"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/observability-tracing.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-error-emission-policy",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/error-emission-policy.md",
+   "concern": "Per-stage error-emission policy at API boundaries — accumulating vs fail-fast, return shape per stage, warnings never silently dropped",
+   "use_when": "accumulating vs fail-fast classification; per-stage return shape (parse/validate/compile/plan/optimize/adapt/catalog/repository/fused helpers); warnings are never silently dropped; accumulation limits; panic-freedom",
+   "skip_when": "Diagnostic envelope construction (see 30-diagnostic-structure); per-stage kind rosters (see 31-39)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "32",
+    "33",
+    "34",
+    "36",
+    "37",
+    "38"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "per-stage error-emission policy (accumulating vs fail-fast) at API boundaries"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/error-emission-policy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-trait-surface-rules",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/trait-surface-rules.md",
+   "concern": "Public trait surface rules — sealed vs open, cross-cutting trait roster, trait-method return shape, async trait methods",
+   "use_when": "public trait surface rules (sealed-pattern vs open; invariants each trait documents); cross-cutting trait roster (CatalogProvider, FileSystem, Repository, EngineAdapter, RegistryExtension, Diagnose); trait-method return shape (fail-fast or accumulating); async trait methods (async fn directly, Rust 1.75+)",
+   "skip_when": "semver rules (see 30-api-versioning-surface-extensibility); per-crate async posture (see 30-async-posture)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [
+    "33",
+    "36",
+    "37"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "public trait surface rules (sealed-pattern vs open; invariants each trait documents)"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/trait-surface-rules.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-async-posture",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/async-posture.md",
+   "concern": "Per-crate sync/async posture — which crates are sync-only, which have compile-time async, runtime choice, and no .await inside the hot path",
+   "use_when": "per-crate async posture (refines I6/I11 at crate granularity); sync hot path (semstrait-planner, semstrait-adapter); compile-time async (semstrait-manifest); async at compile-time entry, sync at plan-time entry (semstrait-api, semstrait-facade); runtime choice (executor-agnostic); no .await inside the hot path",
+   "skip_when": "trait-level async-fn shape (see 30-trait-surface-rules); gated I/O policy (see I11 per-crate); feature-flag policy (see 30-feature-flag-policy)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [
+    "31",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "37",
+    "38",
+    "39"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "per-crate sync/async posture (refines I6 / I11 at crate granularity)"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/async-posture.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-feature-flag-policy",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/feature-flag-policy.md",
+   "concern": "Feature-flag policy — default features minimum viable, adapter crates are separate crates not feature flags, catalog provider crates are separate, optional serialization features, banned feature patterns",
+   "use_when": "default features = minimum viable; adapter crates are SEPARATE crates not feature flags (semstrait-adapter-datafusion, -duckdb, -spark, -substrait, each as separate crate); catalog provider crates also separate (semstrait-catalog-iceberg, -unity); optional serialization features (serde, schemars); banned feature patterns (no nightly-only, no default=['every-adapter'], no mutually exclusive features)",
+   "skip_when": "per-crate stability tiers (see 30-api-versioning-surface-extensibility §13); breaking-change governance (see 30-breaking-change-governance)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [
+    "31",
+    "32",
+    "33",
+    "36",
+    "37"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "feature-flag policy (adapter / catalog crates as separate crates, not features)"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/feature-flag-policy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "30-breaking-change-governance",
+   "cluster": "30_api_contracts",
+   "file": "30_api_contracts/breaking-change-governance.md",
+   "concern": "Breaking-change governance and deprecation policy — additivity escape hatch, non-additive changes require MAJOR changelog + migration notes + deprecation window, deprecation lifecycle",
+   "use_when": "breaking-change governance; additivity escape hatch (#[non_exhaustive] variant/field addition is MINOR); non-additive changes require MAJOR changelog + migration-notes entry + deprecation window + cargo-semver-checks green-light; cross-crate breaks; behavior-preserving refactors; deprecation lifecycle (#[deprecated] → removed); deprecation register; minimum window (at least one MINOR cycle)",
+   "skip_when": "semver posture triggers (see 30-api-versioning-surface-extensibility); stability table (see 30-api-versioning-surface-extensibility §13)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "breaking-change governance and deprecation policy"
+   ],
+   "cross_cut": [],
+   "tests": "30_api_contracts/breaking-change-governance.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "31b-io-error-kind",
+   "cluster": "31b_semstrait_common_io",
+   "file": "31b_semstrait_common_io/io-error-kind.md",
+   "concern": "IoErrorKind typed-kind enum, variant taxonomy, Diagnose impl, stage-of-origin identification, and cross-crate composition",
+   "use_when": "IoErrorKind enum (NotFound/PermissionDenied/Network/Unsupported/Malformed variants); variant taxonomy (trigger → example); Diagnose impl (message, severity_default, cause); stage-of-origin identification (by variant identity per 30 §5); cross-crate composition (domain error kinds declare Io(IoErrorKind) variant per D.ii)",
+   "skip_when": "byte transport, back-ends & scheme dispatch (consolidated into the FileSystem facade, see 37-filesystem); persistence by identity (see 31b-io-repository)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "00",
+    "30",
+    "31"
+   ],
+   "refined_by": [
+    "32",
+    "33"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the IoErrorKind typed-kind enum",
+    "Diagnose impl for IoErrorKind"
+   ],
+   "cross_cut": [],
+   "tests": "31b_semstrait_common_io/io-error-kind.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "31b-io-repository",
+   "cluster": "31b_semstrait_common_io",
+   "file": "31b_semstrait_common_io/repository.md",
+   "concern": "The Persistable trait a DTO implements to be stored (identity + byte codec), generic Repository<T> persistence trait, FileSystemRepository<T> blanket impl (thin-wrapping object_store via FileSystem), RepositoryErrorKind taxonomy, and the backend-extension open seam",
+   "use_when": "persisting/loading a DTO (SemanticManifest/SemanticModel) by EntityId; Persistable trait (entity_id, integrity_check, extension, to_bytes, from_bytes); save is a map put (last writer wins); Repository<T> save/load/exists; FileSystemRepository<T> over a FileSystem transport; RepositoryErrorKind (Io/EncodingMismatch/IntegrityCheckFailed); adding a new persistence backend (document/KV) without touching callers; in-memory persistence via InMemoryFileSystem",
+   "skip_when": "byte transport itself (see 37-filesystem); IoErrorKind taxonomy (see 31b-io-error-kind); the concrete manifest Repository code (see 33-manifest-contract); the authoring load door + parse warnings (see 32-model-loader)",
+   "status": "proposed",
+   "version": "2.4",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "30",
+    "31",
+    "37"
+   ],
+   "refined_by": [],
+   "authoritative_for": [
+    "the `Persistable` DTO trait (identity + byte codec)",
+    "save is a map put (last writer wins)",
+    "the generic `Repository<T>` persistence trait",
+    "the `FileSystemRepository<T>` blanket implementation",
+    "the `RepositoryErrorKind` persistence taxonomy"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "31b_semstrait_common_io/repository.md#testing-strategy"
+  },
+  {
+   "id": "33-compile-driver",
+   "cluster": "33_semstrait_manifest",
+   "file": "33_semstrait_manifest/compile-driver.md",
+   "concern": "The compile driver (compile() entry + §3.9 pass orchestration), validation gates G1–G5, desugar policy D2, and deterministic EntityId minting (UUIDv5 content-derived, per-entity-type namespace)",
+   "use_when": "compile(model, catalog, fs) entry; G1 cycle detection; G2 semantic resolution; G3 type validation; G4 binding-side PhysicalExpr checks; G5 orphan/dead-code detection; D2 desugar-before-persistence; deterministic id generation (PhysicalSource/SemanticBinding/SemanticInterface/implicit Unionset/synthesised Field/model_id UUIDv5 namespace+content); I4 byte-identical manifest reproducibility",
+   "skip_when": "manifest contract shapes (see 33-manifest-contract); binding/expression/source mapping (see 33-binding-expr-source); relationship resolution (see 33-binding-expr-source §8A); crate boundary (see 33-manifest-contract §3)",
+   "status": "ratified",
+   "version": "2.2",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "19",
+    "30",
+    "31",
+    "32",
+    "37"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "compile() entry + §3.9 pass orchestration (index, lower, graph, seal, auto_mapping, catalog, types submodules)",
+    "validation gates C13: G1 (cycle detection), G2 (semantic resolution), G3 (type validation), G4 (PhysicalExpr binding-side checks), G5 (orphan/dead-code detection)",
+    "desugar policy D2 (rewrite-before-persistence)",
+    "deterministic EntityId minting §9.1 (UUIDv5 name-based, per-entity-type namespace: PhysicalSource→source, SemanticBinding→binding, SemanticInterface→interface, implicit Unionset→data_kind, synthesised Field→semantic, model_id→model)"
+   ],
+   "cross_cut": [],
+   "tests": "33_semstrait_manifest/compile-driver.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "33-manifest-contract",
+   "cluster": "33_semstrait_manifest",
+   "file": "33_semstrait_manifest/manifest-contract.md",
+   "concern": "The SemanticManifest contract: top-level shape (§4 SemanticManifest + SemanticManifestMetadata + top-level fingerprints), SemanticBitmap registry (§5 C4: SemanticDefinition + SemanticBitmask + bit_position mapping), DataKind/DataKindVariant roster (§6 CCK + C5–C9: Dataset/Unionset/Grainset/Joinset + NestedDataKind Public/Nested split), single-identity-lane EntityId posture (no per-kind compile-id newtypes, no stable_ids side-map)",
+   "use_when": "SemanticManifest struct; manifest_epoch/model_hash/catalog_fingerprint; model_id; top-level BTreeMap collections (semantics/interfaces/data_kinds/bindings/sources/expressions/relationships); SemanticBitmap registry (C4: SemanticDefinition.bit_position, SemanticBitmask.words canonical encoding); SemanticInterface + SemanticInterfaceBitmask; DataKind top-level shape (id/name/interface_id/origin/coverage/temporal/variant); DataKindOrigin (Explicit/Implicit); DataKindVariant (Dataset/Unionset/Grainset/Joinset) + per-variant shapes (bindings Vec, UnionsetBranch, GrainsetLevel/RoutingUnitRef, JoinsetHop/HopDirection); NestedDataKind/NestedDataKindVariant (nested-under-parent, structural_label addressing); C5–C9 per-variant rules; implicit-Unionset top-level placement; single-identity-lane (EntityId everywhere, no per-kind newtypes, no stable_ids side-map); catalog-optional posture; Repository + load-time CX1 integrity",
+   "skip_when": "compile driver/gates (see 33-compile-driver); binding/expression/source mapping (see 33-binding-expr-source); relationship resolution (see 33-binding-expr-source §8A); temporal propagation (see 33-binding-expr-source §8B)",
+   "status": "ratified",
+   "version": "2.4",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "20",
+    "30",
+    "31",
+    "35",
+    "37"
+   ],
+   "refined_by": [
+    "34",
+    "35"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "SemanticManifest root struct and SemanticManifestMetadata",
+    "top-level fingerprints: manifest_epoch (u64), model_hash ([u8;32]), catalog_fingerprint (Option<[u8;32]>)",
+    "single-identity-lane EntityId posture (every entity carries id: EntityId, every collection is BTreeMap<EntityId, _>, no per-kind compile-id newtypes, no stable_ids side-map)",
+    "model_id top-level identity (generated at compile per §9.1)",
+    "SemanticBitmap registry (C4): SemanticDefinition (id/name/role/data_type/bit_position), SemanticBitmask (words: Vec<u64>), bit_position epoch-stable mapping",
+    "SemanticInterface shape (id/dimensions/measures/metrics/keys/fields/bitmask)",
+    "DataKind top-level shape (id/name/interface_id/origin/coverage/temporal/variant)",
+    "DataKindOrigin enum (Explicit/Implicit)",
+    "DataKindVariant enum (Dataset/Unionset/Grainset/Joinset) + per-variant shapes (C5–C9)",
+    "NestedDataKind and NestedDataKindVariant (Public/Nested split per spec 20)",
+    "UnionsetBranch (NestedDataKind + branch_coverage)",
+    "GrainsetLevel (grain/routing_unit/level_coverage) + RoutingUnitRef (Inline/Synthesized)",
+    "JoinsetHop (from/to/relationship/direction/hop_coverage cumulative) + HopDirection enum",
+    "implicit-Unionset top-level placement (multi-source Dataset → top-level data_kinds entry with origin=Implicit, deterministic content-derived id)",
+    "catalog-optional posture (compile(model, Option<&dyn CatalogProvider>, fs))",
+    "Repository persistence + CX1 load-time integrity contract (§10: cross-reference resolution, structural violations defense-in-depth)"
+   ],
+   "cross_cut": [],
+   "tests": "33_semstrait_manifest/manifest-contract.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "33-binding-expr-source",
+   "cluster": "33_semstrait_manifest",
+   "file": "33_semstrait_manifest/binding-expr-source.md",
+   "concern": "The manifest binding/expression/source shapes: SemanticBinding (C2: leaf-only linkage, mapping vs resolved dual views, per-(semantic, binding) context), ManifestExpressions (C11/C12/C18: physical-only pool + PhysicalExprId handle + ExprLayer extra-data, compile-time dedup, Serialize IR-owned), PhysicalSource (C1/C3/C14/C15: schema_fingerprint SHA-256, catalog fetch policy, locator + version_ref identity tuple), ResolvedRelationship/ResolvedJoinKey (§8A: semantic-id-pair join-key contract, residual filter PhysicalExprId, defaults-applied optional/cross_filter, derived join_type, root-scope vs Joinset-scope-local), TemporalShape/TemporalType (§8B: leaf-effective propagation, identifying-Dimension EntityId resolution, grain generic field)",
+   "use_when": "SemanticBinding shape (id/data_kind_id/source_id/mapping/resolved); mapping vs resolved dual views (mapping = how-realized, resolved = what-compile-derived); SemanticMappingValue enum (Column/Literal/Expr/MetadataRef); ResolvedExprMeta shape (inferred_type/referenced_columns/path_signature per 19 §3.2.4); ManifestExpressions.physical pool (BTreeMap<PhysicalExprId, ManifestExpression>); ManifestExpression {expr: PhysicalExpr, layer: ExprLayer}; PhysicalExprId handle (not EntityId, content-addressed); ExprLayer applicability (Scalar/Aggregate/PostAggregate per 35 §5.5); C11/C12 physical-only persistence (semantic form lowered away); C18 serialization contract (IR-owned Serialize/Deserialize, deterministic encoding); PhysicalSource shape (id/source_type/locator/version_ref/projected_schema/schema_fingerprint/provider_metadata); PhysicalSourceType (Table/File minimised per C3.3); PhysicalSourceVersionRef (IcebergSnapshotId/MonotonicVersion simplified per C3.4); SourceColumn (name/source_type String/nullable); C14 catalog fetch rules (eager-all, hard-error-on-missing C14.2/C14.2a, mixed-mode-override-model-wins C14.5); C15 schema_fingerprint SHA-256 canonical encoding; ResolvedRelationship shape (id/from/to/keys/filter/cardinality/integrity/optional/cross_filter/join_type); ResolvedJoinKey (from/to semantic EntityId pair); §8A.2 join-key semantic-id-pair contract (physical expr reached via binding.mapping, computed keys decomposed to synthesised Field); §8A.3 compile resolution (endpoints DataKindName→EntityId, defaults applied, join_type derived per 18 §2.9); root-scope relationships vs Joinset.scope_local_relationships; TemporalShape/TemporalType leaf-effective propagation (§8B: occurred_at/event_time/snapshotted_at/valid_from/valid_to identifying-Dimension EntityId resolution, grain optional generic field, leaf-only on disk, complex-kind None)",
+   "skip_when": "compile driver/gates (see 33-compile-driver); manifest contract/SemanticBitmap/DataKind roster (see 33-manifest-contract); crate boundary (see 33-manifest-contract §3)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "30",
+    "31",
+    "35",
+    "37"
+   ],
+   "refined_by": [
+    "34",
+    "35",
+    "36"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "SemanticBinding shape (C2: id/data_kind_id/source_id/mapping/resolved, leaf-only linkage, one-to-many, forward-only)",
+    "mapping vs resolved dual views (both keyed by semantic EntityId; mapping = how-realized Column/Literal/Expr/MetadataRef; resolved = what-compile-derived inferred_type/referenced_columns/path_signature per 19 §3.2.4)",
+    "SemanticMappingValue enum (Column/Literal/Expr/MetadataRef) and ResolvedExprMeta shape",
+    "ManifestExpressions physical-only pool (C11/C12: BTreeMap<PhysicalExprId, ManifestExpression>, no semantic pool)",
+    "ManifestExpression {expr: PhysicalExpr, layer: ExprLayer} — the extra-data is applicability layer",
+    "PhysicalExprId handle (strongly typed, wraps ExprId, content-addressed, NOT EntityId)",
+    "C18 serialization contract (IR-owned Serialize/Deserialize on Expr<L>, deterministic encoding, no per-Expr version tag, compile-time dedup permitted)",
+    "PhysicalSource shape (C1/C3: id/source_type/locator/version_ref/projected_schema/schema_fingerprint/provider_metadata)",
+    "PhysicalSourceType enum (Table/File minimised per C3.3; ObjectStore/Stream removed)",
+    "PhysicalSourceVersionRef enum (IcebergSnapshotId/MonotonicVersion simplified per C3.4; ProviderToken removed)",
+    "SourceColumn shape (name/source_type String/nullable per C3.2)",
+    "C14 catalog fetch policy (eager-all when catalog provided; hard-error-on-missing C14.2; hard-error-on-non-absence-fault C14.2a; mixed-mode-override model-wins C14.5; catalog-absent path C14.4)",
+    "C15 schema_fingerprint (SHA-256 canonical encoding, length-prefixed, preserve-declared-order, independent-of-version_ref, None-permitted-when-empty, no-fingerprint-algorithm-version-tag)",
+    "ResolvedRelationship manifest-persisted form (§8A: id/from/to/keys/filter/cardinality/integrity/optional/cross_filter/join_type, NOT spec-18 authoring Relationship)",
+    "ResolvedJoinKey semantic-id-pair shape (§8A.2: from/to EntityId → semantics Dimension/Field/Key, physical expr reached via binding.mapping, computed keys decomposed to synthesised Field)",
+    "§8A.3 compile resolution responsibilities (endpoints DataKindName→EntityId, defaults applied per 18 §2.7, join_type derived per 18 §2.9, root-scope vs Joinset-scope-local shadow)",
+    "TemporalShape/TemporalType leaf-effective propagation (§8B: TemporalType.{Timeseries/Events/Snapshot/Scd} identifying-Dimension EntityId resolution, grain Optional generic field, leaf-only on disk, complex-kind None, planner support deferred per 17 §10)"
+   ],
+   "cross_cut": [],
+   "tests": "33_semstrait_manifest/binding-expr-source.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "34-planner-crate-charter",
+   "cluster": "apis-A-planner",
+   "file": "34_semstrait_planner/planner-crate-charter.md",
+   "concern": "The semstrait-planner crate charter, layering, scope boundary, invariants I5-I12, runtime contract (manifest→graph→planning→plan), crate boundaries, and dependency posture",
+   "use_when": "semstrait-planner crate scope, what planner OWNS vs NOT OWNS, sync-only dispatch crate posture, I5 (name resolution is compile-time), I6 (plan hot path is synchronous), I8 (planner-complete SemanticManifest), I10 (non_exhaustive discipline), I11 (no I/O in hot path), I12 (first-class diagnostics), runtime graph lifecycle TODO/provisional boundary, no SQL emission, no YAML parsing, no catalog access on hot path, dependency bans (no tokio/async/engine identity)",
+   "skip_when": "Request/SessionContext shapes (34-planner-request), plan() pipeline steps (34-planner-plan), Strategy trait (34-planner-strategy), optimizer (34-planner-optimize), error kinds (34-planner-errors)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "10",
+    "30",
+    "31",
+    "33",
+    "35"
+   ],
+   "refined_by": [
+    "34-planner-request",
+    "34-planner-plan",
+    "34-planner-strategy",
+    "34-planner-optimize",
+    "34-planner-errors"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "semstrait-planner crate charter, module layout, scope boundary",
+    "Invariants I5/I6/I8/I10/I11/I12 for the planner crate",
+    "TODO/provisional runtime contract (manifest→graph→planning→plan)",
+    "Crate boundaries (no I/O, no SQL emission, no YAML, no catalog, no async, no engine identity)"
+   ],
+   "cross_cut": [],
+   "tests": "34_semstrait_planner/planner-crate-charter.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "34-planner-request",
+   "cluster": "apis-A-planner",
+   "file": "34_semstrait_planner/planner-request.md",
+   "concern": "Request, SessionContext, ResolvedQueryRequest, Filter/FilterOperator/FilterValue, SortDir, DataKindRef, TemporalRequest (reserved), RequestDimensionRef (rollup-aware carrier, reserved)",
+   "use_when": "Request struct (dimensions/measures/metrics/filters/order/limit/offset/from/temporal/session fields), SessionContext (now/timezone/feature_toggles/correlation_id), ResolvedQueryRequest (SemanticManifest-contextualized Request with looked-up Semantics + resolved target DataKind), Filter shape (field/operator/values), FilterOperator enum (Eq/NotEq/Lt/LtEq/Gt/GtEq/In/NotIn/Between/IsNull/IsNotNull), FilterValue enum (String/Number/Integer/Decimal/Bool/Timestamp/Date/Null), SortDir enum (Asc/Desc + null-aware variants), DataKindRef newtype over DataKindName, TemporalRequest (reserved per 17), RequestDimensionRef (rollup-aware Dimension carrier per TD-REQUEST-DIM-VARIATION)",
+   "skip_when": "plan() function pipeline (34-planner-plan), Strategy trait (34-planner-strategy), optimizer (34-planner-optimize), crate charter (34-planner-crate-charter), error kinds (34-planner-errors)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "10",
+    "13",
+    "17",
+    "30",
+    "31"
+   ],
+   "refined_by": [
+    "34-planner-plan"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the Request type and its fields (dimensions, measures, metrics, filters, order, limit, offset, from, temporal, session)",
+    "the SessionContext type and its fields (now, timezone, feature_toggles, correlation_id)",
+    "the ResolvedQueryRequest type (SemanticManifest-contextualized Request with looked-up Semantics + resolved target DataKind)",
+    "Filter, FilterOperator, FilterValue, SortDir, DataKindRef, TemporalRequest (reserved), RequestDimensionRef (reserved)"
+   ],
+   "cross_cut": [],
+   "tests": "34_semstrait_planner/planner-request.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "34-planner-plan",
+   "cluster": "apis-A-planner",
+   "file": "34_semstrait_planner/planner-plan.md",
+   "concern": "The plan() free function signature, 7-step pipeline (step 0 constraint validation, step 1 Request lookup, step 2 Dataset routing, step 3 composition consistency check, step 4 Strategy dispatch, step 5 PlanNode construction, step 6 post-construction validation), field-first resolution (§10), diagnostics accumulation (fail-fast policy)",
+   "use_when": "plan() entry point signature (manifest + request → SemanticPlan + diagnostics), fail-fast typed-kind shape (Result<(SemanticPlan, Diagnostics<PlanErrorKind>), (Diagnostic<PlanErrorKind>, Diagnostics<PlanErrorKind>)>), seven-step pipeline (§7.1-§7.7), step 0 constraint validation (11 §8.6), step 1 Request lookup (11 §5 + 19 §3.2.3), step 2 Dataset routing (explicit vs implicit), step 3 composition consistency check, step 4 Strategy dispatch (20 §5.3), step 5 PlanNode construction (21-24), step 6 post-construction validation (35 §8), field-first resolution algorithm (§10.1-§10.5, 16 §11), diagnostics accumulation policy (§14.1-§14.5, fail-fast, warnings accumulate)",
+   "skip_when": "Request/SessionContext shapes (34-planner-request), Strategy trait details (34-planner-strategy), optimizer (34-planner-optimize), error kinds roster (34-planner-errors), crate charter (34-planner-crate-charter)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "10",
+    "11",
+    "16",
+    "19",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "30",
+    "33",
+    "34-planner-request",
+    "34-planner-strategy",
+    "35"
+   ],
+   "refined_by": [
+    "21",
+    "22",
+    "23",
+    "24"
+   ],
+   "refines": [
+    "10",
+    "11",
+    "16",
+    "19",
+    "20"
+   ],
+   "authoritative_for": [
+    "the plan free-function signature (manifest + request → SemanticPlan + diagnostics)",
+    "the seven-step plan pipeline (step 0 constraint validation, step 1 Request lookup, step 2 Dataset routing, step 3 composition consistency check, step 4 Strategy dispatch, step 5 PlanNode construction, step 6 post-construction validation)",
+    "field-first resolution algorithm (§10.1-§10.5) — lookup-only over SemanticGraph build-time indices per 16 §11",
+    "diagnostics accumulation policy (§14) — fail-fast on first Error, warnings accumulate through both arms per 30 §7.3"
+   ],
+   "cross_cut": [],
+   "tests": "34_semstrait_planner/planner-plan.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "34-planner-strategy",
+   "cluster": "apis-A-planner",
+   "file": "34_semstrait_planner/planner-strategy.md",
+   "concern": "Strategy trait surface (id/supports/plan), StrategyId enum, StrategyRegistry, StrategyContext, dispatch_strategy function, the four built-in strategies (SimpleStrategy/GrainsetStrategy/UnionsetStrategy/JoinsetStrategy) with algorithm pointers to 21-24, stability (open trait per 30 §4.6)",
+   "use_when": "Strategy trait (id/supports/plan methods), StrategyId enum (Simple/Grainset/Unionset/Joinset), StrategyRegistry (default_v1/simple/grainset/unionset/joinset accessors, with constructor), StrategyContext (manifest/session/registry/diagnostics/plan_builder fields, plan_datakind recursive-dispatch entry, emit non-error diagnostic), dispatch_strategy function (single variant-match site per 20 §5.3), SimpleStrategy (21 §4), GrainsetStrategy (22 §4), UnionsetStrategy (23 §4), JoinsetStrategy (24 §5), non-sealed trait per 30 §4.6",
+   "skip_when": "Request/SessionContext shapes (34-planner-request), plan() pipeline steps (34-planner-plan), optimizer (34-planner-optimize), error kinds (34-planner-errors), crate charter (34-planner-crate-charter)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "30",
+    "33",
+    "34-planner-request",
+    "35"
+   ],
+   "refined_by": [
+    "21",
+    "22",
+    "23",
+    "24"
+   ],
+   "refines": [
+    "20"
+   ],
+   "authoritative_for": [
+    "the Strategy trait surface (id, supports, plan methods) and its companion types (StrategyId, StrategyContext)",
+    "StrategyRegistry (dispatch table holding one strategy per variant)",
+    "dispatch_strategy function (single variant-match site per 20 §5.3)",
+    "the four built-in strategies (SimpleStrategy, GrainsetStrategy, UnionsetStrategy, JoinsetStrategy) with algorithm pointers to 21-24"
+   ],
+   "cross_cut": [],
+   "tests": "34_semstrait_planner/planner-strategy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "34-planner-optimize",
+   "cluster": "apis-A-planner",
+   "file": "34_semstrait_planner/planner-optimize.md",
+   "concern": "The optimize() free function signature, OptimizerPass trait surface, Optimizer/OptimizerBuilder, canonical v1 passes (ConstantFolding/MetadataDimensionSubstitution/PredicateSimplification/IdentityProjectElimination), pass ordering, OptimizePassContext, OptimizeErrorKind, externally-implementable pass trait",
+   "use_when": "optimize() entry point signature (SemanticPlan → equivalent optimized SemanticPlan + diagnostics), fail-fast typed-kind shape (Result<(SemanticPlan, Diagnostics<OptimizeErrorKind>), (Diagnostic<OptimizeErrorKind>, Diagnostics<OptimizeErrorKind>)>), OptimizerPass trait (name/apply/is_applicable methods), Optimizer (empty/with_v1_passes/apply/pass_count), OptimizerBuilder (new/with/with_v1_passes/build), canonical v1 passes (ConstantFolding per 31 §3.1 + 13 §4, MetadataDimensionSubstitution per 13 §4.7, PredicateSimplification, IdentityProjectElimination), pass ordering (1→2→3→4 fixed), OptimizePassContext (manifest/session/diagnostics optional fields), OptimizeErrorKind (PassFailed/InvalidRewrite/PassRequiresContext/ConstantFoldSkipped), non-sealed trait per 30 §4.6",
+   "skip_when": "Request/SessionContext shapes (34-planner-request), plan() pipeline (34-planner-plan), Strategy trait (34-planner-strategy), PlanErrorKind (34-planner-errors), crate charter (34-planner-crate-charter)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "10",
+    "13",
+    "30",
+    "31",
+    "35"
+   ],
+   "refined_by": [],
+   "refines": [
+    "10"
+   ],
+   "authoritative_for": [
+    "the optimize free-function signature (SemanticPlan → equivalent optimized SemanticPlan + diagnostics) per 10 §3.5",
+    "the OptimizerPass trait surface (name, apply, is_applicable methods)",
+    "the canonical v1 passes (ConstantFolding, MetadataDimensionSubstitution, PredicateSimplification, IdentityProjectElimination) and their pass-ordering (1→2→3→4 fixed)",
+    "OptimizePassContext (manifest/session/diagnostics optional fields)",
+    "OptimizeErrorKind typed-kind enum"
+   ],
+   "cross_cut": [],
+   "tests": "34_semstrait_planner/planner-optimize.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "34-planner-errors",
+   "cluster": "apis-A-planner",
+   "file": "34_semstrait_planner/planner-errors.md",
+   "concern": "PlanErrorKind typed-kind enum (step 0-6 variants + per-DataKind passthrough Simple/Grainset/Unionset/Joinset), OptimizeErrorKind typed-kind enum, Diagnose impls, variant identity stability per 30 §5.4, non-error diagnostic emission policy",
+   "use_when": "PlanErrorKind enum (ConstraintViolation, UnknownSemantics, DuplicateRequestedName, EmptyRequest, RequestFieldTypeMismatch, OrderByUnknownName, FilterArityMismatch, FilterValueTypeMismatch, AmbiguousImplicitComposition, NoCompositionPath, CompositionDepthExceeded, CrossCompositionForbidden, AmbiguousCompositionReference, CompositionAggregationConflict, SemanticsNotOnSurface, PlanNodeConstructionFailed, UnsupportedRequestShape, PostConstructionInvariantViolated, DataKindNotInSemanticManifest, StrategyDispatchFailed, StrategyMissingForVariant, SemanticManifestIndexInconsistent, Simple(SimpleErrorKind), Grainset(GrainsetErrorKind), Unionset(UnionsetErrorKind), Joinset(JoinsetErrorKind), TemporalDeferred), OptimizeErrorKind enum (PassFailed, InvalidRewrite, PassRequiresContext, ConstantFoldSkipped), Diagnose impls per 30 §5.4, variant identity stability (add=MINOR, rename/remove=MAJOR per 30 §2.1), per-DataKind kind-nesting pattern (30 §5.6), non-error diagnostic emission via ctx.emit",
+   "skip_when": "Request/SessionContext shapes (34-planner-request), plan() pipeline steps (34-planner-plan), Strategy trait (34-planner-strategy), optimizer passes (34-planner-optimize), crate charter (34-planner-crate-charter)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "21",
+    "22",
+    "23",
+    "24",
+    "30",
+    "31"
+   ],
+   "refined_by": [],
+   "refines": [
+    "30"
+   ],
+   "authoritative_for": [
+    "the PlanErrorKind typed-kind enum (per-step variants + per-DataKind passthrough Simple/Grainset/Unionset/Joinset per 30 §5.6)",
+    "the OptimizeErrorKind typed-kind enum (PassFailed, InvalidRewrite, PassRequiresContext, ConstantFoldSkipped)",
+    "Diagnose impls per 30 §5.4 (message, severity_default, cause)",
+    "variant identity stability (add=MINOR, rename/remove=MAJOR per 30 §2.1)"
+   ],
+   "cross_cut": [],
+   "tests": "34_semstrait_planner/planner-errors.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "36-adapter-crate-charter",
+   "cluster": "36_semstrait_adapter",
+   "file": "36_semstrait_adapter/adapter-crate-charter.md",
+   "raw_lines": 232,
+   "net_est": 197,
+   "concern": "semstrait-adapter crate charter, module layout, purpose/scope/layering, and EngineAdapter trait (signature, invariants, AdapterId, adapt/emit verbs)",
+   "use_when": "semstrait-adapter crate charter; module layout; what adapter OWNS vs does NOT own; three axes (emission-mode/dialect/engine-identity); design posture (sync/no-I/O/deterministic); EngineAdapter trait signature; adapt verb; emit verb; AdapterId roster (ANSI_SQL/DATAFUSION_SQL/DUCKDB_SQL/SPARK_SQL/SUBSTRAIT); trait-level invariants I-ADAPT-1 through I-ADAPT-6; diagnostics flow (no separate extension); debug_sql free function; open trait posture",
+   "skip_when": "DialectEmit trait (see 36-dialect-emit); adapter implementations (see 36-adapter-roster); rewrite pipelines (see 36-rewrite-pipelines); emit orchestrators (see 36-emit-orchestrators)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "30",
+    "31",
+    "35"
+   ],
+   "refined_by": [
+    "34",
+    "38",
+    "39"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `semstrait-adapter` public-API surface (types, traits, free functions)",
+    "the `EngineAdapter` trait — signature, invariants, synchronous / no-I/O posture",
+    "the `adapt` verb — consumption contract over `SemanticPlan` + `SemanticManifest`, production contract over `EngineArtifact`",
+    "the `emit` verb — SQL-specialized form of `adapt` for SQL-emitting adapters"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "36_semstrait_adapter/adapter-crate-charter.md#testing-strategy"
+  },
+  {
+   "id": "36-dialect-emit",
+   "cluster": "36_semstrait_adapter",
+   "file": "36_semstrait_adapter/dialect-emit.md",
+   "raw_lines": 170,
+   "net_est": 144,
+   "concern": "DialectEmit operational trait — per-dialect SQL rendering (identifier quoting, literal escaping, DataType spelling, function rewriting, cast semantics, null-ordering/AsOf/date_trunc/regex methods)",
+   "use_when": "DialectEmit trait; relationship to Dialect in 35; operational vs structural split; identifier quoting (quote_identifier); literal escaping (quote_literal/escape_string_literal); DataType spelling (type_name); function rewriting (rewrite_function/RewrittenCall enum); cast semantics (emit_cast); null-ordering clause; emit_date_trunc; emit_like/ilike/regexp_match/regexp_extract; emit_asof_join; dialect-surface stability (non_exhaustive in effect); open trait posture",
+   "skip_when": "EngineAdapter trait (see 36-adapter-crate-charter); adapter implementations (see 36-adapter-roster); per-engine rewrite tier tables (see 36-rewrite-pipelines); emit orchestrator internals (see 36-emit-orchestrators)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "13",
+    "14",
+    "30",
+    "35"
+   ],
+   "refined_by": [
+    "36-adapter-roster",
+    "36-emit-orchestrators"
+   ],
+   "refines": [
+    "35"
+   ],
+   "authoritative_for": [
+    "the `DialectEmit` operational trait (per-dialect identifier quoting, type spelling, function rewriting, cast semantics, null-ordering syntax, AsOf-join emission)"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "36_semstrait_adapter/dialect-emit.md#testing-strategy"
+  },
+  {
+   "id": "36-adapter-roster",
+   "cluster": "36_semstrait_adapter",
+   "file": "36_semstrait_adapter/adapter-roster.md",
+   "raw_lines": 164,
+   "net_est": 139,
+   "concern": "v1 built-in adapter roster (AnsiSqlAdapter/DataFusionSqlAdapter/DuckDbSqlAdapter/SparkSqlAdapter/SubstraitAdapter) and AdapterCapabilities surface",
+   "use_when": "v1 adapter roster; AnsiSqlAdapter (baseline ANSI SQL, no rewrites); DataFusionSqlAdapter (per-function rewrites per functions_mapping §13.1); DuckDbSqlAdapter (per-function rewrites per §13.2, AsOf native); SparkSqlAdapter (per-function rewrites per §13.3); SubstraitAdapter (non-SQL, proto emission); per-adapter AdapterId; per-adapter dialect choice; per-adapter capabilities (AsOfJoin/RegexpMatch/RegexpExtract/IntervalLiteral/StructAccess flags); AdapterCapabilities struct shape; supports predicate shortcuts; SQL vs Substrait capability role asymmetry (ergonomic hints vs handoff contract); capability roster growth policy",
+   "skip_when": "EngineAdapter trait definition (see 36-adapter-crate-charter); DialectEmit trait (see 36-dialect-emit); function/type rewrite pipelines (see 36-rewrite-pipelines); emit orchestrators (see 36-emit-orchestrators)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "30",
+    "35",
+    "36-adapter-crate-charter",
+    "36-dialect-emit"
+   ],
+   "refined_by": [
+    "34",
+    "38",
+    "39"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the v1 built-in adapter roster: `AnsiSqlAdapter`, `DataFusionSqlAdapter`, `DuckDbSqlAdapter`, `SparkSqlAdapter`, `SubstraitAdapter`",
+    "the `AdapterCapabilities` capability-flag surface"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "36_semstrait_adapter/adapter-roster.md#testing-strategy"
+  },
+  {
+   "id": "36-rewrite-pipelines",
+   "cluster": "36_semstrait_adapter",
+   "file": "36_semstrait_adapter/rewrite-pipelines.md",
+   "raw_lines": 73,
+   "net_est": 62,
+   "concern": "Function-rewrite pipeline (inputs, tiers, pipeline flow, aggregates, registry-extension interplay) and type-rewrite pipeline (inputs, spelling, cast semantics, type-rewrite exceptions)",
+   "use_when": "function-rewrite pipeline; inputs (FunctionRegistry + functions_mapping.md); rewrite tiers (Name-only/Name-remap/Structural/Unsupported); pipeline flow (rewrite_function dispatch, Structural recursion); aggregates bypass rewrite_function (closed five on AggregateExpr, non-closed as FunctionCall); registry-extension interplay (adapter-extended functions unsupported cross-engine); type-rewrite pipeline; inputs (canonical DataType + types_mapping.md); spelling (type_name per §8.2); cast semantics (widening/narrowing/precision-clamping); type-rewrite exceptions (Spark Time→String, DuckDB Timestamp precision)",
+   "skip_when": "DialectEmit trait definition (see 36-dialect-emit); adapter roster (see 36-adapter-roster); emit orchestrators (see 36-emit-orchestrators)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "13",
+    "14",
+    "14a",
+    "30",
+    "35",
+    "36-dialect-emit"
+   ],
+   "refined_by": [
+    "36-emit-orchestrators"
+   ],
+   "refines": [
+    "14a"
+   ],
+   "authoritative_for": [
+    "the function-rewrite pipeline — how adapters consume `registry/functions_mapping.md` and classify every canonical function by rewrite tier",
+    "the type-rewrite pipeline — how adapters consume `registry/types_mapping.md` to render canonical `DataType` as engine-native text"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "36_semstrait_adapter/rewrite-pipelines.md#testing-strategy"
+  },
+  {
+   "id": "36-emit-orchestrators",
+   "cluster": "36_semstrait_adapter",
+   "file": "36_semstrait_adapter/emit-orchestrators.md",
+   "raw_lines": 564,
+   "net_est": 479,
+   "concern": "adapt/emit pipeline orchestrators (SQL-emission/Substrait-emission), per-variant rendering contracts, error propagation, AdaptErrorKind taxonomy, AdapterRegistry, crate boundaries, sandboxing/safety, and public API surface",
+   "use_when": "adapt/emit pipeline structural overview; SQL-emission orchestrator (emit_sql); Substrait-emission orchestrator (emit_substrait); per-variant SQL rendering contracts (emit_scan/filter/project/agg/join/union/sort/fetch); error propagation (fail-fast, warnings accumulate); AdaptErrorKind typed-error enum (16 v1 variants, identification by variant identity per 30 §5); UnsupportedFeatureKind sub-classifier; variant identity not codes (ADAPT_E_*/ADAPT_W_* retired); warning posture (PrecisionClamped/StructuralRewriteApplied/SumOverflowRisk); AdapterRegistry (process-global, sealed, OnceLock); adapter_registry() accessor; AdapterContribution trait; dispatch at API boundary; stability (open traits, built-in Dialect impls stable, Substrait mapping stable); crate boundaries (no I/O, no catalog, no planning); dependency posture (no runtime-only, no engine deps in shared crate); sandboxing/safety (SQL injection threat model, mandatory quoting SI-1 through SI-4); public API surface sketch (adapter/dialect/capabilities/substrait/registry/error modules)",
+   "skip_when": "EngineAdapter trait definition (see 36-adapter-crate-charter); DialectEmit trait definition (see 36-dialect-emit); adapter roster (see 36-adapter-roster); rewrite pipelines (see 36-rewrite-pipelines)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "30",
+    "31",
+    "33",
+    "35",
+    "36-adapter-crate-charter",
+    "36-dialect-emit",
+    "36-rewrite-pipelines"
+   ],
+   "refined_by": [
+    "38"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `AdaptErrorKind` typed-error enum (identified by variant identity per `30 §5`; numeric `ADAPT_E_*` / `ADAPT_W_*` codes are retired) and its `Diagnose` impl per `31 §3`",
+    "the `AdapterRegistry` surface and `adapter_registry()` process-global accessor",
+    "the `AdapterId` / `DialectId` dispatch posture at the `semstrait-api` boundary",
+    "SQL-injection-safety guarantees (mandatory identifier quoting, literal escaping)",
+    "mapping of design invariants I1, I2, I3, I6, I10, I11, I12 to concrete crate-level guarantees"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "36_semstrait_adapter/emit-orchestrators.md#testing-strategy"
+  },
+  {
+   "id": "37-catalog-crate-surface",
+   "cluster": "37_semstrait_catalog",
+   "file": "37_semstrait_catalog/catalog-crate-surface.md",
+   "concern": "semstrait-catalog crate charter: purpose/scope/layering, public crate surface (roster + module layout + structural-type sketches), CatalogProviderErrorKind / FileSystemErrorKind taxonomy + cross-crate wrapping + code-range registration, caller responsibilities (construction/DI/thread-safety/error-propagation/async-runtime), stability posture, crate boundaries, and cross-references",
+   "use_when": "semstrait-catalog crate purpose/scope/layering; public crate surface roster; module layout; structural-type sketches (ResolvedTable/Schema/SchemaColumn/Partition); CatalogProviderErrorKind + FileSystemErrorKind variants; cross-crate error wrapping; code-range registration (closed); caller responsibilities (construction, dependency-injection pattern, thread safety, error propagation, async runtime); stability posture (trait/impl/error-variant/value-type/method-set-growth); crate boundaries (what catalog owns vs delegates); cross-references to sibling docs",
+   "skip_when": "CatalogProvider trait definition + per-provider implementations + schema-drift I11b (see 37-catalog-provider); FileSystem trait + per-filesystem implementations + glob expansion (see 37-filesystem)",
+   "status": "ratified",
+   "version": "2.3",
+   "impl": "in-progress",
+   "prereqs": [
+    "00",
+    "15",
+    "30",
+    "31"
+   ],
+   "refined_by": [
+    "33",
+    "38"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `semstrait-catalog` crate charter — purpose, scope (owns vs does NOT own), layering, and public crate surface (roster, module layout, structural-type sketches ResolvedTable/Schema/SchemaColumn/Partition)",
+    "the `CatalogProviderErrorKind` and `FileSystemErrorKind` error taxonomies — variants, cross-crate wrapping, and code-range registration",
+    "caller responsibilities (construction, dependency-injection pattern, thread safety, error propagation, async runtime), stability posture, crate boundaries, and cross-references"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "37_semstrait_catalog/catalog-crate-surface.md#testing-strategy"
+  },
+  {
+   "id": "37-catalog-provider",
+   "cluster": "37_semstrait_catalog",
+   "file": "37_semstrait_catalog/catalog-provider.md",
+   "concern": "CatalogProvider trait: purpose, trait definition (resolve_table entry), method contracts, invariants, non-goals; per-provider v1 implementations (Noop/IcebergRest/Unity/Filesystem); and schema-drift gated I/O (I11b check_schema_drift signature + deterministic contract + caller policy + I11b boundary)",
+   "use_when": "CatalogProvider trait definition; resolve_table method (canonical 15 §5 compile-time resolution entry); method contracts + invariants + non-goals; per-provider v1 roster (NoopCatalogProvider/IcebergRestCatalogProvider/UnityCatalogProvider/FilesystemCatalogProvider); schema-drift gated I/O check_schema_drift (I11b signature §9.1, deterministic contract §9.2, caller policy §9.3, I11b boundary §9.4)",
+   "skip_when": "crate charter / surface / error taxonomy / caller responsibilities / stability / boundaries (see 37-catalog-crate-surface); FileSystem trait + implementations + glob expansion (see 37-filesystem)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "in-progress",
+   "prereqs": [
+    "15",
+    "30",
+    "31",
+    "33"
+   ],
+   "refined_by": [
+    "33",
+    "38"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `CatalogProvider` trait — definition, `resolve_table` method contract (the canonical entry for 15 §5 compile-time resolution), invariants, and non-goals",
+    "the per-provider v1 implementation roster (NoopCatalogProvider / IcebergRestCatalogProvider / UnityCatalogProvider / FilesystemCatalogProvider)",
+    "schema-drift gated I/O — `check_schema_drift` (I11b signature, deterministic contract, caller policy, I11b boundary)"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "37_semstrait_catalog/catalog-provider.md#testing-strategy"
+  },
+  {
+   "id": "37-filesystem",
+   "cluster": "37_semstrait_catalog",
+   "file": "37_semstrait_catalog/filesystem.md",
+   "concern": "FileSystem trait: purpose, trait definition, method contracts, invariants, non-goals; per-filesystem v1 implementations (Local/S3/Azure/Gcs); and glob expansion (shared utility, composition with CatalogProvider, determinism)",
+   "use_when": "FileSystem trait definition; method contracts + invariants + non-goals; per-filesystem v1 roster (LocalFileSystem/S3FileSystem/AzureFileSystem/GcsFileSystem/InMemoryFileSystem); glob expansion (shared utility §7.1, composition with CatalogProvider §7.2, determinism §7.3)",
+   "skip_when": "crate charter / surface / error taxonomy / caller responsibilities / stability / boundaries (see 37-catalog-crate-surface); CatalogProvider trait + providers + schema-drift I11b (see 37-catalog-provider)",
+   "status": "ratified",
+   "version": "2.10",
+   "impl": "in-progress",
+   "prereqs": [
+    "15",
+    "30",
+    "31"
+   ],
+   "refined_by": [
+    "33",
+    "38"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `FileSystem` trait — definition, method contracts, invariants, and non-goals",
+    "the per-filesystem v1 implementation roster (LocalFileSystem / S3FileSystem / AzureFileSystem / GcsFileSystem / InMemoryFileSystem)",
+    "glob expansion — the shared utility, its composition with `CatalogProvider`, and determinism"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "37_semstrait_catalog/filesystem.md#testing-strategy"
+  },
+  {
+   "id": "38-api-orchestrator",
+   "cluster": "38_semstrait_api",
+   "file": "38_semstrait_api/orchestrator.md",
+   "concern": "The SemStrait orchestrator handle: top-level purpose/scope/layering, public crate surface (roster + re-exports + module layout), SemStrait struct shape (field roster: catalog_provider/file_system/repository/function_registry/optimizer_passes/warning_policy), method roster with signatures (compile_from_yaml/compile_from_model/plan/adapt/compile_and_plan_and_adapt multi-stage fused + save_manifest/load_manifest/validate_manifest I11b out-of-band), method contracts (parse→validate→compile→plan→optimize→adapt orchestration per §3.4), invariants (I6/I7/I10/I11/I12), and tracing observability (span-per-stage, stable fields stage/model_revision/request_id, error/warn/info/debug/trace levels, CLI verbosity mapping, warning-policy-independent mirroring)",
+   "use_when": "SemStrait struct shape; catalog_provider/file_system/repository/function_registry/optimizer_passes/warning_policy field roster; SemStrait::builder() constructor; compile_from_yaml (multi-stage: parse+validate+compile async); compile_from_model (multi-stage: validate+compile async); plan (multi-stage: plan+optimize sync); adapt (single-stage passthrough sync AdaptErrorKind); compile_and_plan_and_adapt (fused async→sync multi-stage); save_manifest/load_manifest/validate_manifest (I11b out-of-band async); method contracts (§3.4: error short-circuit, warning accumulation, WarningPolicy application, per-stage *ErrorKind wrapping via From); I6 (plan/adapt sync hot-path); I7 (dependency 31–37, depended-by 39); I10 (#[non_exhaustive]); I11 (compile* async I11a + save/load/validate async I11b); I12 (typed-kind per 30 §5, tracing per 30 §6); tracing observability (§3.6: span-per-stage, stable fields, levels error/warn/info/debug/trace, CLI flag mapping --info/--debug/--trace, mirroring independent of WarningPolicy); public crate surface roster (SemStrait/SemStraitBuilder/WarningPolicy/SemStraitErrorKind/StageOrigin/PipelineOutcome + re-exports from 31/32/33/34/35/36/37); module layout (builder/policy/error/outcome)",
+   "skip_when": "SemStraitBuilder configuration surface (see 38-api-config-policy-error); WarningPolicy escalation rules (see 38-api-config-policy-error); SemStraitErrorKind unified error (see 38-api-config-policy-error); one-shot convenience usage (see 38-api-lifecycle-boundaries); streaming/incremental patterns (see 38-api-lifecycle-boundaries); async boundary contract (see 38-api-lifecycle-boundaries); diagnostic propagation discipline (see 38-api-lifecycle-boundaries); stability tiers (see 38-api-lifecycle-boundaries); crate boundaries (see 38-api-lifecycle-boundaries)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "planned",
+   "prereqs": [
+    "30",
+    "31",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "37"
+   ],
+   "refined_by": [
+    "39"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "SemStrait orchestrator struct (field shape: catalog_provider/file_system/repository/function_registry/optimizer_passes/warning_policy; pub(crate) fields, construction via SemStraitBuilder::build; Send+Sync+Clone)",
+    "SemStrait method roster and contracts: compile_from_yaml (multi-stage: parse+validate+compile), compile_from_model (multi-stage: validate+compile), plan (multi-stage: plan+optimize), adapt (single-stage passthrough AdaptErrorKind), compile_and_plan_and_adapt (fused multi-stage: compile+plan+adapt), save_manifest/load_manifest/validate_manifest (I11b out-of-band gated entries); method contracts (§3.4: error short-circuit per 30 §7, per-stage warning accumulation in source order, WarningPolicy application at stage boundary, *ErrorKind → SemStraitErrorKind wrapping via From impls §6.3, first-failing-stage Err tuple preservation)",
+    "tracing observability posture (§3.6: span-per-stage, stable fields stage/model_revision/request_id, error/warn/info/debug/trace levels, CLI verbosity-flag mapping, warning-policy-independent mirroring)"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "38_semstrait_api/orchestrator.md#testing-strategy"
+  },
+  {
+   "id": "38-api-config-policy-error",
+   "cluster": "38_semstrait_api",
+   "file": "38_semstrait_api/config-policy-error.md",
+   "concern": "Configuration, policy, and error types: SemStraitBuilder configuration surface (chain methods with_catalog_provider/with_file_system/with_repository/with_function_registry/with_optimizer_pass/with_optimizer_passes/with_warning_policy, required-field validation at build, Default), WarningPolicy enum (Accumulate/FailOnWarning/Strict variants, escalation rules §5.3, application at stage boundary §5.4, interaction with fused helper §5.5, invariants §5.6), SemStraitErrorKind unified typed-error enum (Parse/Validate/Compile/Plan/Optimize/Adapt/Repository/CatalogProvider/FileSystem/BuilderInvalid/NoRepositoryConfigured variants, From<*ErrorKind> impls §6.3, Diagnose impl §6.5, variant-to-origin map §6.4), StageOrigin helper enum (Parse/Validate/Compile/Plan/Optimize/Adapt/Repository/CatalogProvider/FileSystem/Builder), stability (#[non_exhaustive] MINOR-additive variant additions §6.7)",
+   "use_when": "SemStraitBuilder configuration (with_catalog_provider/with_file_system/with_repository/with_function_registry/with_optimizer_pass/with_optimizer_passes/with_warning_policy chain methods; build required-field validation catalog_provider/file_system mandatory + optional defaults; Default::default); WarningPolicy (Accumulate passthrough / FailOnWarning escalate-first-warning-to-fatal / Strict alias-of-FailOnWarning; escalation rules §5.3; application at stage boundary §5.4; interaction with compile_and_plan_and_adapt §5.5; invariants §5.6 kind-variant-preserved severity-preserved); SemStraitErrorKind unified error (Parse(ParseErrorKind)/Validate(ValidateError)/Compile(CompileError)/Plan(PlanErrorKind)/Optimize(OptimizeErrorKind)/Adapt(AdaptErrorKind)/Repository(RepositoryErrorKind)/CatalogProvider(CatalogProviderErrorKind)/FileSystem(FileSystemErrorKind)/BuilderInvalid{missing}/NoRepositoryConfigured variants; From<*ErrorKind> lossless wrapping §6.3; Diagnose impl delegation §6.5; variant-to-origin map §6.4; StageOrigin helper §6.6; stability #[non_exhaustive] §6.7); builder const fn factories §4.7",
+   "skip_when": "SemStrait orchestrator struct shape (see 38-api-orchestrator); method roster/contracts (see 38-api-orchestrator); tracing observability (see 38-api-orchestrator); one-shot convenience usage (see 38-api-lifecycle-boundaries); streaming/incremental patterns (see 38-api-lifecycle-boundaries); async boundary contract (see 38-api-lifecycle-boundaries); diagnostic propagation (see 38-api-lifecycle-boundaries); crate boundaries (see 38-api-lifecycle-boundaries)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "planned",
+   "prereqs": [
+    "30",
+    "31",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "37"
+   ],
+   "refined_by": [
+    "39"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "SemStraitBuilder configuration surface (chain methods: with_catalog_provider/with_file_system/with_repository/with_function_registry/with_optimizer_pass/with_optimizer_passes/with_warning_policy; required-field validation at build; Default::default)",
+    "WarningPolicy enum (Accumulate/FailOnWarning/Strict + escalation rules §5.3 + application at stage boundary §5.4 + interaction with fused helper §5.5)",
+    "SemStraitErrorKind unified typed-error (Parse/Validate/Compile/Plan/Optimize/Adapt/Repository/CatalogProvider/FileSystem/BuilderInvalid/NoRepositoryConfigured variants + From<*ErrorKind> impls §6.3 + Diagnose impl §6.5 + StageOrigin helper §6.6)"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "38_semstrait_api/config-policy-error.md#testing-strategy"
+  },
+  {
+   "id": "38-api-lifecycle-boundaries",
+   "cluster": "38_semstrait_api",
+   "file": "38_semstrait_api/lifecycle-boundaries.md",
+   "concern": "Lifecycle patterns and boundaries: one-shot convenience (§7: compile_and_plan_and_adapt fused helper semantics, success-arm warning concatenation, error-arm first-failing-stage wrapping, when NOT to use), streaming/incremental use (§8: compile-once plan-many Arc<SemanticManifest> pattern, lifecycle expectations manifest-freshness/no-implicit-caching/per-request-Request/fan-out, compile-and-persist save/load round-trip, out-of-v1-scope incremental-mutation/streaming-iteration), async boundaries (§9: per-method async posture table, no-.await-in-hot-path enforcement I6, runtime-independence, fused-helper async→sync transition, blocking-in-callers Q-API-007), diagnostic propagation (§10: stage-internal source-order, cross-stage concatenation, no-deduplication rationale, severity-ordering-not-enforced, warning-policy escalation), stability (§11: crate-level Stable-in-v1, per-item stability SemStrait/SemStraitBuilder/WarningPolicy/SemStraitErrorKind Stable + PipelineOutcome Provisional, trait-object surfaces MINOR-cascading, const-fn factories, auto-trait posture Send+Sync+Clone), crate boundaries (§12: delegation table NO new-domain-types/new-*ErrorKind/SQL-emission/planner-adapter-logic/function-registry-construction/session-state/catalog-branching/cross-stage-dependency-reasoning + YES orchestration/warning-policy/builder/unified-error), cross-references (§14: per-doc pointer roster 00/30/31/32/33/34/35/36/37/39)",
+   "use_when": "one-shot convenience (compile_and_plan_and_adapt fused helper; success warning concatenation parse→validate→compile→plan→adapt source-stage order; error first-failing-stage wrapping; when NOT to use streaming/per-stage-inspection/custom-error-routing); streaming/incremental (compile-once plan-many Arc<SemanticManifest> lifecycle; manifest freshness validate_manifest I11b; no-implicit-caching; per-request Request construction; fan-out Send+Sync+Clone); compile-and-persist (save_manifest/load_manifest round-trip SemanticManifestId content-addressable); async boundaries (§9.1 per-method async posture table compile_from_yaml/compile_from_model/compile_and_plan_and_adapt/save_manifest/load_manifest/validate_manifest async + plan/adapt/accessors sync; no-.await-in-hot-path I6 §9.2; runtime-independence §9.3; fused-helper async→sync transition §9.4; blocking-in-callers Q-API-007 §9.5); diagnostic propagation (stage-internal source-order §10.1; cross-stage concatenation §10.2; no-deduplication §10.3 rationale; severity-ordering-not-enforced §10.4; warning-policy escalation §10.5); stability (crate-level Stable-in-v1 §11.1; per-item stability §11.2 SemStrait/SemStraitBuilder/WarningPolicy/SemStraitErrorKind Stable + PipelineOutcome Provisional; trait-object surfaces MINOR-cascading §11.3; const-fn factories §11.4; auto-trait posture §11.5 Send+Sync+Clone); crate boundaries (§12 delegation-table: NO new-domain-types/new-*ErrorKind/SQL-emission/planner-adapter-logic/function-registry-construction/SemanticManifest-mutation/Plan-mutation/async-runtime-pinning/warning-policy-enforcement-at-stages/cross-stage-dependency-reasoning + YES one-shot-convenience/warning-aggregation/builder-ergonomics/unified-error-kind); cross-references (§14 per-doc pointer roster 00/30/31/32/33/34/35/36/37/39)",
+   "skip_when": "SemStrait orchestrator struct/methods/tracing (see 38-api-orchestrator); SemStraitBuilder configuration (see 38-api-config-policy-error); WarningPolicy escalation (see 38-api-config-policy-error); SemStraitErrorKind unified error (see 38-api-config-policy-error)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "planned",
+   "prereqs": [
+    "30",
+    "31",
+    "32",
+    "33",
+    "34",
+    "35",
+    "36",
+    "37"
+   ],
+   "refined_by": [
+    "39"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "one-shot convenience contract (§7: compile_and_plan_and_adapt fused helper, success-arm warning concatenation, error-arm first-failing-stage wrapping)",
+    "streaming/incremental contract (§8: compile-once plan-many Arc<SemanticManifest> lifecycle, manifest-freshness via validate_manifest I11b, no-implicit-caching, per-request Request construction, fan-out Send+Sync+Clone)",
+    "diagnostic-propagation discipline (§10: stage-internal source-order §10.1, cross-stage concatenation §10.2, no-deduplication §10.3, severity-ordering-not-enforced §10.4, warning-policy escalation §10.5)",
+    "async/sync boundary contract (§9: I11a compile-time async + I11b out-of-band async + I6 plan/adapt sync hot-path + compile_and_plan_and_adapt async→sync transition §9.4 + no-.await-in-hot-path §9.2 + runtime-independence §9.3)"
+   ],
+   "cross_cut": [],
+   "migrated": true,
+   "tests": "38_semstrait_api/lifecycle-boundaries.md#testing-strategy"
+  }
+ ]
+}

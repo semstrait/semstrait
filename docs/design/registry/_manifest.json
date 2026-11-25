@@ -1,0 +1,550 @@
+{
+ "space": "registry",
+ "leaves": [
+  {
+   "id": "registry-readme",
+   "cluster": "",
+   "file": "README.md",
+   "concern": "Registry space index — catalog documents for authoritative per-engine mappings of canonical semstrait primitives (types, functions, temporal shapes, join types) to engine-native counterparts",
+   "use_when": "registry space overview; policy for engine coverage, versioning, Living status; per-catalog navigation pointer",
+   "skip_when": "specific mapping detail (functions/types/temporal/join); canonical definition (see foundations); adapter crate implementation (see apis/36 + adapter crates)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "none",
+   "prereqs": [],
+   "refined_by": [
+    "registry-functions-mapping-intro",
+    "registry-types-mapping",
+    "registry-temporal-shape-mapping-intro-simple",
+    "registry-join-types-mapping-intro-basic"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "registry space index and navigation pointer",
+    "registry policy — engine coverage (three first-class targets: DataFusion / Spark / DuckDB), versioning posture (Living status, per-entry version citation), churn separation from canonical foundations"
+   ],
+   "cross_cut": [],
+   "tests": "README.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "types-mapping",
+   "cluster": "",
+   "file": "types_mapping.md",
+   "concern": "Authoritative per-engine mapping of canonical DataType variants (from foundations/13) to DataFusion/Spark/DuckDB native types, cast semantics (widening/narrowing/precision), and per-engine gaps",
+   "use_when": "DataType mapping — canonical DataType (Boolean/Integer/String/Decimal/Timestamp/…) to engine-native type names; cast reconciliation at Semantics boundary (physical column type ≠ declared data_type); per-engine shortfalls (Spark Time emulation, DuckDB timestamp precision, Decimal256 cap)",
+   "skip_when": "canonical DataType definition (see foundations/13); type promotion in expressions (see foundations/14); physical-column binding process (see foundations/15); adapter implementation (see apis/36)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "implemented",
+   "prereqs": [
+    "13"
+   ],
+   "refined_by": [
+    "36"
+   ],
+   "refines": [
+    "13"
+   ],
+   "authoritative_for": [
+    "canonical DataType → per-engine native type mapping matrix",
+    "cast semantics (widening / narrowing / loss-bearing) per type pair",
+    "per-engine gaps (Spark Time emulation as String, DuckDB timestamp microsecond cap, Decimal256 deferral, interval nanosecond truncation)"
+   ],
+   "cross_cut": [],
+   "tests": "types_mapping.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "functions-mapping",
+   "file": "functions_mapping.md",
+   "concern": "Canonical function catalog to engine function mappings",
+   "use_when": "engine function names, rewrite tiers, arity/signature differences, aliases, rewrite rules",
+   "skip_when": "canonical function definitions (see foundations/14a)",
+   "migrated": false
+  },
+  {
+   "id": "temporal-shape-mapping",
+   "file": "temporal_shape_mapping.md",
+   "concern": "TemporalShape variant per-engine mappings",
+   "use_when": "per-engine temporal shape mapping, Timeseries/Events/Snapshot/SCD engine support, AsOf rewrite-tier matrix",
+   "skip_when": "canonical TemporalShape definitions (see foundations/17)",
+   "migrated": false
+  },
+  {
+   "id": "join-types-mapping",
+   "file": "join_types_mapping.md",
+   "concern": "Canonical JoinType to engine-native join syntax mappings",
+   "use_when": "per-engine join syntax, Inner/Left/Right/Full engine support, cardinality-informed emission",
+   "skip_when": "canonical JoinType definitions (see foundations/18); Joinset behavior (see data-kinds/24)",
+   "migrated": false
+  },
+  {
+   "id": "registry-functions-mapping-intro",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/intro-taxonomy.md",
+   "concern": "Function-mapping intro, rewrite-tier taxonomy (Name-only/Name-remap/Structural/Unsupported), two-layer rewrite (PlanBuilder vs Dialect), and scope overview",
+   "use_when": "function-mapping overview; rewrite-tier definition; PlanBuilder vs Dialect layer split; adapter-extended vs canonical distinction",
+   "skip_when": "specific function emission (see sibling leaves per category); canonical FunctionSpec definition (see foundations/14a); adapter implementation (see apis/36)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14",
+    "14a",
+    "36"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-aggregates",
+    "registry-functions-mapping-binop",
+    "registry-functions-mapping-string",
+    "registry-functions-mapping-math",
+    "registry-functions-mapping-temporal",
+    "registry-functions-mapping-conditional",
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14",
+    "14a"
+   ],
+   "authoritative_for": [
+    "rewrite-tier taxonomy (Name-only / Name-remap / Structural / Unsupported) per (canonical function, engine) pair",
+    "PlanBuilder-layer vs Dialect-layer rewrite assignment and responsibility boundary"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/intro-taxonomy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-aggregates",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/aggregates.md",
+   "concern": "Aggregate function mappings — closed five (Sum/Avg/Count/Min/Max) + non-closed aggregates (stddev/variance/median/string_agg/percentile_cont/approx_count_distinct)",
+   "use_when": "aggregate emission — AggregationOp enum (closed five), non-closed canonical aggregates (stddev/variance/median/string_agg/percentile_cont/approx_count_distinct); per-engine tier (Name-only/Name-remap for variance→var_samp, approx_count_distinct→approx_distinct on DF); DISTINCT clause rendering",
+   "skip_when": "non-aggregate functions; canonical FunctionSpec (see 14a §4.6/§4.7); planner aggregation strategy (see 34)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14",
+    "14a",
+    "registry-functions-mapping-intro"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14a"
+   ],
+   "authoritative_for": [
+    "closed-five aggregates (Sum/Avg/Count/Min/Max) emission (NOT in FunctionRegistry, rendered via Dialect aggregate path)",
+    "non-closed canonical aggregates (stddev/stddev_pop/variance/var_pop/median/string_agg/percentile_cont/approx_count_distinct) per-engine mapping",
+    "percentile_cont WITHIN GROUP clause rendering (dialect-layer)"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/aggregates.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-binop",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/binop-operators.md",
+   "concern": "BinaryOp operators — comparison (Eq/NotEq/Lt/LtEq/Gt/GtEq), arithmetic (Add/Subtract/Multiply/Divide/SafeDivide/Mod), logical (And/Or), per-engine result-type reality (fills 14a §5 gap)",
+   "use_when": "BinaryOp emission — comparison operators (=, <>, <, <=, >, >=); arithmetic operators (+, -, *, /, %, safe_divide); logical operators (AND, OR); per-engine result-type divergence (Integer÷Integer → Integer on DF vs Double on DuckDB/Spark; Decimal division result-type formulae; Date-Date → Interval on DF vs Integer on DuckDB/Spark)",
+   "skip_when": "FunctionCall-shaped functions (see sibling leaves); canonical BinaryOp definition (see 14 §3.3); type promotion lattice (see 14 §5.4)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14",
+    "registry-functions-mapping-intro"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14"
+   ],
+   "authoritative_for": [
+    "comparison operators (Eq/NotEq/Lt/LtEq/Gt/GtEq) per-engine SQL emission (universal Name-only)",
+    "arithmetic operators (Add/Subtract/Multiply/Divide/SafeDivide/Mod) per-engine SQL + result-type reality (Integer÷Integer divergence; Decimal÷Decimal formula; Date-Date result-type)",
+    "logical operators (And/Or) per-engine emission (universal)"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/binop-operators.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-string",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/string-functions.md",
+   "concern": "String function mappings (upper/lower/length/substring/trim/ltrim/rtrim/concat/replace/lpad/rpad/reverse/split_part/position) — canonical entries from 14a §4.2",
+   "use_when": "string function emission — upper/lower/length (array-length name-remap on DF/Spark); substring/trim (btrim on DF); concat (structural rewrite to || chain on DF/DuckDB); lpad/rpad (2-arg→3-arg structural on DuckDB/Spark); position (strpos name-remap + arg-reorder on DF/DuckDB, locate on Spark); reverse (array-reverse name-remap)",
+   "skip_when": "non-string functions; canonical FunctionSpec (see 14a §4.2); demoted legacy functions (initcap/left/right/starts_with/ends_with — see §7.1 in functions_mapping full doc)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14a",
+    "registry-functions-mapping-intro"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14a"
+   ],
+   "authoritative_for": [
+    "string function per-engine mapping (12 ratified canonical entries: upper/lower/length/substring/trim/ltrim/rtrim/concat/replace/lpad/rpad/reverse)",
+    "concat structural rewrite (DF/DuckDB → || chain, Spark Name-only)",
+    "lpad/rpad 2-arg structural rewrite (DuckDB/Spark inject space, DF native)",
+    "position argument-order divergence (canonical (substr, str), DF/DuckDB strpos(str, substr), Spark locate(substr, str))"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/string-functions.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-math",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/math-functions.md",
+   "concern": "Math function mappings (abs/round/ceil/floor/sqrt/power/exp/ln/log/log10/sign) — canonical entries from 14a §4.3",
+   "use_when": "math function emission — abs/round/ceil (Spark Float→BIGINT, requires cast wrap)/floor/sqrt/power/exp/ln; log (2-arg only canonical, 1-arg NOT canonical due to DF/DuckDB=log10 vs Spark=ln divergence); log10; sign (DF signum→cast to Integer structural)",
+   "skip_when": "non-math functions; canonical FunctionSpec (see 14a §4.3); mod (BinaryOpKind::Mod, see binop leaf); trunc (demoted, pending 14a Round-2)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14a",
+    "registry-functions-mapping-intro"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14a"
+   ],
+   "authoritative_for": [
+    "math function per-engine mapping (11 ratified canonical entries: abs/round/ceil/floor/sqrt/power/exp/ln/log/log10/sign)",
+    "Spark ceil/floor Float structural (cast wrap to keep Float→Float canonical shape; Spark native ceil(Float)→BIGINT)",
+    "DF sign structural (signum→cast to Integer; DF signum returns Float)"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/math-functions.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-temporal",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/temporal-functions.md",
+   "concern": "Temporal function mappings (date_part/year/month/day/hour/minute/second/current_date/current_timestamp/date_add/date_sub/date_diff/to_date/to_timestamp) — canonical entries from 14a §4.4",
+   "use_when": "temporal function emission — date_part (universal); year/month/day/hour/minute/second (DF structural rewrite to date_part, DuckDB/Spark Name-only); current_date/current_timestamp; date_add/date_sub (DF/Spark structural to BinaryOp(Add/Subtract, d, i), DuckDB Name-only); date_diff (3-arg canonical, DuckDB Name-only, DF/Spark structural); to_date/to_timestamp (DF/Spark Name-only, DuckDB structural Cast)",
+   "skip_when": "non-temporal functions; canonical FunctionSpec (see 14a §4.4); DateTrunc dedicated variant (see conditional leaf); EXTRACT parser sugar (lowers to date_part, not a registry entry); 2-arg to_date/to_timestamp with format string (demoted, engine format dialects incompatible)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14a",
+    "registry-functions-mapping-intro"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14a"
+   ],
+   "authoritative_for": [
+    "temporal function per-engine mapping (14 ratified canonical entries)",
+    "DF year/month/day/hour/minute/second structural rewrite (date_part('year', x) etc.)",
+    "DF/Spark date_add/date_sub structural rewrite (BinaryOp(Add/Subtract, d, i))",
+    "date_diff 3-arg canonical (part, start, end) structural rewrites (DuckDB Name-only, DF/Spark structural)"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/temporal-functions.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-conditional",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/conditional-dedicated.md",
+   "concern": "Conditional helpers (greatest/least) + dedicated-variant functions (case/coalesce/nullif/is_null/is_not_null/in_list/between/like/ilike/regexp_match/regexp_extract/date_trunc/cast/negate/not) from 14 §3.3",
+   "use_when": "conditional emission (greatest/least universal); dedicated-variant rendering — case/coalesce/nullif (universal); like/ilike (ilike Spark structural LOWER wrap); regexp_match (three different spellings: DF regexp_like, DuckDB regexp_matches, Spark RLIKE); regexp_extract (DF structural PlanBuilder array_element(regexp_match) rewrite, DuckDB/Spark Name-only); date_trunc (universal); cast (universal per types_mapping); negate/not (universal)",
+   "skip_when": "FunctionCall-shaped functions; canonical Expr variants (see 14 §3.3); if/ifnull/nvl (NOT registered, authors use Case/Coalesce); regexp_replace (FunctionCall, see full doc §11.1)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "14",
+    "registry-functions-mapping-intro"
+   ],
+   "refined_by": [
+    "registry-functions-mapping-summary"
+   ],
+   "refines": [
+    "14"
+   ],
+   "authoritative_for": [
+    "greatest/least canonical functions (universal Name-only, NULL-skip semantics)",
+    "dedicated-variant Expr rendering (case/coalesce/nullif/is_null/is_not_null/in_list/between/like/ilike/regexp_match/regexp_extract/date_trunc/cast/negate/not) per-engine Dialect-layer emission",
+    "ilike Spark structural (LOWER(expr) LIKE LOWER(pattern))",
+    "regexp_match three-engine divergence (DF regexp_like, DuckDB regexp_matches, Spark RLIKE)",
+    "regexp_extract DF PlanBuilder structural (array_element(regexp_match(...), group+1))"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/conditional-dedicated.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-functions-mapping-summary",
+   "cluster": "functions_mapping",
+   "file": "functions_mapping/summary-gaps.md",
+   "concern": "Per-adapter rewrite summary (§13 DF/DuckDB/Spark/ANSI layering digest), per-engine coverage gaps (§14 TD entries), adapter-extended inventory (§12 seed lists), cast-semantics edge cases (§16), TD index (§18), versioning (§15), interaction (§17)",
+   "use_when": "per-adapter rewrite checklist — full DF/DuckDB/Spark rewrite table (PlanBuilder vs Dialect layer per function); coverage-gap catalog (TD entries per failed Q10 intersection: initcap, percentile_disc, 2-arg to_date/to_timestamp, if/ifnull/nvl); adapter-extended seed lists (§12 DF/DuckDB/Spark extensions); cast-semantics edge cases (Integer÷Integer, Decimal÷Decimal, Date-Date, count/sum return width); versioning pins; TD index",
+   "skip_when": "specific function emission detail (see sibling leaves per category); canonical FunctionSpec (see 14a)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "drift",
+   "prereqs": [
+    "registry-functions-mapping-intro",
+    "registry-functions-mapping-aggregates",
+    "registry-functions-mapping-binop",
+    "registry-functions-mapping-string",
+    "registry-functions-mapping-math",
+    "registry-functions-mapping-temporal",
+    "registry-functions-mapping-conditional"
+   ],
+   "refined_by": [],
+   "refines": [
+    "14a"
+   ],
+   "authoritative_for": [
+    "per-adapter rewrite summary (§13 DF/DuckDB/Spark layering digest — PlanBuilder vs Dialect per function)",
+    "per-engine coverage gaps (§14 TD entries — failed Q10 intersection: initcap, percentile_disc, 2-arg to_date/to_timestamp format-string, if/ifnull/nvl, datetime-formats)",
+    "adapter-extended function inventory (§12 seed lists — DF: array_element/regexp_match/array_to_string/sha2/nanvl; DuckDB: list_extract/regexp_extract_all/list_append/strptime/epoch_ms/percentile_disc; Spark: collect_set/collect_list/array_join/percentile_approx/percentile_disc/try_divide/pmod)",
+    "cast-semantics edge cases (§16 — Integer÷Integer result-type divergence, Decimal÷Decimal formula divergence, Date-Date result-type divergence, count/sum return width)"
+   ],
+   "cross_cut": [],
+   "tests": "functions_mapping/summary-gaps.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-join-types-mapping-intro-basic",
+   "cluster": "join_types_mapping",
+   "file": "join_types_mapping/intro-basic.md",
+   "concern": "Join-types mapping intro, scope, engine roster, plus four non-temporal canonical JoinType variants (Inner/Left/Right/Full) — universal per-engine emission",
+   "use_when": "join-types overview; scope/purpose; engine roster (DF/DuckDB/Spark/Snowflake/BigQuery/Substrait); Inner/Left/Right/Full per-engine SQL (INNER JOIN, LEFT JOIN, RIGHT JOIN, FULL OUTER JOIN); ON vs USING emission preference (always ON); RIGHT-rewrite posture (preserve orientation, emit RIGHT verbatim); NATURAL JOIN avoidance",
+   "skip_when": "AsOf joins (see AsOf leaf); reserved variants Semi/Anti/Lateral (see AsOf leaf); cardinality-informed emission (see cardinality leaf); canonical JoinType semantics (see 16 §4.2); planner join-choice (see 16 §4.2 + 34)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "implemented",
+   "prereqs": [
+    "16"
+   ],
+   "refined_by": [
+    "registry-join-types-mapping-asof",
+    "registry-join-types-mapping-cardinality"
+   ],
+   "refines": [
+    "16"
+   ],
+   "authoritative_for": [
+    "join-types mapping catalog purpose and scope",
+    "Inner/Left/Right/Full per-engine SQL emission (universal — all engines native)",
+    "ON vs USING preference (always ON per Q-JOIN-MAP-002 Option A)",
+    "RIGHT JOIN posture (preserve author orientation, emit verbatim per Q-JOIN-MAP-003 Option A)"
+   ],
+   "cross_cut": [],
+   "tests": "join_types_mapping/intro-basic.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-join-types-mapping-asof",
+   "cluster": "join_types_mapping",
+   "file": "join_types_mapping/asof-reserved.md",
+   "concern": "AsOf join variant emission (ScdWindow / SnapshotLatestAtOrBefore anchors), rewrite-tier table (First-class / Structural / Unsupported per anchor×engine), reserved future variants (Semi/Anti/Lateral) and Round-1 alternatives",
+   "use_when": "AsOf join — JoinType::AsOf(anchor) per-engine tier (DuckDB/Snowflake First-class with half-open fallback, DF/Spark/BigQuery Structural); ScdWindow half-open predicate preferred (Q-TEMPORAL-MAP-004 Option C); SnapshotLatestAtOrBefore native ASOF on DuckDB/Snowflake; reserved variants (Semi/Anti/Lateral DEFERRED per 16 §4.3); rewrite-tier taxonomy (First-class / Structural / Unsupported)",
+   "skip_when": "non-temporal joins (see intro-basic leaf); cardinality-informed emission (see cardinality leaf); temporal-shape-first entry (see temporal_shape_mapping §4.2 — authoritative per Q-JOIN-MAP-004); canonical AsOf semantics (see 17 §5.1); planner AsOf support (DEFERRED per 17 §10)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "planned",
+   "prereqs": [
+    "16",
+    "17",
+    "registry-join-types-mapping-intro-basic"
+   ],
+   "refined_by": [
+    "registry-join-types-mapping-cardinality",
+    "registry-temporal-shape-mapping-asof"
+   ],
+   "refines": [
+    "16",
+    "17"
+   ],
+   "authoritative_for": [
+    "AsOf join per-(anchor, engine) rewrite-tier classification (§3.5, §4.2 table — companion summary to temporal_shape_mapping §4.2)",
+    "ScdWindow trailing-closure rationale (half-open predicate preferred per Q-TEMPORAL-MAP-004 Option C)",
+    "SnapshotLatestAtOrBefore native ASOF (DuckDB/Snowflake First-class, others Structural)",
+    "reserved variants (Semi/Anti/Lateral) — DEFERRED from v1, Round-1 alternatives (Semi/Anti via EXISTS/NOT EXISTS filter, Lateral via computed Dimension/Measure expr)"
+   ],
+   "cross_cut": [
+    "registry-temporal-shape-mapping-asof"
+   ],
+   "tests": "join_types_mapping/asof-reserved.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-join-types-mapping-cardinality",
+   "cluster": "join_types_mapping",
+   "file": "join_types_mapping/cardinality-gaps.md",
+   "concern": "Cardinality-informed emission (DISTINCT/array-aggregation hints for OneToMany/ManyToMany), cross-engine idioms (windowed-ASOF emulation, lateral-join correlated subquery, FULL OUTER emulation, DISTINCT vs GROUP BY), per-engine gap catalog, TD index, versioning, interaction",
+   "use_when": "cardinality-informed emission — when adapter MAY emit DISTINCT (ManyToMany opt-in only per Q-JOIN-MAP-006); array-aggregation hints (collect_list/array_agg NOT auto-emitted); Cardinality × JoinType advisory retired (PLAN_W_0501/0502 retired 16 §14.4); cross-engine idioms (windowed-ASOF QUALIFY vs subquery-wrap, lateral-join correlated subquery, FULL OUTER LEFT+RIGHT UNION emulation for historical dialects, DISTINCT vs GROUP BY); per-engine gaps (DF/Spark/BigQuery AsOf Structural, DuckDB ScdWindow trailing closure, Spark RIGHT normalization preference); TD index; versioning; interaction",
+   "skip_when": "specific JoinType emission (see intro-basic/AsOf leaves); canonical cardinality semantics (see 16 §3); fanout-safe rewrite (see 16 §3.3.2 — planner concern, not adapter)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "implemented",
+   "prereqs": [
+    "16",
+    "registry-join-types-mapping-intro-basic",
+    "registry-join-types-mapping-asof"
+   ],
+   "refined_by": [],
+   "refines": [
+    "16"
+   ],
+   "authoritative_for": [
+    "cardinality-informed emission — when adapter MAY emit DISTINCT (ManyToMany opt-in per Q-JOIN-MAP-006 Option A: no auto-emission), array-aggregation hints (collect_list/array_agg NOT auto-emitted)",
+    "cross-engine idioms — windowed-ASOF emulation (QUALIFY vs subquery-wrap §6.1), lateral-join emulation (correlated subquery §6.2), FULL OUTER emulation (LEFT+RIGHT UNION §6.3), DISTINCT vs GROUP BY (§6.4)",
+    "per-engine gap catalog (§7 — DF AsOf Structural, DuckDB ScdWindow trailing closure, Spark AsOf Structural, Spark RIGHT-rewrite posture)"
+   ],
+   "cross_cut": [],
+   "tests": "join_types_mapping/cardinality-gaps.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-temporal-shape-mapping-intro-simple",
+   "cluster": "temporal_shape_mapping",
+   "file": "temporal_shape_mapping/intro-simple-shapes.md",
+   "concern": "Temporal-shape mapping intro, scope, engine roster, plus Timeseries and Events (simple shapes) — universal per-engine emission via date_trunc + GROUP BY",
+   "use_when": "temporal-shape overview; scope/purpose; engine roster (DF 40.x+ / DuckDB 1.1.x / Spark 3.5.x / Snowflake 2024.x / BigQuery 2024.x / Substrait 0.48+); Timeseries shape (dense regular-cadence, date_trunc rollup, gap-filling strategies); Events shape (sparse occurrences, date_trunc bucket-then-aggregate, no density assumption)",
+   "skip_when": "Snapshot (see Snapshot leaf); Scd (see Scd leaf); AsOf anchors (see AsOf leaf); canonical TemporalShape definition (see 17); planner Request.temporal consumption (DEFERRED per 17 §10)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "implemented",
+   "prereqs": [
+    "17"
+   ],
+   "refined_by": [
+    "registry-temporal-shape-mapping-snapshot",
+    "registry-temporal-shape-mapping-scd",
+    "registry-temporal-shape-mapping-asof"
+   ],
+   "refines": [
+    "17"
+   ],
+   "authoritative_for": [
+    "temporal-shape mapping catalog purpose and scope",
+    "Timeseries shape per-engine emission (universal date_trunc + GROUP BY; gap-filling strategies generate_series/range/sequence per engine)",
+    "Events shape per-engine emission (universal date_trunc bucket-then-aggregate, no density assumption)"
+   ],
+   "cross_cut": [],
+   "tests": "temporal_shape_mapping/intro-simple-shapes.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-temporal-shape-mapping-snapshot",
+   "cluster": "temporal_shape_mapping",
+   "file": "temporal_shape_mapping/snapshot.md",
+   "concern": "Snapshot shape emission — WHERE-max canonical fallback, native table-level time-travel (Spark Delta/Iceberg VERSION AS OF, Snowflake AT/BEFORE, BigQuery FOR SYSTEM_TIME AS OF), QUALIFY-based latest-at-or-before, cadence-rollup reducer policies",
+   "use_when": "Snapshot shape — periodic full-state capture at snapshotted_at_dim; WHERE-max pattern (universal fallback §6.1); native time-travel per engine (Spark Delta/Iceberg VERSION AS OF / TIMESTAMP AS OF, Snowflake AT/BEFORE, BigQuery FOR SYSTEM_TIME AS OF); QUALIFY vs subquery-wrap ROW_NUMBER rewrite; cadence-rollup reducer policies (last-in-period Round-1 default, other reducers DEFERRED per 17 §10 D8)",
+   "skip_when": "Timeseries/Events (see intro-simple leaf); Scd (see Scd leaf); AsOf anchors (see AsOf leaf); canonical Snapshot semantics (see 17 §2.1, §4.1); planner Request.temporal.as_of (DEFERRED per 17 §10)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "planned",
+   "prereqs": [
+    "17",
+    "registry-temporal-shape-mapping-intro-simple"
+   ],
+   "refined_by": [
+    "registry-temporal-shape-mapping-asof"
+   ],
+   "refines": [
+    "17"
+   ],
+   "authoritative_for": [
+    "Snapshot shape per-engine emission (§3.3 table: WHERE-max universal, native time-travel per engine)",
+    "WHERE-max pattern (§6.1 canonical fallback — SELECT ... WHERE snapshotted_at = (SELECT MAX(...) WHERE snapshotted_at <= :as_of))",
+    "QUALIFY vs subquery-wrap ROW_NUMBER rewrite (§6.2, §6.4 — DuckDB/Spark 3.4+/Snowflake/BigQuery QUALIFY, DF/Spark<3.4 subquery)",
+    "cadence-rollup reducer policies (§3.3.3 — last-in-period Round-1, full catalog DEFERRED to 25 per 17 §10 D8)"
+   ],
+   "cross_cut": [],
+   "tests": "temporal_shape_mapping/snapshot.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-temporal-shape-mapping-scd",
+   "cluster": "temporal_shape_mapping",
+   "file": "temporal_shape_mapping/scd.md",
+   "concern": "Scd (Slowly-Changing Dimension) Type0–Type6 emission — valid-window half-open predicate (Type2/5/6), per-subtype mapping (Type0 append-only, Type1 MERGE, Type2 valid_from/valid_to, Type3 prior-value column, Type4/5/6 DEFERRED), sentinel-vs-NULL conventions, default-current lookup",
+   "use_when": "Scd subtypes — Type0 (append-only, no special emission); Type1 (MERGE overwrite); Type2 (valid_from/valid_to, half-open predicate valid_from <= probe AND (valid_to > probe OR valid_to IS NULL)); Type3 (prior-value column read); Type4 (history table, DEFERRED 17 §10 D7); Type5 (Type4 + mini-dim, DEFERRED 17 §10 D9); Type6 (hybrid Type1+2+3, DEFERRED 17 §10 D10); sentinel-vs-NULL (Round-1 NULL-aware only per Q-TEMPORAL-MAP-007); default-current lookup (current_flag / valid_to IS NULL / ROW_NUMBER heuristic)",
+   "skip_when": "Timeseries/Events (see intro-simple leaf); Snapshot (see Snapshot leaf); AsOf anchors (see AsOf leaf — ScdWindow half-open predicate cross-linked); canonical Scd semantics (see 17 §2.2); planner Request.temporal consumption (DEFERRED per 17 §10)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "planned",
+   "prereqs": [
+    "17",
+    "registry-temporal-shape-mapping-intro-simple"
+   ],
+   "refined_by": [
+    "registry-temporal-shape-mapping-asof"
+   ],
+   "refines": [
+    "17"
+   ],
+   "authoritative_for": [
+    "Scd Type0–Type6 per-subtype emission (§3.4 table)",
+    "Type2 valid-window half-open predicate (§3.4.2 — canonical form: valid_from <= probe AND (valid_to > probe OR valid_to IS NULL))",
+    "sentinel-vs-NULL conventions (§3.4.3 — Round-1 NULL-aware only; '9999-12-31' sentinel DEFERRED per 17 §10 D13)",
+    "default-current lookup (§6.5 — current_flag / valid_to IS NULL / ROW_NUMBER heuristic)"
+   ],
+   "cross_cut": [
+    "registry-temporal-shape-mapping-asof"
+   ],
+   "tests": "temporal_shape_mapping/scd.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "registry-temporal-shape-mapping-asof",
+   "cluster": "temporal_shape_mapping",
+   "file": "temporal_shape_mapping/asof-idioms-gaps.md",
+   "concern": "AsOf anchor emission (ScdWindow / SnapshotLatestAtOrBefore), rewrite-tier table (First-class / Structural / Unsupported per anchor×engine), cross-engine idioms (windowed-ASOF QUALIFY/subquery, half-open predicate, default-current), per-engine gap catalog, TD index, versioning, interaction",
+   "use_when": "AsOf anchor emission — JoinType::AsOf(anchor) per-(anchor, engine) tier (§4.2 table — AUTHORITATIVE per Q-JOIN-MAP-004 Option A, join_types_mapping §4.2 mirrors this); ScdWindow half-open predicate (§6.3 canonical form); SnapshotLatestAtOrBefore native ASOF (DuckDB/Snowflake First-class, others Structural); cross-engine idioms (QUALIFY vs subquery-wrap §6.4, WHERE-max §6.1, windowed ROW_NUMBER §6.2, default-current §6.5); per-engine gaps (DF AsOf Structural, Spark AsOf Structural QUALIFY, DuckDB ScdWindow trailing closure, Snowflake ScdWindow half-open preferred); TD index; versioning; interaction",
+   "skip_when": "non-AsOf shapes (see intro-simple/Snapshot/Scd leaves); canonical AsOf semantics (see 17 §5.1); JoinType-first entry (see join_types_mapping §3.5/§4 — companion summary); planner AsOf support (DEFERRED per 17 §10)",
+   "status": "ratified",
+   "version": "1.0",
+   "impl": "planned",
+   "prereqs": [
+    "17",
+    "registry-temporal-shape-mapping-intro-simple",
+    "registry-temporal-shape-mapping-snapshot",
+    "registry-temporal-shape-mapping-scd"
+   ],
+   "refined_by": [
+    "registry-join-types-mapping-asof"
+   ],
+   "refines": [
+    "17"
+   ],
+   "authoritative_for": [
+    "AsOf per-(anchor, engine) rewrite-tier table (§4.2 — AUTHORITATIVE per Q-JOIN-MAP-004 Option A; join_types_mapping §4.2 is a companion summary)",
+    "ScdWindow half-open predicate (§6.3 — canonical emission: valid_from <= probe AND (valid_to > probe OR valid_to IS NULL); preferred on every engine per Q-TEMPORAL-MAP-004 Option C)",
+    "SnapshotLatestAtOrBefore native ASOF (DuckDB/Snowflake First-class ASOF JOIN ... ON probe >= anchor, others Structural via QUALIFY/subquery ROW_NUMBER)",
+    "cross-engine idioms — windowed-ASOF emulation (§6.1 QUALIFY vs §6.4 subquery-wrap), WHERE-max (§6.1), default-current (§6.5)"
+   ],
+   "cross_cut": [
+    "registry-join-types-mapping-asof"
+   ],
+   "tests": "temporal_shape_mapping/asof-idioms-gaps.md#testing-strategy",
+   "migrated": true
+  }
+ ]
+}

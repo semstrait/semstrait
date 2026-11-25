@@ -1,0 +1,38 @@
+{
+ "space": "testing",
+ "leaves": [
+  {
+   "id": "50-behavioral-contract-gates",
+   "cluster": "testing",
+   "file": "50_behavioral_contract_gates.md",
+   "concern": "Behavioral contract-gate suite (BDD quality gates, cucumber-rs harness)",
+   "use_when": "behavioral quality-gate suite (BDD, cucumber-rs) for the semstrait pipeline; the four contract pillars (P1 nesting @nesting, P2 schema-shape @schema, P3 resolved/unresolved @resolution, P4 pipeline end-result @pipeline); gate lifecycle tags (@now/@target/@determinism/@I4); harness architecture (World, step library, catalog/filesystem doubles); the shared harness that per-leaf ## Testing Strategy sections point to",
+   "skip_when": "per-stage crate contracts (see 30/33/34/35/36); the unit-tier below this suite (semstrait-dev TESTING.md, make test); post-ratification harness crate-code + INDEX/STATUS sync (gated in §12, not yet applied)",
+   "status": "proposed",
+   "version": "1.0",
+   "impl": "none",
+   "prereqs": [
+    "00",
+    "10",
+    "12",
+    "14",
+    "19",
+    "26",
+    "33",
+    "35",
+    "36"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "behavioral contract-gate suite (four pillars P1-P4) and posture",
+    "gate lifecycle + topic tags (@now/@target/@determinism/@I4/@nesting/@schema/@resolution/@pipeline)",
+    "cucumber-rs harness architecture (World, step library, catalog/filesystem doubles, fixtures)",
+    "the shared behavioral harness that per-leaf ## Testing Strategy sections reference"
+   ],
+   "cross_cut": [],
+   "tests": "50_behavioral_contract_gates.md#testing-strategy",
+   "migrated": true
+  }
+ ]
+}

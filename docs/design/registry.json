@@ -1,0 +1,103 @@
+{
+ "schema": {
+  "version": "1.1",
+  "spaces_key": "spaces",
+  "leaf_required_fields": [
+   "id",
+   "concern",
+   "use_when",
+   "skip_when",
+   "status",
+   "version",
+   "impl",
+   "prereqs",
+   "tests"
+  ],
+  "leaf_header_fields": [
+   "id",
+   "status",
+   "version",
+   "impl"
+  ]
+ },
+ "spaces": [
+  {
+   "name": "foundations",
+   "manifest": "foundations/_manifest.json",
+   "use_when": "names/scopes, expressions, composition, mapping, temporal shape, entities, pipeline stages",
+   "skip_when": "per-crate API surface (see apis); per-variant DataKind behavior (see data-kinds); engine mapping (see registry)",
+   "rollup": {
+    "leaves": 70,
+    "migrated": 63,
+    "ratified": 61,
+    "draft": 0,
+    "version_range": "unknown"
+   }
+  },
+  {
+   "name": "data-kinds",
+   "manifest": "data-kinds/_manifest.json",
+   "use_when": "DataKind taxonomy, Dataset/Grainset/Unionset/Joinset variant behavior, applicability/nesting matrices",
+   "skip_when": "cross-cutting foundations (see foundations); crate APIs (see apis)",
+   "rollup": {
+    "leaves": 28,
+    "migrated": 23,
+    "ratified": 23,
+    "draft": 0,
+    "version_range": "unknown"
+   }
+  },
+  {
+   "name": "apis",
+   "manifest": "apis/_manifest.json",
+   "use_when": "per-crate public contract, semver policy, crate boundaries, API stability",
+   "skip_when": "cross-cutting semantic foundations (see foundations)",
+   "rollup": {
+    "leaves": 60,
+    "migrated": 51,
+    "ratified": 50,
+    "draft": 0,
+    "version_range": "unknown"
+   }
+  },
+  {
+   "name": "testing",
+   "manifest": "testing/_manifest.json",
+   "use_when": "behavioral contract gates, quality gates, test harness philosophy",
+   "skip_when": "per-leaf testing strategies (see each leaf's ## Testing Strategy section); unit test details (see crate code)",
+   "rollup": {
+    "leaves": 1,
+    "migrated": 1,
+    "ratified": 0,
+    "draft": 0,
+    "version_range": "unknown"
+   }
+  },
+  {
+   "name": "registry",
+   "manifest": "registry/_manifest.json",
+   "use_when": "engine-specific mappings, types/functions/temporal/join mapping per engine",
+   "skip_when": "canonical type/function/temporal definitions (see foundations); adapter API contract (see apis)",
+   "rollup": {
+    "leaves": 20,
+    "migrated": 17,
+    "ratified": 17,
+    "draft": 0,
+    "version_range": "unknown"
+   }
+  },
+  {
+   "name": "questions",
+   "manifest": "questions/_manifest.json",
+   "use_when": "decision lifecycle, open/closed/deferred question state, ratification history",
+   "skip_when": "ratified design content (see foundations/data-kinds/apis)",
+   "rollup": {
+    "leaves": 65,
+    "migrated": 0,
+    "ratified": 0,
+    "draft": 0,
+    "version_range": "unknown"
+   }
+  }
+ ]
+}

@@ -1,0 +1,837 @@
+{
+ "space": "data-kinds",
+ "leaves": [
+  {
+   "id": "20-taxonomy",
+   "file": "20_taxonomy.md",
+   "concern": "DataKind taxonomy and shared invariants",
+   "use_when": "DataKind trait hierarchy, Simple/Complex split, variant contracts, shared invariants D1-D9",
+   "skip_when": "per-variant behavior (see 21-24); composition machinery (see foundations/16)",
+   "migrated": false
+  },
+  {
+   "id": "21-dataset",
+   "cluster": "data-kinds-dataset",
+   "file": "21_dataset.md",
+   "concern": "Dataset (SimpleDataKind) variant: authoring surface (explicit vs implicit fields), one-Binding consumer contract, plan-time observable invariants, multi-source fan-out as implicit Unionset, and Dataset-specific preconditions (VALID_E_2100-2199, COMP_E_2100-2199, PLAN_E_2100-2199)",
+   "use_when": "Dataset authoring surface; explicit vs implicit fields; SimpleDataKind obligations; one-Binding-per-Dataset rule; multi-source fan-out (implicit Unionset mode all); aggregation-boundary emission; sub-aggregation + UNION ALL + conditional final-aggregation pattern; Binding consumer contract; TemporalShape authoring (extras.temporal); Grain authoring (inside TemporalShape variant); VALID_E_2100-2199 structural validation (SimpleMissingStorage, SimpleStorageBothPathsAndTables, SimpleInterfaceEmpty, SimpleTemporalShapeMissingIdentifier); COMP_E_2100-2199 compile errors (SimpleBindingResolutionFailed, SimpleSourceGlobEmpty, SimpleMultiSourceIncompatibleNullFill); PLAN_E_2100-2199 plan-time errors (SimpleRequestReferencesUnknownSemantics, RequestGrainFinerThanSource); per-variant TemporalShape cascade rules cross-reference; worked example (multi-source metadata disjointness)",
+   "skip_when": "DataKind sealed trait hierarchy (see 20-datakind-taxonomy); Strategy trait surface (see 20-strategy-lifecycle); SimpleStrategy algorithm body (see 34); Binding mechanics (see 15); PlanNode shapes (see 35); adapter rendering (see 36); per-variant TemporalShape cascade rules (see 22/23/24); nesting matrix (see 26); ComposedSemanticInterface (see 16)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "20-datakind-taxonomy",
+    "20-strategy-lifecycle",
+    "32",
+    "18",
+    "13",
+    "14",
+    "15",
+    "17",
+    "26-nesting-matrix"
+   ],
+   "refined_by": [
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape",
+    "25-applicability-matrix-core",
+    "33",
+    "34",
+    "35",
+    "36"
+   ],
+   "refines": [
+    "20-datakind-taxonomy"
+   ],
+   "authoritative_for": [
+    "the `Dataset` variant's authoring surface — which fields are explicit (authored) vs. implicit (compile-derived); cross-references the type-level shape in `32 §3.3` (`Dataset` / `NestedDataset` concrete forms), `32 §3.2` (`DatasetBody`), and `32 §4` (`LeafExtras`)",
+    "the one-`Binding`-per-`Dataset` consumer contract (the structural rule lives in `15 §2.1`; `21` ratifies the variant-specific consumer obligations)",
+    "plan-time observable invariants for `Dataset` resolution — multi-source fan-out as implicit Unionset (mode `all`); aggregation-boundary emission; sub-aggregation + UNION ALL + conditional final-aggregation pattern",
+    "the Dataset-specific Precondition surfaces — `VALID_E_2100`–`2199` (structural), `COMP_E_2100`–`2199` (compile), `PLAN_E_2100`–`2199` (plan)",
+    "how a `Dataset` carries `TemporalShape` and `Grain` declarations at the authoring surface; cross-references the per-variant cascade rules forthcoming in `22` / `23` / `24`"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy"
+   ],
+   "tests": "21_dataset.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset",
+   "file": "22_grainset.md",
+   "concern": "Grainset behavior (grain-aware composition)",
+   "use_when": "Grainset variant, level selection, grain-axis interaction",
+   "skip_when": "Dataset/Unionset/Joinset (see 21/23/24); grain definitions (see foundations/13)",
+   "migrated": false
+  },
+  {
+   "id": "23-unionset",
+   "file": "23_unionset.md",
+   "concern": "Unionset behavior (union composition)",
+   "use_when": "Unionset variant, branch assembly, Coverage consumption, NULL-fill",
+   "skip_when": "Dataset/Grainset/Joinset (see 21/22/24); composition foundations (see foundations/16)",
+   "migrated": false
+  },
+  {
+   "id": "24-joinset",
+   "file": "24_joinset.md",
+   "concern": "Joinset behavior (relationship composition)",
+   "use_when": "Joinset variant, anchor, relationship path, materialized composed surface",
+   "skip_when": "Dataset/Grainset/Unionset (see 21-23); Relationship definitions (see foundations/16)",
+   "migrated": false
+  },
+  {
+   "id": "25-applicability-matrix",
+   "file": "25_applicability_matrix.md",
+   "concern": "Cross-variant applicability matrix",
+   "use_when": "per-variant foundation-rule cross-cuts, planner strategy matrix",
+   "skip_when": "individual variant behavior (see 21-24); nesting legality (see 26)",
+   "migrated": false
+  },
+  {
+   "id": "26-nesting-matrix",
+   "cluster": "data-kinds-nesting",
+   "file": "26_nesting_matrix.md",
+   "concern": "Nesting matrix (which parent DataKind variant may contain which nested variants), three nesting rules R1 (leaves don't nest), R2 (no same-variant self-nesting), R3 (ComplexDataKind requires ≥ 2 children), Nested-form structural-only rule, and nested addressing scheme for diagnostics",
+   "use_when": "nesting matrix (parent × child legality table); R1 (leaves never contain children, Dataset is terminal); R2 (same-variant self-nesting forbidden); R3 (ComplexDataKind requires at least 2 children); Nested-form structural-only rule (nested DataKinds carry no description/ai_context/SemanticInterface); extras on nested DataKinds (LeafExtras on NestedDataset, ComplexExtras on nested composers); addressing scheme (dotted plural-key paths for diagnostics); enforcement (type-level vs validate-stage); SR-4/SR-10/SR-2 cross-reference; adjacent entity-level rules pointer (SR-E-7/SR-E-8 grain rules, 18 §2 Relationship shape)",
+   "skip_when": "per-variant nesting semantics (see 22 Grainset per-level, 23 Unionset per-branch, 24 Joinset per-member); DataKind sealed trait hierarchy (see 20-datakind-taxonomy); per-variant authoring surface (see 21/22/23/24); TemporalShape cascade rules (see 22/23/24); entity-level SR-E-* rules roster (see 18 §11); structural rule enforcement details (see 32 §6)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "none",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "12",
+    "15",
+    "18",
+    "20-datakind-taxonomy",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape",
+    "32"
+   ],
+   "refined_by": [
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape",
+    "32",
+    "18"
+   ],
+   "refines": [
+    "20-datakind-taxonomy"
+   ],
+   "authoritative_for": [
+    "the nesting matrix — which parent data-kind variant may contain which nested variants",
+    "the three nesting rules R1 (leaves don't nest), R2 (no same-variant self-nesting), R3 (`ComplexDataKind` requires ≥ 2 children)",
+    "the Nested-form structural-only rule — nested data kinds carry no `SemanticInterface`, no `ai_context`",
+    "the nested addressing scheme for diagnostics (`<plural-tag>[<name>]` dotted paths)"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape"
+   ],
+   "tests": "26_nesting_matrix.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "20-datakind-taxonomy",
+   "cluster": "data-kinds-taxonomy",
+   "file": "20_taxonomy/datakind-taxonomy.md",
+   "concern": "DataKind sealed trait hierarchy, four-variant roster (Dataset/Grainset/Unionset/Joinset), Simple vs Complex split, shared invariants D1-D9, and the variant-level contract surface",
+   "use_when": "DataKind trait hierarchy; SimpleDataKind vs ComplexDataKind; PublicDataKind vs NestedDataKind; four-variant roster; DataKindVariant enum; DataKindForm enum; Binding-on-Simple-only rule; interface exposure (bare vs ComposedSemanticInterface); shared invariants D1 (single-binding-on-Simple) through D9 (variant-to-strategy total mapping); nesting legality matrix pointer (26); authoritative for the DataKind roster table that 22/23/24/25 cross-cut into",
+   "skip_when": "Strategy trait algorithm body (see 34); per-variant resolution details (see 21/22/23/24); PlanNode emission (see 35); adapter rendering (see 36); nesting matrix enforcement (see 26); per-variant TemporalShape cascade (see 22/23/24); error code detailed emission (see per-variant docs)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "10",
+    "11",
+    "12",
+    "15",
+    "16",
+    "17"
+   ],
+   "refined_by": [
+    "20-strategy-lifecycle",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape",
+    "25-applicability-matrix-core",
+    "17",
+    "33",
+    "34",
+    "25-rollup-coverage",
+    "26-nesting-matrix"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `DataKind` taxonomy as a sealed trait hierarchy with two orthogonal axes — structural (`SimpleDataKind` / `ComplexDataKind`) and behavioral (`PublicDataKind` / `NestedDataKind`) — over the four V1 concrete variants (`Dataset` plus three composers)",
+    "the `ComplexDataKind` extension axis: `#[non_exhaustive]` so future composers land as MINOR",
+    "the variant-level contract surface — what every concrete variant exposes through the sealed trait hierarchy",
+    "the `Simple` vs `Complex` split: leaf-with-Binding vs composer-without-Binding",
+    "the four-variant summary matrix (composes? / Binding carried? / interface type / grain-aware? / uses Relationships? / fan-out rule)",
+    "shared DataKind invariants D1–D9 that hold for every variant"
+   ],
+   "cross_cut": [
+    "26-nesting-matrix"
+   ],
+   "tests": "20_taxonomy/datakind-taxonomy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "20-strategy-lifecycle",
+   "cluster": "data-kinds-taxonomy",
+   "file": "20_taxonomy/strategy-lifecycle.md",
+   "concern": "Strategy trait surface, dispatch mechanism, per-stage responsibility skeleton (parse/validate/compile/plan/optimize/adapt), and the shared error-code roster (VALID_E_2000-2099, COMP_E_2000-2099, PLAN_E_2040-2099)",
+   "use_when": "Strategy trait signature; Strategy::resolve; StrategyRegistry; dispatch_strategy match; per-variant strategy mapping (SimpleStrategy/GrainsetStrategy/UnionsetStrategy/JoinsetStrategy); per-stage shared responsibilities (parse/validate/compile/plan/optimize/adapt skeleton); error-code allocation (2000-2099 shared, 2100-2599 per-variant sub-ranges); VALID_E_20xx structural validation roster; COMP_E_20xx compile-time errors; PLAN_E_20xx plan-time errors; strategy-per-variant principle (D9)",
+   "skip_when": "DataKind taxonomy/abstraction/invariants (see 20-datakind-taxonomy); per-variant Strategy algorithm bodies (see 21/22/23/24); PlanNode emission (see 35); adapter rendering (see 36); per-variant error codes 2100+ (see 21/22/23/24/25)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "20-datakind-taxonomy"
+   ],
+   "refined_by": [
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape",
+    "25-applicability-matrix-core",
+    "34"
+   ],
+   "refines": [
+    "20-datakind-taxonomy"
+   ],
+   "authoritative_for": [
+    "the strategy-per-variant principle and the `Strategy` trait surface",
+    "the per-stage responsibility skeleton shared across all variants; per-variant specialization deferred to `21`–`24`",
+    "the shared DataKind error-code roster (`*_E_2000`–`*_E_2099`) and the reservation of `2100`–`2599` sub-ranges for `21`–`25`"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy"
+   ],
+   "tests": "20_taxonomy/strategy-lifecycle.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset-authoring",
+   "cluster": "22_grainset",
+   "file": "22_grainset/authoring.md",
+   "concern": "Grainset authoring surface — explicit vs implicit fields, Public vs Nested form, per-child grain mandatory (SR-E-8), ≥2 unique grains requirement",
+   "use_when": "GrainsetBody / ComplexExtras authoring; explicit fields (name, semantic_interface, mode, children, extras.temporal) vs implicit (id, per-child Coverage, effective routing units); SR-E-7 (no grain on Complex) / SR-E-8 (Grainset child grain required); ≥2 unique grains rule",
+   "skip_when": "routing mechanics (see 22-grainset-routing); cross-grain composition (see 22-grainset-cross-grain); same-grain pre-merge (see 22-grainset-same-grain); error rosters (see 22-grainset-errors)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "20-datakind-taxonomy",
+    "32",
+    "26-nesting-matrix",
+    "18"
+   ],
+   "refined_by": [
+    "22-grainset-routing",
+    "22-grainset-same-grain",
+    "22-grainset-cross-grain",
+    "25-applicability-matrix-core"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the Grainset authoring surface — which fields are explicit (authored) vs implicit (compile-derived); cross-references the type-level shape in 32 §3.3 (Grainset/NestedGrainset), 32 §3.2 (GrainsetBody), 32 §4 (ComplexExtras)",
+    "the ≥2 unique grains requirement (stronger than R3's ≥2 children)",
+    "the v1 inference-only per-child Coverage model — no authored per-child override; fold from each child's interface + Binding-level Coverage"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy",
+    "26-nesting-matrix"
+   ],
+   "tests": "22_grainset/authoring.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset-same-grain",
+   "cluster": "22_grainset",
+   "file": "22_grainset/same-grain.md",
+   "concern": "Same-grain pre-merge mechanism — implicit Unionset assembly (mode: All, non-strict NullFilling per 23 §3.2) for ≥2 children at same grain",
+   "use_when": "same-grain children fold into implicit Unionset (mode: All, non-strict per 23 §3.2); effective routing unit = one per distinct grain; content-derived hash-id assignment per 33; discipline contrast with Dataset multi-source (strict vs non-strict)",
+   "skip_when": "cross-grain composition (see 22-grainset-cross-grain); routing-unit selection (see 22-grainset-routing); authoring (see 22-grainset-authoring)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "21-dataset"
+   ],
+   "refined_by": [
+    "22-grainset-routing",
+    "33"
+   ],
+   "refines": [
+    "23",
+    "21"
+   ],
+   "authoritative_for": [
+    "the same-grain pre-merge mechanism — same-grain children at compile fold into implicit Unionset (mode: All, non-strict NullFilling per 23 §3.2); becomes one effective routing unit at that grain"
+   ],
+   "cross_cut": [],
+   "tests": "22_grainset/same-grain.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset-cross-grain",
+   "cluster": "22_grainset",
+   "file": "22_grainset/cross-grain.md",
+   "concern": "Cross-grain composition mechanism — ComposedSemanticInterface + LEFT OUTER JOIN tree on shared Keys (18 §2.5) when no single routing unit covers Request",
+   "use_when": "cross-grain LEFT OUTER JOIN tree construction; ComposedSemanticInterface build (16 §5) for Grainset; shared Keys (18 §2.5) as equi-join surface; driver selection (most-covering, name-order tie-break); attached units added in name order; COMP_E_2204 GrainsetCrossGrainKeysAbsent; COMP_E_2205 GrainsetCrossGrainKeyTypeMismatch",
+   "skip_when": "single-unit delegation (see 22-grainset-routing); same-grain pre-merge (see 22-grainset-same-grain); authoring (see 22-grainset-authoring)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "22-grainset-authoring",
+    "16",
+    "18"
+   ],
+   "refined_by": [
+    "22-grainset-routing",
+    "33",
+    "34"
+   ],
+   "refines": [
+    "16",
+    "18"
+   ],
+   "authoritative_for": [
+    "the cross-grain composition mechanism — when no single effective routing unit covers the Request, the planner builds a LEFT OUTER JOIN tree mediated by ComposedSemanticInterface (16 §5) constructed at compile; driver = most-covering grain-eligible unit (name-order tie-break); attached units equi-joined on shared Keys per 18 §2.5"
+   ],
+   "cross_cut": [],
+   "tests": "22_grainset/cross-grain.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset-routing",
+   "cluster": "22_grainset",
+   "file": "22_grainset/routing.md",
+   "concern": "Plan-time routing mechanics — effective routing units (one per distinct grain), single-unit delegation (common case), cross-grain JOIN delegation (partial-coverage case), rollup wrapping (shape-gated per 17)",
+   "use_when": "effective routing unit selection (one per distinct grain); single-unit delegation (§4.2) — grain-eligible + fully-covers → delegate + rollup wrapper if needed; cross-grain JOIN delegation (§4.3) — driver + attached units; rollup mechanics (shape-gated per 17 §4); Coverage-driven pruning",
+   "skip_when": "authoring (see 22-grainset-authoring); same-grain pre-merge (see 22-grainset-same-grain); cross-grain build-time (see 22-grainset-cross-grain); error rosters (see 22-grainset-errors)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "22-grainset-authoring",
+    "22-grainset-same-grain",
+    "22-grainset-cross-grain",
+    "17"
+   ],
+   "refined_by": [
+    "34",
+    "35"
+   ],
+   "refines": [
+    "17"
+   ],
+   "authoritative_for": [
+    "plan-time observable invariants for Grainset resolution — single-unit delegation in the simple case; cross-grain LEFT OUTER JOIN tree in the partial-coverage case; rollup wrapper added when chosen unit's grain is finer than Request's grain"
+   ],
+   "cross_cut": [],
+   "tests": "22_grainset/routing.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset-shape",
+   "cluster": "22_grainset",
+   "file": "22_grainset/shape.md",
+   "concern": "TemporalShape interaction — authoring placement, cascade-up of kind only (grain stays per-child), V1 strict equivalence rule (equal kind/ScdType/grain across children)",
+   "use_when": "extras.temporal authoring on ComplexExtras (32 §4); cascade-up from children (kind only); V1 strict equivalence rule (equal kind, equal ScdType, ≥2 unique grains); COMP_E_2201 GrainsetChildShapeKindMismatch",
+   "skip_when": "TemporalShape enum variants (see 17); rollup matrix (see 17 §4); routing mechanics (see 22-grainset-routing)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "22-grainset-authoring",
+    "17",
+    "18"
+   ],
+   "refined_by": [
+    "22-grainset-routing"
+   ],
+   "refines": [
+    "17",
+    "18"
+   ],
+   "authoritative_for": [
+    "the V1 strict TemporalShape kind equivalence rule across children",
+    "the cascade-up rule for TemporalShape.kind only — grain is leaf-only and stays per-child (per SR-E-7 / SR-E-8)"
+   ],
+   "cross_cut": [],
+   "tests": "22_grainset/shape.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "22-grainset-errors",
+   "cluster": "22_grainset",
+   "file": "22_grainset/errors.md",
+   "concern": "Grainset-specific error rosters — VALID_E_2200–2299, COMP_E_2200–2299, PLAN_E_2200–2299",
+   "use_when": "Grainset validate-stage errors (VALID_E_2201 duplicate nested child name, VALID_E_2202 insufficient unique grains); compile-stage errors (COMP_E_2201 shape mismatch, COMP_E_2202 coverage incomplete, COMP_E_2204–2206 cross-grain Keys); plan-stage errors/advisories (PLAN_E_2201–2204, PLAN_W_2201–2202)",
+   "skip_when": "routing mechanics (see 22-grainset-routing); cross-grain composition (see 22-grainset-cross-grain); shape rules (see 22-grainset-shape)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "22-grainset-authoring",
+    "22-grainset-routing",
+    "22-grainset-cross-grain",
+    "22-grainset-shape"
+   ],
+   "refined_by": [
+    "30"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the Grainset-specific Precondition surfaces — VALID_E_2200–2299 (structural), COMP_E_2200–2299 (compile), PLAN_E_2200–2299 (plan)"
+   ],
+   "cross_cut": [],
+   "tests": "22_grainset/errors.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "23-unionset-authoring",
+   "cluster": "23_unionset",
+   "file": "23_unionset/authoring.md",
+   "concern": "Unionset authoring surface — explicit vs implicit fields, UnionMode roster (All/Unique), Public vs Nested form, per-child Coverage inference (v1 inference-only, no authored override)",
+   "use_when": "UnionsetBody / ComplexExtras authoring; explicit fields (name, semantic_interface, mode, children, extras.temporal) vs implicit (id, per-child Coverage); UnionMode {All, Unique} default All; per-child Coverage inference (v1 inference-only); implicit Unionset (multi-source Dataset) vs explicit",
+   "skip_when": "plan-time fan-out mechanism (see 23-unionset-plan); shape rules (see 23-unionset-shape); error rosters (see 23-unionset-errors)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "20-datakind-taxonomy",
+    "32",
+    "26-nesting-matrix",
+    "18"
+   ],
+   "refined_by": [
+    "23-unionset-plan",
+    "23-unionset-shape",
+    "25-applicability-matrix-core"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the Unionset authoring surface — which fields are explicit (authored) vs implicit (compile-derived); cross-references the type-level shape in 32 §3.3 (Unionset/NestedUnionset), 32 §3.2 (UnionsetBody), 32 §4 (ComplexExtras)",
+    "the variant-local UnionMode v1 roster ({All, Unique}, default All, #[non_exhaustive])",
+    "the v1 inference-only per-child Coverage model — no authored per-child override; fold from each child's interface + Binding-level Coverage; default behavior is non-strict (a Semantics not provided by some child is NullFilled in that child's branch)"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy",
+    "26-nesting-matrix"
+   ],
+   "tests": "23_unionset/authoring.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "23-unionset-plan",
+   "cluster": "23_unionset",
+   "file": "23_unionset/plan.md",
+   "concern": "Plan-time fan-out mechanism — UnionMode projection, per-source pre-aggregation (always when Measures requested), NULL-fill projection at seam, column-type reconciliation, conditional final-aggregation, branch pruning",
+   "use_when": "UnionMode {All, Unique} projection to UNION/UNION ALL; per-branch sub-aggregation (unconditional when Measures requested); NULL-fill projection (PhysicalExpr::Cast(Null, unified_type)); column-type reconciliation (LUB widening per 13 §7); re-aggregation policy (disjointness elision via literals + per-source Metadata); Coverage-driven branch pruning (PLAN_W_2301); implicit Unionset fan-out (21 §3.2 cross-link)",
+   "skip_when": "authoring (see 23-unionset-authoring); shape rules (see 23-unionset-shape); error rosters (see 23-unionset-errors)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "23-unionset-authoring",
+    "13",
+    "14",
+    "15",
+    "19",
+    "21-dataset"
+   ],
+   "refined_by": [
+    "34",
+    "35"
+   ],
+   "refines": [
+    "13",
+    "14",
+    "15",
+    "21"
+   ],
+   "authoritative_for": [
+    "the canonical fan-out mechanism shared between explicit Unionsets and implicit Unionsets (multi-source Dataset per 21 §3.2) — per-branch sub-aggregation + UNION/UNION ALL + conditional final-aggregation, with literals + per-source Metadata driving disjointness elision"
+   ],
+   "cross_cut": [],
+   "tests": "23_unionset/plan.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "23-unionset-shape",
+   "cluster": "23_unionset",
+   "file": "23_unionset/shape.md",
+   "concern": "TemporalShape and Grain interaction — authoring placement, cascade-up from children, V1 strict equivalence rule (equal kind/ScdType/grain across all children), multi-as-of Snapshot advisories",
+   "use_when": "extras.temporal authoring on ComplexExtras (32 §4); cascade-up from children; V1 strict equivalence rule (equal kind, equal ScdType if Scd, equal grain); COMP_E_2301 UnionsetChildShapeMismatch; COMP_W_2302–2303 multi-as-of Snapshot advisories",
+   "skip_when": "TemporalShape enum variants (see 17); rollup matrix (see 17 §4); plan-time fan-out (see 23-unionset-plan)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "23-unionset-authoring",
+    "17",
+    "18"
+   ],
+   "refined_by": [
+    "23-unionset-plan"
+   ],
+   "refines": [
+    "17",
+    "18"
+   ],
+   "authoritative_for": [
+    "the V1 strict TemporalShape equivalence rule — children's shape (kind including SCD subtype + grain) must be equivalent; cascade-up from children to the Unionset's effective extras.temporal"
+   ],
+   "cross_cut": [],
+   "tests": "23_unionset/shape.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "23-unionset-errors",
+   "cluster": "23_unionset",
+   "file": "23_unionset/errors.md",
+   "concern": "Unionset-specific error rosters — VALID_E_2300–2399, COMP_E_2300–2399, PLAN_E_2300–2399",
+   "use_when": "Unionset validate-stage errors (VALID_E_2301 duplicate nested child name); compile-stage errors (COMP_E_2301 shape mismatch, COMP_E_2302 coverage incomplete, COMP_E_2303 type disagreement, COMP_E_2304 unique mode incompatible type); compile-stage warnings (COMP_W_2301–2303); plan-stage errors/advisories (PLAN_E_2301–2304, PLAN_W_2301–2303)",
+   "skip_when": "plan-time fan-out (see 23-unionset-plan); shape rules (see 23-unionset-shape); authoring (see 23-unionset-authoring)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "23-unionset-authoring",
+    "23-unionset-plan",
+    "23-unionset-shape"
+   ],
+   "refined_by": [
+    "30"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the Unionset-specific Precondition surfaces — VALID_E_2300–2399 (structural), COMP_E_2300–2399 (compile), PLAN_E_2300–2399 (plan)"
+   ],
+   "cross_cut": [],
+   "tests": "23_unionset/errors.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "24-joinset-canonical-shape",
+   "cluster": "24_joinset",
+   "file": "24_joinset/canonical-shape.md",
+   "concern": "JoinsetDataKind struct, ExplicitPath, JoinHop, anchor specification, and binary-arity v1 constraint",
+   "use_when": "JoinsetDataKind struct shape; ExplicitPath/JoinHop; anchor contract; binary arity per 12 §5.2; CompositionKind::Joinset variant",
+   "skip_when": "join-path resolution (see 24-joinset-path-resolution); strategy lowering (see 24-joinset-strategy); composed interface (see 24-joinset-interface)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "20-datakind-taxonomy",
+    "18-relationship",
+    "16"
+   ],
+   "refined_by": [
+    "24-joinset-path-resolution",
+    "24-joinset-strategy",
+    "33",
+    "25-applicability-matrix-core",
+    "26-nesting-matrix"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "JoinsetDataKind canonical struct (anchor, members, path, relationships, interface)",
+    "ExplicitPath/JoinHop shapes",
+    "v1 binary-arity restatement (TD-JOINSET-NARY)"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy",
+    "26-nesting-matrix"
+   ],
+   "tests": "24_joinset/canonical-shape.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "24-joinset-path-resolution",
+   "cluster": "24_joinset",
+   "file": "24_joinset/path-resolution.md",
+   "concern": "Join-path specification — implicit path (anchor-rooted BFS) vs explicit path (author-pinned hop sequence), validation, scope-local Relationship shadow",
+   "use_when": "implicit-path algorithm (JOINSET_IMPLICIT_PATH, §4.1); explicit-path validation (§4.2); scope-local Relationship resolution per 18 §2.10; mode selection precedence",
+   "skip_when": "canonical struct shape (see 24-joinset-canonical-shape); per-hop JoinType derivation (see 24-joinset-strategy); anchor contract (see 24-joinset-canonical-shape)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "24-joinset-canonical-shape",
+    "16",
+    "18-relationship"
+   ],
+   "refined_by": [
+    "24-joinset-strategy",
+    "33"
+   ],
+   "refines": [
+    "16"
+   ],
+   "authoritative_for": [
+    "implicit join-path selection rules (anchor-biased specialization of 16 §11 field-first)",
+    "explicit join-path specification (ExplicitPath, JoinHop, per-hop RelationshipRef citation)",
+    "scope-local Relationship shadow resolution (18 §2.10 integration)"
+   ],
+   "cross_cut": [],
+   "tests": "24_joinset/path-resolution.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "24-joinset-strategy",
+   "cluster": "24_joinset",
+   "file": "24_joinset/strategy.md",
+   "concern": "JoinsetStrategy planner contract — anchor-outward PlanNode::Join emission, per-hop JoinType derivation (18 §2.9), Cardinality propagation, fanout advisories",
+   "use_when": "JoinsetStrategy lowering; PlanNode::Join emission; per-hop JoinType derivation (18 §2.9); scope-local Relationship shadow for divergent join semantics (18 §2.10); Cardinality propagation; post-join unified Project",
+   "skip_when": "path resolution (see 24-joinset-path-resolution); canonical struct (see 24-joinset-canonical-shape); ComposedSemanticInterface details (see 24-joinset-interface)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "24-joinset-path-resolution",
+    "18-relationship",
+    "16"
+   ],
+   "refined_by": [
+    "34",
+    "35"
+   ],
+   "refines": [
+    "16"
+   ],
+   "authoritative_for": [
+    "JoinsetStrategy — the planner contract that lowers a resolved Joinset into PlanNode::Join sequences",
+    "per-hop Cardinality propagation, fan-out accumulation, and multi-fanout advisory emission",
+    "per-hop JoinType derivation from traversed Relationship's optional field (18 §2.9); scope-local shadow as sole divergence mechanism (§5.3.2)"
+   ],
+   "cross_cut": [],
+   "tests": "24_joinset/strategy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "24-joinset-interface",
+   "cluster": "24_joinset",
+   "file": "24_joinset/interface.md",
+   "concern": "Joinset's ComposedSemanticInterface — UnifiedSemantics merge, FieldProvenance, CompositionCoverage, anchor-first constituents ordering",
+   "use_when": "ComposedSemanticInterface with composition_kind = CompositionKind::Joinset; UnifiedSemantics merge (16 §6) for Joinset case; FieldProvenance (16 §7) — Native/Shared/Derived, NOT NullFill (carried by JoinType); CompositionCoverage fold (16 §8); anchor-first ordering",
+   "skip_when": "general ComposedSemanticInterface contract (see 16); Relationship consumption (see 24-joinset-strategy); per-hop lowering (see 24-joinset-strategy)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "24-joinset-strategy",
+    "16"
+   ],
+   "refined_by": [
+    "33",
+    "34"
+   ],
+   "refines": [
+    "16"
+   ],
+   "authoritative_for": [
+    "Joinset's ComposedSemanticInterface specialization (§8) — constituents anchor-first; UnifiedSemantics merge rules for join-key columns (Shared) vs per-member (Native/Derived); FieldProvenance without NullFill (carried by JoinType); CompositionCoverage fold"
+   ],
+   "cross_cut": [],
+   "tests": "24_joinset/interface.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "24-joinset-errors",
+   "cluster": "24_joinset",
+   "file": "24_joinset/errors.md",
+   "concern": "Joinset-specific error rosters — VALID_E_2400–2499, COMP_E_2400–2499, PLAN_E_2400–2499, PLAN_W_2400–2499",
+   "use_when": "Joinset validate-stage errors (VALID_E_2400–2499); compile-stage errors (COMP_E_2400–2499); plan-stage errors/advisories (PLAN_E_2400–2499, PLAN_W_2400–2499); diagnostic codes for Joinset-specific failures",
+   "skip_when": "generic composition errors (see 16 §14); Relationship well-formedness (see 16 §12); per-hop mechanics (see 24-joinset-strategy)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "drift",
+   "prereqs": [
+    "24-joinset-canonical-shape",
+    "24-joinset-path-resolution",
+    "24-joinset-strategy"
+   ],
+   "refined_by": [
+    "30"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "validate / compile / plan error rosters: VALID_E_2400–2499 (structural validate-stage Joinset failures); COMP_E_2400–2499 (compile-stage path-resolution failures); PLAN_E_2400–2499 (plan-stage Joinset usage failures); PLAN_W_2400–2499 (plan-stage Joinset advisories)"
+   ],
+   "cross_cut": [],
+   "tests": "24_joinset/errors.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "25-applicability-matrix-core",
+   "cluster": "25_applicability_matrix",
+   "file": "25_applicability_matrix/core.md",
+   "concern": "The master cross-cut matrix — foundation rule (10–17) × DataKind variant (Simple/Grainset/Unionset/Joinset) applicability",
+   "use_when": "does foundation rule X apply to variant Y; cross-variant applicability of pipeline/names/nesting/types/expressions/mapping/composition/temporal rules; per-variant conditional vs always vs n/a tags",
+   "skip_when": "per-variant strategy summaries (see 25-strategy-summaries); rollup legality (see 25-rollup-coverage); error-code bands (see 25-error-bands)",
+   "status": "ratified",
+   "version": "2.2",
+   "impl": "none",
+   "prereqs": [
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "20-datakind-taxonomy",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape"
+   ],
+   "refined_by": [],
+   "refines": [
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17"
+   ],
+   "authoritative_for": [
+    "the cross-variant applicability matrix mapping foundation rules (10–17) onto every DataKind variant (Simple/Grainset/Unionset/Joinset)",
+    "the scope boundary rule: 25 never re-specifies a rule owned by 10–17 or 20–24; it only indexes them"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape"
+   ],
+   "tests": "25_applicability_matrix/core.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "25-strategy-summaries",
+   "cluster": "25_applicability_matrix",
+   "file": "25_applicability_matrix/strategy-summaries.md",
+   "concern": "Per-variant planner-strategy summaries — SimpleStrategy/GrainsetStrategy/UnionsetStrategy/JoinsetStrategy bullet-list contracts + cross-variant composition table",
+   "use_when": "per-variant strategy overview; SimpleStrategy 5-layer; GrainsetStrategy routing-units + cross-grain JOIN; UnionsetStrategy per-branch wrapping + NULL-fill; JoinsetStrategy anchor-outward; cross-variant composition (e.g. Joinset over Grainset)",
+   "skip_when": "strategy algorithm bodies (see 34); full matrix (see 25-applicability-matrix-core); rollup/coverage details (see 25-rollup-coverage)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "none",
+   "prereqs": [
+    "25-applicability-matrix-core",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "refines": [
+    "21",
+    "22",
+    "23",
+    "24"
+   ],
+   "authoritative_for": [
+    "the per-variant planner-strategy summary (pointers into 21 §4, 22 §4–§5, 23 §4, 24 §5); strategy semantics themselves are NOT ratified here"
+   ],
+   "cross_cut": [],
+   "tests": "25_applicability_matrix/strategy-summaries.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "25-rollup-coverage",
+   "cluster": "25_applicability_matrix",
+   "file": "25_applicability_matrix/rollup-coverage.md",
+   "concern": "Per-variant rollup-legality summary (Grain × TemporalShape × strategy) and Coverage/NULL-fill summary (Binding-level vs CompositionCoverage-level)",
+   "use_when": "per-variant rollup eligibility (native vs requires-anchor); shape-gated rollup matrix (17 §4); Coverage surface location (Binding-level for Simple vs CompositionCoverage for Complex); NULL-fill origin routing (Unionset per-child Project vs Joinset JoinType semantics)",
+   "skip_when": "full matrix (see 25-applicability-matrix-core); strategy details (see 25-strategy-summaries); error-code bands (see 25-error-bands)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "none",
+   "prereqs": [
+    "25-applicability-matrix-core",
+    "13",
+    "15",
+    "16",
+    "17",
+    "21-dataset",
+    "22-grainset-authoring",
+    "23-unionset-authoring",
+    "24-joinset-canonical-shape"
+   ],
+   "refined_by": [],
+   "refines": [
+    "13",
+    "15",
+    "16",
+    "17",
+    "21",
+    "22",
+    "23",
+    "24"
+   ],
+   "authoritative_for": [
+    "the per-variant rollup-legality summary (Grain × TemporalShape × strategy); detailed rules remain in 13 §3, 17 §4, 22 §4.3, 23 §7, 24 §5.4",
+    "the per-variant Coverage surface summary: Binding-level Coverage for Simple vs CompositionCoverage / FieldProvenance for the three Complex variants"
+   ],
+   "cross_cut": [
+    "20-datakind-taxonomy"
+   ],
+   "tests": "25_applicability_matrix/rollup-coverage.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "25-error-bands",
+   "cluster": "25_applicability_matrix",
+   "file": "25_applicability_matrix/error-bands.md",
+   "concern": "Per-variant error-code-band index (VALID_E/COMP_E/PLAN_E 2000–2599 allocation) and cross-variant reservations (2500–2599)",
+   "use_when": "error-code allocation by variant (21 = 2100–2199, 22 = 2200–2299, 23 = 2300–2399, 24 = 2400–2499); cross-variant diagnostic band 2500–2599 ownership; severity distribution",
+   "skip_when": "diagnostic rendering (see 30); per-variant error rosters (see 21/22/23/24 error leaves); full matrix (see 25-applicability-matrix-core)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "none",
+   "prereqs": [
+    "25-applicability-matrix-core",
+    "20-datakind-taxonomy",
+    "30"
+   ],
+   "refined_by": [
+    "30"
+   ],
+   "refines": [
+    "20",
+    "30"
+   ],
+   "authoritative_for": [
+    "the per-variant error-code-band index (VALID_E_2xxx / COMP_E_2xxx / PLAN_E_2xxx allocation)",
+    "the *_E_2500–2599 reservations for genuinely cross-variant diagnostics"
+   ],
+   "cross_cut": [],
+   "tests": "25_applicability_matrix/error-bands.md#testing-strategy",
+   "migrated": true
+  }
+ ]
+}

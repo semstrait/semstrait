@@ -1,0 +1,1909 @@
+{
+ "space": "foundations",
+ "leaves": [
+  {
+   "id": "10-resolution-pipeline",
+   "cluster": "10_resolution_pipeline",
+   "file": "10_resolution_pipeline.md",
+   "concern": "Stage contracts and pipeline flow (parse, validate, compile, plan, optimize, adapt)",
+   "use_when": "pipeline boundaries, per-stage inputs/outputs/invariants, sync/async posture, I/O permission matrix",
+   "skip_when": "per-crate API details (see apis); DataKind strategy dispatch (see data-kinds)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [
+    "11",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20–25",
+    "31",
+    "32–37"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "per-stage pipeline contract (inputs, outputs, invariants upheld, error types)",
+    "runtime transition contract `manifest -> graph -> planning -> plan` at query time",
+    "compile-time vs query-time boundary",
+    "I/O permission matrix per stage (refines I11)",
+    "sync/async posture per stage (refines I6)",
+    "typed-error-per-stage model; Diagnostic as user-facing render of typed errors",
+    "EngineAdapter's cross-stage role (injection points vs terminal transform)"
+   ],
+   "cross_cut": [],
+   "tests": "10_resolution_pipeline.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-names-and-scopes",
+   "file": "11_names_and_scopes.md",
+   "concern": "Naming, scope, Semantics element definitions",
+   "use_when": "name resolution, scope rules, Semantics surface contracts",
+   "skip_when": "DataKind taxonomy (see data-kinds/20); expression resolution (see 19)",
+   "migrated": false
+  },
+  {
+   "id": "12-nesting-policy",
+   "cluster": "12_nesting_policy",
+   "file": "12_nesting_policy.md",
+   "concern": "Nesting constraints and structural matrix",
+   "use_when": "nested DataKind validation, structural nesting rules",
+   "skip_when": "per-variant nesting details (see data-kinds/26)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11"
+   ],
+   "refined_by": [
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20–25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "nesting matrix (parent Complex × child kind legality)",
+    "per-strategy block shape (Unionset / Grainset / Joinset)",
+    "minimum-children cardinality rule per Complex",
+    "depth-bound invariant (derived from same-kind self-nesting ban)",
+    "structural Preconditions run by `validate` and `compile` that concern nesting shape",
+    "Grainset `levels:` declaration order (coarsest-first) and per-level child rules",
+    "Joinset v1 arity (binary-only; N-ary deferred as TECH_DEBT)"
+   ],
+   "cross_cut": [],
+   "tests": "12_nesting_policy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "13-types-and-grain",
+   "cluster": "13_types_and_grain",
+   "file": "13_types_and_grain.md",
+   "concern": "Canonical logical types and Grain",
+   "use_when": "DataType definitions, Grain semantics, type unification",
+   "skip_when": "engine-specific type mapping (see registry/types_mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "12"
+   ],
+   "refined_by": [
+    "14",
+    "15",
+    "16",
+    "17",
+    "20–25",
+    "34",
+    "36",
+    "37"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "canonical `DataType` variant set (14 scalar types, width-differentiated numerics, engine-neutral naming) and YAML grammar",
+    "shape-unification rules for `data_type:` across Semantics occurrences",
+    "the authoritative engine type-mapping catalog lives in `registry/types_mapping.md` (pointer from §2.3)",
+    "`Grain` enum (7 temporal variants) and total coarseness order used by `12 §4.2`",
+    "`DimensionType` *planner-level and authoring-level semantics* — what each variant means and where it fits (enum roster + body struct shapes ratified in `18 §4.1`)",
+    "`Metadata` Dimension v1 authoring forms (`path.token:N` 0-indexed, `partition.level:N` 1-indexed) and their runtime-extraction forward-reference to `15 §8`",
+    "Key vs. Dimension separation of concerns (why Keys are NOT a `DimensionType`)",
+    "structural Preconditions run by `validate` and `compile` that concern types and grains"
+   ],
+   "cross_cut": [],
+   "tests": "13_types_and_grain.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-expressions",
+   "file": "14_expressions.md",
+   "concern": "Canonical expression model (shared Expr tree, leaf types, structural variants)",
+   "use_when": "expression AST structure, Expr<L> tree, leaf payload trait, traversal traits",
+   "skip_when": "expression compile pipeline (see 19); function catalog (see 14a)",
+   "migrated": false
+  },
+  {
+   "id": "14a-function-catalog",
+   "cluster": "14a_function_catalog",
+   "file": "14a_function_catalog.md",
+   "concern": "Canonical function identity and registry",
+   "use_when": "CanonicalFn, FunctionRegistry, function-level Additivity",
+   "skip_when": "expression tree structure (see 14); engine function mapping (see registry/functions_mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14"
+   ],
+   "refined_by": [
+    "19",
+    "18",
+    "32",
+    "33",
+    "registry/functions_mapping.md",
+    "34",
+    "36"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the canonical function catalog (names, categories, arities, signatures)",
+    "the `FunctionRegistry` API surface and its compile-time population model",
+    "function signature polymorphism — `FnSignature`, `ParamType`, `ReturnTypeRule`",
+    "function-level `Additivity` (carried as a field on `FunctionSpec`)",
+    "adapter registry extension API"
+   ],
+   "cross_cut": [],
+   "tests": "14a_function_catalog.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-mapping-and-binding",
+   "file": "15_mapping_and_binding.md",
+   "concern": "Mapping/binding algorithm and metadata synthesis",
+   "use_when": "SemanticMapping, Binding flow, column-to-semantics resolution",
+   "skip_when": "model parse surface (see apis/32); manifest compile (see apis/33)",
+   "migrated": false
+  },
+  {
+   "id": "16-composition",
+   "file": "16_composition.md",
+   "concern": "Relationships and composed interfaces",
+   "use_when": "Relationship, ComposedSemanticInterface, CompositionKind, relationship graph",
+   "skip_when": "Joinset variant behavior (see data-kinds/24); manifest relationship form (see apis/33)",
+   "migrated": false
+  },
+  {
+   "id": "17-temporal-shape",
+   "file": "17_temporal_shape.md",
+   "concern": "Temporal shape model",
+   "use_when": "TemporalShape, temporal classification, time-based queries",
+   "skip_when": "per-variant temporal interactions (see data-kinds/20-24); engine temporal mapping (see registry/temporal_shape_mapping)",
+   "migrated": false
+  },
+  {
+   "id": "18-entities",
+   "file": "18_entities.md",
+   "concern": "Canonical entity type definitions",
+   "use_when": "Cardinality, Integrity, JoinType, DimensionType, AggregationType, EntityId",
+   "skip_when": "entity usage in specific variants (see data-kinds); crate-level EntityId placement (see apis/31)",
+   "migrated": false
+  },
+  {
+   "id": "19-expression-flow",
+   "file": "19_expression_flow.md",
+   "concern": "Unified compile pipeline (Phase A resolution + Phase B placement; sugar contract; advisory channel; error model)",
+   "use_when": "expression resolution, two-phase flow, sugar, accessor/Parameter, layer/additivity",
+   "skip_when": "expression AST structure (see 14); planner request handling (see apis/34)",
+   "migrated": false
+  },
+  {
+   "id": "16-composition-overview",
+   "cluster": "16_composition",
+   "file": "16_composition/composition-overview.md",
+   "concern": "Navigation and scope overview for the composition design space",
+   "use_when": "orientation; what 16 ratifies; explicit vs implicit boundary; materialization policy; field-first resolution",
+   "skip_when": "specific composition details (see sibling leaves); per-DataKind strategies (20-25)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "14a",
+    "15",
+    "18",
+    "19"
+   ],
+   "refined_by": [
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "32",
+    "33",
+    "34",
+    "35"
+   ],
+   "authoritative_for": [],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "16_composition/composition-overview.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-relationship-edge-model",
+   "cluster": "16_composition",
+   "file": "16_composition/relationship-edge-model.md",
+   "concern": "Composition semantics for Relationship edges — placement, scope, bidirectional traversal, fanout analysis",
+   "use_when": "Relationship placement rules; bidirectional traversal; Cardinality per-variant semantics; JoinType derivation; KeyPair type agreement; fanout-safe rewrite triggers",
+   "skip_when": "Relationship struct shape (18); per-DataKind strategies (20-25); YAML authoring (32)",
+   "status": "ratified",
+   "version": "2.2",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "13",
+    "15",
+    "18"
+   ],
+   "refined_by": [
+    "17",
+    "33",
+    "35",
+    "16-composition-validation-and-errors"
+   ],
+   "authoritative_for": [],
+   "refines": [
+    "18"
+   ],
+   "cross_cut": [],
+   "tests": "16_composition/relationship-edge-model.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-composed-surface-type",
+   "cluster": "16_composition",
+   "file": "16_composition/composed-surface-type.md",
+   "concern": "The ComposedSemanticInterface struct, CompositionKind, Origin axis, ImplicitId, and SemanticsView trait",
+   "use_when": "ComposedSemanticInterface struct; CompositionKind variants (Joinset/Grainset); Origin axis (Explicit/Implicit); ImplicitId canonical-form hash; SemanticsView trait; distinct type vs bare SemanticInterface",
+   "skip_when": "UnifiedSemantics merge logic (16-composed-surface-contents); field-first resolution (16-field-first-resolution); implicit enumeration (16-implicit-enumeration-and-materialization)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "15",
+    "18",
+    "19",
+    "16-relationship-edge-model"
+   ],
+   "refined_by": [
+    "22",
+    "23",
+    "24",
+    "33",
+    "16-composition-validation-and-errors",
+    "16-composed-surface-contents"
+   ],
+   "authoritative_for": [
+    "ComposedSemanticInterface",
+    "CompositionKind",
+    "Origin",
+    "ImplicitId",
+    "SemanticsView"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "16_composition/composed-surface-type.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-composed-surface-contents",
+   "cluster": "16_composition",
+   "file": "16_composition/composed-surface-contents.md",
+   "concern": "UnifiedSemantics namespace-aware merge, FieldProvenance per-field ownership, and CompositionCoverage fold",
+   "use_when": "UnifiedSemantics merge logic; namespace-aware collision resolution; FieldProvenance ownership (Native/Shared/NullFill/Derived); CompositionCoverage per-constituent; common-dimension promotion; aggregation-function conflict; composed-surface keys",
+   "skip_when": "ComposedSemanticInterface struct (16-composed-surface-type); field-first resolution (16-field-first-resolution); implicit enumeration (16-implicit-enumeration-and-materialization)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "13",
+    "15",
+    "18",
+    "16-composed-surface-type"
+   ],
+   "refined_by": [
+    "22",
+    "23",
+    "24",
+    "33",
+    "16-composition-validation-and-errors"
+   ],
+   "authoritative_for": [
+    "UnifiedSemantics",
+    "FieldProvenance",
+    "FieldOwnership",
+    "CompositionCoverage"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "16-composed-surface-type"
+   ],
+   "tests": "16_composition/composed-surface-contents.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-implicit-enumeration-and-materialization",
+   "cluster": "16_composition",
+   "file": "16_composition/implicit-enumeration-and-materialization.md",
+   "concern": "Explicit vs implicit composition boundary, eager materialization at SemanticGraph build, depth and count bounds, canonical-form clash rejection",
+   "use_when": "implicit-Joinset enumeration; implicit-Unionset enumeration; explicit vs implicit boundary rules; SemanticGraph build-time materialization; MAX_IMPLICIT_COMPOSITION_DEPTH (4 hops); MAX_IMPLICIT_ENUMERATION_COUNT (2000); canonical-form clash (COMP_E_0414); transparent unfolding; depth-bound exception",
+   "skip_when": "field-first resolution (16-field-first-resolution); per-DataKind strategies (20-25); YAML authoring (32)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "15",
+    "18",
+    "19",
+    "16-composed-surface-type",
+    "16-composed-surface-contents"
+   ],
+   "refined_by": [
+    "22",
+    "23",
+    "24",
+    "33",
+    "34",
+    "16-field-first-resolution",
+    "16-composition-validation-and-errors"
+   ],
+   "authoritative_for": [
+    "Explicit vs Implicit composition boundary",
+    "Implicit-composition enumeration",
+    "Materialization policy"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "16_composition/implicit-enumeration-and-materialization.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-field-first-resolution",
+   "cluster": "16_composition",
+   "file": "16_composition/field-first-resolution.md",
+   "concern": "The planner's field-first resolution algorithm — pure lookup over SemanticGraph's build-time composition index",
+   "use_when": "Request.from = None path; field-first resolution algorithm; single-kind fast path; multi-kind composition lookup; path ambiguity error (PLAN_E_0500); no composition path (PLAN_E_0501); depth exceeded (PLAN_E_0502); selected-name membership check",
+   "skip_when": "implicit enumeration (16-implicit-enumeration-and-materialization); per-DataKind strategies (20-25); SemanticGraph build (34)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "15",
+    "19",
+    "16-composed-surface-type",
+    "16-implicit-enumeration-and-materialization"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "authoritative_for": [
+    "Field-first resolution algorithm"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "16_composition/field-first-resolution.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-joinset-model",
+   "cluster": "16_composition",
+   "file": "16_composition/joinset-model.md",
+   "concern": "Joinset explicit and implicit forms, scope-local Relationship shadow, canonical-form differentiators, and traversed paths",
+   "use_when": "Joinset Origin axis; scope-local Relationship shadow; canonical-form differentiators (shadow/filter/keys/non-shortest); anchored root; pinned cardinality profile; Joinset-over-Joinset; explicit-implicit clash rejection (COMP_E_0414)",
+   "skip_when": "Joinset authoring surface (24); Joinset planning strategies (24); YAML syntax (32); SemanticManifest shape (33)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "12",
+    "18",
+    "19",
+    "16-relationship-edge-model",
+    "16-composed-surface-type",
+    "16-implicit-enumeration-and-materialization"
+   ],
+   "refined_by": [
+    "33",
+    "34"
+   ],
+   "authoritative_for": [],
+   "refines": [
+    "24"
+   ],
+   "cross_cut": [],
+   "tests": "16_composition/joinset-model.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "16-composition-validation-and-errors",
+   "cluster": "16_composition",
+   "file": "16_composition/composition-validation-and-errors.md",
+   "concern": "Relationship graph well-formedness preconditions and composition error model (CompileError, ValidateError, PlannerError variants)",
+   "use_when": "duplicate Relationship detection; KeyPair type agreement; self-reference rejection; empty keys; nested-kind endpoints; error codes COMP_E_04xx / PLAN_E_05xx / PLAN_W_05xx; advisory PLAN_W_0503 (cardinality-key mismatch); advisory COMP_W_0401 (shared dimension description mismatch); retired codes",
+   "skip_when": "Relationship struct shape (18); per-DataKind strategies (20-25); Diagnostic rendering (30)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "13",
+    "15",
+    "18",
+    "19",
+    "30",
+    "16-relationship-edge-model",
+    "16-composed-surface-type",
+    "16-composed-surface-contents",
+    "16-implicit-enumeration-and-materialization",
+    "16-field-first-resolution"
+   ],
+   "refined_by": [],
+   "authoritative_for": [
+    "Relationship graph well-formedness",
+    "Composition error model"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "16-relationship-edge-model",
+    "16-composed-surface-type",
+    "16-composed-surface-contents"
+   ],
+   "tests": "16_composition/composition-validation-and-errors.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-scope-chain",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/scope-chain.md",
+   "concern": "The four-level scope tree (Root / Kind / Nested-kind / Binding), tree-shape invariants, and nested-kind structural labels",
+   "use_when": "scope chain structure; Root/Kind/Nested-kind/Binding levels; tree-shape invariants; no-DAG rule; top-level vs nested DataKind; structural labels (non-Semantics naming); scope-local semantics; Joinset path specification; Grainset grain-level naming; diagnostics; structural name blocks; downstream interaction with docs 12-25",
+   "skip_when": "Semantics identity rules (11-semantics-identity); lookup algorithm (11-lookup-algorithm)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "scope-chain structure and the four named scope levels (Root / Kind / Nested-kind / Binding)",
+    "nested-kind structural label concept (non-Semantics naming at nested scope levels)"
+   ],
+   "cross_cut": [],
+   "tests": "11_names_and_scopes/scope-chain.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-semantics-identity",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/semantics-identity.md",
+   "concern": "Global identity, unified namespace, per-level uniqueness, free introduction, and identifier grammar for Semantics names",
+   "use_when": "global identity rule; unified namespace (no per-type sub-namespaces); per-level uniqueness; free introduction (any-tier declaration); identifier grammar; character set (ASCII [A-Za-z_][A-Za-z0-9_]*); case sensitivity; length; reserved prefixes; validation point (N-V1)",
+   "skip_when": "scope chain (11-scope-chain); YAML declaration forms (11-yaml-declaration-forms); shape-vs-resolution-variant (11-shape-vs-resolution-variant); Precondition catalog (11-precondition-catalog)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "Semantics identity rule (global identity, unified namespace, per-level uniqueness, free introduction)",
+    "identifier grammar (ASCII-only, snake-case-friendly minimum-viable form)"
+   ],
+   "cross_cut": [],
+   "tests": "11_names_and_scopes/semantics-identity.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-yaml-declaration-forms",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/yaml-declaration-forms.md",
+   "concern": "YAML declaration forms for Semantics occurrences — single-form rule, scalar shorthand, field-driven role",
+   "use_when": "YAML authoring surface; single-form rule; scalar shorthand; field-driven role (shape/reference/resolution-variant); YAML anchors/aliases transparency",
+   "skip_when": "Semantics identity (11-semantics-identity); shape-vs-resolution-variant (11-shape-vs-resolution-variant); Semantics element catalog (11-semantics-element-catalog)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "YAML declaration form for Semantics occurrences (single-form rule, scalar shorthand, field-driven semantics)"
+   ],
+   "cross_cut": [],
+   "tests": "11_names_and_scopes/yaml-declaration-forms.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-shape-vs-resolution-variant",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/shape-vs-resolution-variant.md",
+   "concern": "Shape-vs-resolution-variant boundary — which fields lock across occurrences, which may differ per DataKind",
+   "use_when": "shape fields (must unify); resolution-variant fields (may differ per DataKind); defaults for omitted shape fields; field catalog per Semantics type; shape-fields-per-type table",
+   "skip_when": "YAML declaration forms (11-yaml-declaration-forms); Semantics element catalog (11-semantics-element-catalog); Additivity (11-additivity)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "shape-vs-resolution-variant boundary (which fields unify across occurrences vs. may differ per DataKind)"
+   ],
+   "cross_cut": [
+    "11-semantics-element-catalog"
+   ],
+   "tests": "11_names_and_scopes/shape-vs-resolution-variant.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-semantics-element-catalog",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/semantics-element-catalog.md",
+   "concern": "Semantics element catalog — Dimension, Measure, Metric, Filter, Key role definitions and field catalogs",
+   "use_when": "Dimension field catalog; Measure field catalog; Metric field catalog; Filter application semantics; Key placement rules; Key kinds (primary/unique/foreign); Key uniqueness Preconditions N-C7/N-C8/N-C9",
+   "skip_when": "struct shapes owned by 18 (Dimension/Measure/Metric per 18 §4-§9); Additivity (11-additivity); Constraint framework (11-constraint); shape-vs-resolution-variant (11-shape-vs-resolution-variant)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11-shape-vs-resolution-variant",
+    "11-constraint"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [
+    "18"
+   ],
+   "authoritative_for": [
+    "Semantics element catalog roles and responsibilities (Dimension, Measure, Metric, Filter, Key)"
+   ],
+   "cross_cut": [
+    "18-keys"
+   ],
+   "tests": "11_names_and_scopes/semantics-element-catalog.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-additivity",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/additivity.md",
+   "concern": "Additivity enum, authoring rules, defaults, SemiAdditive axis encoding, and planner contract",
+   "use_when": "Additivity enum (Additive/SemiAdditive/NonAdditive); authoring and default-Additive rationale; relationship to TemporalShape; SemiAdditive axis encoding (unsafe_axes); planner contract per Additivity value",
+   "skip_when": "TemporalShape (17); per-variant planner rules (20-25); Semantics element catalog (11-semantics-element-catalog); Constraint framework (11-constraint)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [
+    "18"
+   ],
+   "authoritative_for": [
+    "Additivity / SemiAdditive planner contract"
+   ],
+   "cross_cut": [],
+   "tests": "11_names_and_scopes/additivity.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-constraint",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/constraint.md",
+   "concern": "Constraint framework — carriers, kind sub-blocks, v1 realized carriers (Measure/Metric), reserved carriers, validation lifecycle, error model",
+   "use_when": "Constraint concept; carriers (Measure/Metric realized; Dimension/Filter/Key/DataKind reserved); kind sub-block toolkit (three-way set policy, two-way list policy, bounded range, identifier list); dimensions/aggregations kinds; validation lifecycle (step 0 for Measure/Metric); ConstraintViolation error; fail-fast accumulation; DSL shape-field semantics; Carrier table; validation lifecycle table",
+   "skip_when": "Semantics element catalog (11-semantics-element-catalog); Additivity (11-additivity); cross-kind reference rule (11-cross-kind-reference-rule)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "Constraint framework"
+   ],
+   "cross_cut": [
+    "11-semantics-element-catalog"
+   ],
+   "tests": "11_names_and_scopes/constraint.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-cross-kind-reference-rule",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/cross-kind-reference-rule.md",
+   "concern": "Cross-kind reference rule — Relationship-required invariant, compile pre-validation, plan walk resolution",
+   "use_when": "cross-kind reference rule; Relationship path existence; compile pre-validation (N-C5); plan walk resolution; within-kind reference fast path",
+   "skip_when": "Relationship (16); lookup algorithm (11-lookup-algorithm); Precondition catalog (11-precondition-catalog)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "16",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "cross-kind reference rule (Relationship-required invariant; compile pre-validation, plan walks)"
+   ],
+   "cross_cut": [],
+   "tests": "11_names_and_scopes/cross-kind-reference-rule.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-lookup-algorithm",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/lookup-algorithm.md",
+   "concern": "Lookup algorithm — how compile resolves a named reference against the scope tree and global registry, producing indices for plan",
+   "use_when": "lookup algorithm; global Semantics registry; per-DataKind Semantics table; Relationship graph; per-Semantics binding table; lookup steps (name existence, Kind-scope membership, Binding resolution, variant selection); expression-level references; deterministic ordering (lexicographic); interaction with ComposedSemanticInterface",
+   "skip_when": "cross-kind reference rule (11-cross-kind-reference-rule); Precondition catalog (11-precondition-catalog); ComposedSemanticInterface (16); Semantics identity (11-semantics-identity)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "16",
+    "33"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "lookup algorithm (how compile resolves a named reference against the scope tree and global registry)"
+   ],
+   "cross_cut": [],
+   "tests": "11_names_and_scopes/lookup-algorithm.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "11-precondition-catalog",
+   "cluster": "11_names_and_scopes",
+   "file": "11_names_and_scopes/precondition-catalog.md",
+   "concern": "Name-related Precondition catalog — N-V1 through N-C9, mapping to typed error variants",
+   "use_when": "Precondition catalog; validate-stage Preconditions N-V1/N-V2/N-V3/N-V4; compile-stage Preconditions N-C1 through N-C9; mapping to ValidateError/CompileError variants; stage assignment (validate = structural, accumulate; compile = catalog-dependent, fail-fast); precondition→error-variant table",
+   "skip_when": "lookup algorithm (11-lookup-algorithm); Semantics identity (11-semantics-identity); Semantics element catalog (11-semantics-element-catalog)",
+   "status": "ratified",
+   "version": "2.0",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10"
+   ],
+   "refined_by": [
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "name-related Precondition catalog (which checks validate vs compile run)"
+   ],
+   "cross_cut": [
+    "32-model-parse-validate"
+   ],
+   "tests": "11_names_and_scopes/precondition-catalog.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-layered-model",
+   "cluster": "14_expressions",
+   "file": "14_expressions/layered-model.md",
+   "concern": "The layered expression model — one structural tree parameterized by leaf type",
+   "use_when": "understanding the three-concern split (traversal, canonical IR, authoring sugar); leaf-set boundaries; why one Expr<L> not parallel enums",
+   "skip_when": "specific structural variants (14-expr-structural-variants); trait contracts (14-tree-trait); authoring surface (14-yaml-authoring); crate placement (14-crate-placement)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "item Y / V3 layered model; Window author-rejected per A2; semstrait-model owns shared Expr<L>",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the layered expression model — one structural tree Expr<L> parameterized by leaf type, with two canonical leaf sets"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/layered-model.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-tree-trait",
+   "cluster": "14_expressions",
+   "file": "14_expressions/tree-trait.md",
+   "concern": "The Tree traversal trait — universal visitor/rewriter contract",
+   "use_when": "Tree trait; children; with_new_children; Visitor; Rewriter; traversal API; family-agnostic traversal",
+   "skip_when": "structural variants (14-expr-structural-variants); leaf types (14-physical-leaves, 14-semantic-leaves); authoring (14-yaml-authoring)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "semstrait-common per item Y / V5; orphan-safe per-type impl; ValidateError co-moved",
+   "prereqs": [
+    "14-crate-placement"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the Tree trait (universal traversal contract — children / with_new_children / visitor / rewriter)",
+    "the ExprLeaf trait"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/tree-trait.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-expr-structural-variants",
+   "cluster": "14_expressions",
+   "file": "14_expressions/expr-structural-variants.md",
+   "concern": "The Expr<L> structural-variant taxonomy and recursion model",
+   "use_when": "Expr<L> variants; BinaryOp; UnaryOp; FunctionCall; Cast; Case; InList; Between; Like; IsNull; Coalesce; NullIf; Aggregate; Window; structural catalog; homogeneous recursion; author-rejected Window",
+   "skip_when": "leaf sets (14-physical-leaves, 14-semantic-leaves); traversal (14-tree-trait); authoring (14-yaml-authoring); function catalog (14a)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "Window variant exists per A2 (author-rejected, compile-emitted); semstrait-model owns all variants",
+   "prereqs": [
+    "14-yaml-authoring",
+    "14-crate-placement"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the structural-variant taxonomy of Expr<L> (BinaryOp / UnaryOp / FunctionCall / Cast / Case / InList / Between / Like / IsNull / Coalesce / NullIf / Aggregate / Window)"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/expr-structural-variants.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-physical-leaves",
+   "cluster": "14_expressions",
+   "file": "14_expressions/physical-leaves.md",
+   "concern": "The two physical leaf sets — author-facing and resolved-IR, split by Parameter admissibility",
+   "use_when": "UnresolvedPhysicalLeaf; PhysicalLeaf; Column; Literal; Parameter; author-facing vs resolved IR; two-type split",
+   "skip_when": "semantic leaves (14-semantic-leaves); structural variants (14-expr-structural-variants); Parameter binding (5. Parameter section in this doc)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "model owns UnresolvedPhysicalLeaf (no Parameter); ir owns PhysicalLeaf (with Parameter)",
+   "prereqs": [
+    "14-yaml-authoring",
+    "14-site-shape-gates",
+    "14-crate-placement"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the two physical leaf sets — author-facing model::UnresolvedPhysicalLeaf (Column / Literal) and resolved-IR ir::PhysicalLeaf (Column / Literal / Parameter)"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/physical-leaves.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-semantic-leaves",
+   "cluster": "14_expressions",
+   "file": "14_expressions/semantic-leaves.md",
+   "concern": "The UnresolvedSemanticLeaf per-kind typed set and sugar accessor carriers",
+   "use_when": "UnresolvedSemanticLeaf; Field; Dimension; Measure; Metric; Key; per-kind typed leaves; sugar accessor agreement; Column admissibility under auto mapping",
+   "skip_when": "physical leaves (14-physical-leaves); sugar elimination (14-accessor-sugar); authoring constructors (14-yaml-authoring)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "semstrait-model owns UnresolvedSemanticLeaf; per-kind typed; accessor Option<XxxAccessor> carriers",
+   "prereqs": [
+    "14-accessor-sugar",
+    "14-yaml-authoring",
+    "14-site-shape-gates",
+    "14-crate-placement"
+   ],
+   "refined_by": [
+    "19-phase-a-resolution"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the UnresolvedSemanticLeaf set (Literal / Column / Field / Dimension / Measure / Metric / Key) — per-kind typed leaves enabled by semantic declarations"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/semantic-leaves.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-type-aliases",
+   "cluster": "14_expressions",
+   "file": "14_expressions/type-aliases.md",
+   "concern": "The authoring and resolved type aliases — model::UnresolvedSemanticExpr, model::UnresolvedPhysicalExpr, ir::PhysicalExpr",
+   "use_when": "type aliases; UnresolvedSemanticExpr; UnresolvedPhysicalExpr; PhysicalExpr; alias not re-declared enum; shorthand license",
+   "skip_when": "leaf sets (14-physical-leaves, 14-semantic-leaves); structural variants (14-expr-structural-variants); crate placement (14-crate-placement)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "model owns UnresolvedSemanticExpr/UnresolvedPhysicalExpr; ir::PhysicalExpr = Expr<ir::PhysicalLeaf> alias",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the authoring type aliases model::UnresolvedSemanticExpr = Expr<UnresolvedSemanticLeaf> and model::UnresolvedPhysicalExpr = Expr<UnresolvedPhysicalLeaf>; the resolved ir::PhysicalExpr"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/type-aliases.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-accessor-sugar",
+   "cluster": "14_expressions",
+   "file": "14_expressions/accessor-sugar.md",
+   "concern": "Per-entity accessor sugar — the four accessor enums and Window-lowering contract",
+   "use_when": "DimensionAccessor; MeasureAccessor; MetricAccessor; KeyAccessor; sugar elimination; Window lowering; accessor-to-fixpoint; measure.previous; metric.delta",
+   "skip_when": "semantic leaves (14-semantic-leaves); authoring constructors (14-yaml-authoring); Parameter shape (14-parameter)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "four accessor enums; Window lowering via compile sugar elimination; fixpoint iteration per 19 §3.1",
+   "prereqs": [
+    "14-crate-placement"
+   ],
+   "refined_by": [],
+   "refines": [
+    "14-semantic-leaves"
+   ],
+   "authoritative_for": [
+    "the per-kind sugar accessors (DimensionAccessor, MeasureAccessor, MetricAccessor, KeyAccessor) carried as optional refinements on the typed semantic leaves"
+   ],
+   "cross_cut": [
+    "14-semantic-leaves"
+   ],
+   "tests": "14_expressions/accessor-sugar.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-parameter",
+   "cluster": "14_expressions",
+   "file": "14_expressions/parameter.md",
+   "concern": "The Parameter compile-emitted placeholder, ParameterKey closed set, and non-coercion posture",
+   "use_when": "Parameter; ParameterKey; RequestDimensionsMinusTemporal; RequestTemporalAxis; plan-time binding; non-coercion posture; pass-through type handling",
+   "skip_when": "physical leaves (14-physical-leaves); planner binding (19, 34); type coercion rules (none exist — pass-through)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "semstrait-ir owns Parameter + ParameterKey; compile-emitted only; plan-time binding per 34",
+   "prereqs": [
+    "14-crate-placement"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the Parameter placeholder shape (compile-emitted; plan-bound) and the closed ParameterKey set",
+    "the non-coercion / pass-through posture — no implicit type promotion, coercion, or cross-operand compatibility checks at the canonical layer; engines own execution-time type compatibility"
+   ],
+   "cross_cut": [],
+   "tests": "14_expressions/parameter.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-yaml-authoring",
+   "cluster": "14_expressions",
+   "file": "14_expressions/yaml-authoring.md",
+   "concern": "The YAML authoring surface — bare Expr<L> fields, block form, reserved tags, bare-identifier resolution",
+   "use_when": "YAML authoring; bare Expr<L> carrier; block form; reserved tags; col; field; dim; measure; metric; key; bare-identifier resolution; inline DSL reserved; parse-site dispatch; declarative block tags",
+   "skip_when": "structural variants (14-expr-structural-variants); leaf types (14-physical-leaves, 14-semantic-leaves); function catalog (14a); compile resolution (19)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "hand-rolled field-level authoring serde per item Y / V7 + A2; reserved tag catalog §6.4.1; parse-site dispatch §6.2",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the YAML authoring surface — bare Expr<L> fields with a field-level friendly projection (block form + bare-leaf shorthand; inline DSL reserved)",
+    "the six canonical authoring-surface constructors (col, field, dim, measure, metric, key) with exact YAML-tag ↔ Rust-DSL alignment",
+    "bare-identifier resolution rules — semantic site defaults to field, physical-mapping site defaults to col",
+    "per-parse-site dispatch — semantic sites parse to UnresolvedSemanticExpr, physical-mapping sites parse to UnresolvedPhysicalExpr"
+   ],
+   "cross_cut": [
+    "14-physical-leaves",
+    "14-semantic-leaves",
+    "14-expr-structural-variants"
+   ],
+   "tests": "14_expressions/yaml-authoring.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-site-shape-gates",
+   "cluster": "14_expressions",
+   "file": "14_expressions/site-shape-gates.md",
+   "concern": "Per-site shape gates — scalar/Boolean/aggregate-admitting expression requirements by authoring site",
+   "use_when": "per-site shape gates; measures.expr; metrics.expr; dimensions.expr; filters.expr; semantic_mapping.expr; scalar; Boolean; aggregate-admitting; site catalog",
+   "skip_when": "YAML authoring tags (14-yaml-authoring); compile placement (19)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "§7 site catalog; parse/construct-time gate checks; Column-under-auto-mapping synthesis per §8",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "per-site shape gates (scalar / boolean / aggregate-admitting)",
+    "the Column-under-auto-mapping admissibility rule and the compile-stage auto-mapping synthesis step"
+   ],
+   "cross_cut": [
+    "14-semantic-leaves",
+    "14-physical-leaves"
+   ],
+   "tests": "14_expressions/site-shape-gates.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "14-crate-placement",
+   "cluster": "14_expressions",
+   "file": "14_expressions/crate-placement.md",
+   "concern": "Expression-layer crate placement — semstrait-common, semstrait-model, semstrait-ir, semstrait-manifest ownership",
+   "use_when": "crate placement; semstrait-common; semstrait-model; semstrait-ir; semstrait-manifest; item Y inversion; Tree in common; Expr<L> in model; PhysicalExpr in ir; compile fold in manifest; DAG",
+   "skip_when": "structural variants (14-expr-structural-variants); leaf types (14-physical-leaves, 14-semantic-leaves); authoring (14-yaml-authoring)",
+   "status": "ratified",
+   "version": "second refinement landed 2026-05-18; cascade rebases of 19/31/35 complete",
+   "impl": "item Y inversion (ir→model edge, not model→ir); common owns Tree + ValidateError; model owns Expr<L> + authoring leaves + accessors; ir owns PhysicalExpr alias + Parameter + FunctionRegistry; manifest owns compile fold",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "crate-placement of the expression layer (post-item-Y / A2) — semstrait-model owns the shared Expr<L> (all instantiations, incl. the author-rejected Window variant), the leaves, accessors, support enums incl. the Window support enums (WindowFn/WindowFrame/WindowFrameKind/WindowBound, A2), Literal, DataType/Grain, CanonicalFn-name, ExprLeaf, YAML surface; semstrait-ir owns the resolved alias PhysicalExpr = Expr<ir::PhysicalLeaf> + the Parameter leaf + registry; semstrait-common owns the traversal traits + ValidateError; semstrait-manifest owns the compile fold"
+   ],
+   "cross_cut": [
+    "14-tree-trait",
+    "14-expr-structural-variants",
+    "14-physical-leaves",
+    "14-semantic-leaves",
+    "14-accessor-sugar",
+    "14-parameter"
+   ],
+   "tests": "14_expressions/crate-placement.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-binding-process",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/binding-process.md",
+   "concern": "The compile-time Binding process: EntityId derivation, source resolution (glob/catalog), schema reconciliation, SemanticMapping completeness, Coverage derivation, and ResolvedBinding materialization",
+   "use_when": "binding identity, compile flow, source expansion, binding-owned compile errors (COMP_E_0300-0399), error-code allocation table §11.1, warnings table §11.2, Binding struct extension (§2.1 field declarations)",
+   "skip_when": "PhysicalSource variants (15-physical-source), FileFormat details (15-file-format), SemanticMapping per-variant mechanics (15-semantic-mapping), Coverage structure (15-coverage), ResolvedColumnMapping (15-resolved-column-mapping), MetadataDimension extraction (15-metadata-extraction), schema cast rules (15-schema-reconciliation)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "compile-time Binding process (one per Dataset leaf, binding_id, sources, semantic_mapping, coverage) and identity/uniqueness rules",
+    "binding identity — deterministically-generated EntityId (33 §7.1/§9.1), no BindingId newtype",
+    "glob-expansion algorithm, ordering determinism, and error model",
+    "compile-time resolution flow for bindings (sub-steps inside compile that produce ResolvedBinding)",
+    "error-code allocation COMP_E_0300–0399 (schema/binding) and COMP_E_0200–0299 (catalog/source resolution)"
+   ],
+   "cross_cut": [
+    "15-catalog-absent-fallback",
+    "15-physical-source",
+    "15-file-format",
+    "15-semantic-mapping",
+    "15-coverage",
+    "15-metadata-extraction",
+    "15-schema-reconciliation"
+   ],
+   "tests": "15_mapping_and_binding/binding-process.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-catalog-absent-fallback",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/catalog-absent-fallback.md",
+   "concern": "Catalog-absent fallback — model-as-truth source-shape fields on Binding (locator, source_type, projected_schema, version_ref) authored directly on the model when no catalog is present; the catalog-optional override matrix per C1.1/C14.4/C14.5/C15.5",
+   "use_when": "catalog-optional workflows; model-authored physical shape (locator/source_type/projected_schema/version_ref); catalog-absent override matrix; when the model is the source of physical truth",
+   "skip_when": "catalog-present path (15-binding-process), PhysicalSource runtime shape (15-physical-source)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [
+    "15-binding-process"
+   ],
+   "authoritative_for": [
+    "model-as-truth source-shape fields on Binding when catalog is absent (locator, source_type, projected_schema, version_ref) per C1.1/C14.4/C14.5/C15.5"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/catalog-absent-fallback.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-physical-source",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/physical-source.md",
+   "concern": "PhysicalSource sum type (File/Table/Snapshot variants), Schema/PartitionColumn/CatalogRef shapes, source resolution (glob expansion, catalog fetch, deterministic ordering)",
+   "use_when": "PhysicalSource variants, Schema columns, CatalogRef, PartitionColumn, source-expansion ordering, cross-source schema agreement, COMP_E_0301/0302 glob errors",
+   "skip_when": "Binding compile flow (15-binding-process), FileFormat enum (15-file-format), per-format schema strategies (15-file-format)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "PhysicalSource sum type (File, Table, Snapshot) and Schema/PartitionColumn/CatalogRef shapes"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/physical-source.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-file-format",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/file-format.md",
+   "concern": "FileFormat enumeration (Parquet/Csv/Json/Orc/Avro), CsvOptions/JsonOptions, per-format schema-resolution strategy, format inference from path",
+   "use_when": "FileFormat variants, CSV/JSON options, schema inference, format-inference rules, COMP_W_0301 SchemaInferenceUsed, COMP_E_0303/0304 file-format errors",
+   "skip_when": "PhysicalSource structure (15-physical-source), Binding compile flow (15-binding-process)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "FileFormat enumeration (Parquet, Csv, Json, Orc, Avro) and per-format schema-resolution strategy"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/file-format.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-semantic-mapping",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/semantic-mapping.md",
+   "concern": "SemanticMapping structure (BTreeMap keyed on SemanticsName), per-variant compile semantics (Column/Literal/Expr/Metadata), completeness rule (every Semantics covered exactly once)",
+   "use_when": "SemanticMapping completeness, SemanticMappingValue variants (Column/Literal/Expr/Metadata), per-variant rules, synthesized entries (derived Measures, metadata), COMP_E_0308/0309 completeness errors",
+   "skip_when": "three-stratum expression model (15-expression-strata), MetadataDimension layer-3 mechanics (15-metadata-extraction), Coverage derivation (15-coverage), ResolvedColumnMapping (15-resolved-column-mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "SemanticMapping completeness rule at compile — every Semantics covered exactly once; extras rejected (struct shape owned by 18 §10)"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/semantic-mapping.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-coverage",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/coverage.md",
+   "concern": "Coverage at Binding level (Native/NullFill/Derived/Metadata), per-source × per-Semantics truth table, computation at compile, scope boundary with 16's composition-level Coverage",
+   "use_when": "Coverage structure, CoverageVariant (Native/NullFill/Derived/Metadata), per-source applicability, NullFill detection, Derived-cross-source rule, COMP_E_0310 UnusableNullFillInNonUnionContext",
+   "skip_when": "composition-level Coverage (16), MetadataDimension Coverage mechanics (15-metadata-extraction), ResolvedColumnMapping storage (15-resolved-column-mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "Coverage at Binding level (Native, NullFill, Derived, Metadata); scope boundary with 16's composition-level Coverage"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/coverage.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-resolved-column-mapping",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/resolved-column-mapping.md",
+   "concern": "SemanticManifest-layer ResolvedColumnMapping (four flat HashMaps per value category), ResolvedBinding/ResolvedPhysicalSource envelope, planner-speed contract, relation to 19's ResolvedExprTable",
+   "use_when": "ResolvedColumnMapping structure, ResolvedBinding/ResolvedPhysicalSource, planner O(1) lookup, per-Binding computed HashMap vs global ResolvedExprTable, metadata_values map on ResolvedPhysicalSource",
+   "skip_when": "Model-layer SemanticMapping (15-semantic-mapping), Coverage (15-coverage), compile flow (15-binding-process)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "SemanticManifest-layer ResolvedColumnMapping shape (pre-split flat maps per value category) and planner-speed contract"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/resolved-column-mapping.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-expression-strata",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/expression-strata.md",
+   "concern": "Three-stratum expression model: UnresolvedSemanticExpr (layer 1, logical), PhysicalExpr (layer 2, lowered SQL-equivalent), compile-time mechanics (layer 3, path_token v1 inhabitant)",
+   "use_when": "expression layering, UnresolvedSemanticExpr vs PhysicalExpr distinction, compile-time mechanics layer, constant folding feed, why path_token is not a PhysicalExpr",
+   "skip_when": "path_token runtime mechanics (15-metadata-extraction), SemanticMappingValue::Expr compile semantics (15-semantic-mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "three-stratum expression model (14/19/15): UnresolvedSemanticExpr (layer 1), PhysicalExpr (layer 2), compile-time mechanics (layer 3 — path_token)"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/expression-strata.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-metadata-extraction",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/metadata-extraction.md",
+   "concern": "MetadataDimension extraction semantics: v1 path-token mechanics (path_token compile function, token indexing, Cast to declared data_type, per-source LiteralValue resolution), v2 partition extraction deferred, Coverage::Metadata",
+   "use_when": "MetadataDimension recipe synthesis, path_token layer-3 mechanic, token indexing (0-indexed post-scheme-strip), Cast-to-data_type failure, COMP_E_0311/0312/0320/0321/0322 metadata errors, metadata_values map population, partition extraction deferral",
+   "skip_when": "SemanticMappingValue::Metadata authoring surface (13 §4.7 / 18 §4 / 18 §10.4), Coverage structure (15-coverage), ResolvedColumnMapping (15-resolved-column-mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "MetadataDimension extraction semantics — v1 path-token only; v2 partition extraction deferred"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/metadata-extraction.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "15-schema-reconciliation",
+   "cluster": "15_mapping_and_binding",
+   "file": "15_mapping_and_binding/schema-reconciliation.md",
+   "concern": "Schema reconciliation at compile: widening/narrowing/incompatible casts (per 14 §6.4), Computed-entry type inference reconciliation, cross-source type agreement (strict), nullability reconciliation (warning)",
+   "use_when": "implicit cast wrapping, widening vs narrowing, COMP_I_0301/COMP_W_0302/0303 cast diagnostics, COMP_E_0315 IncompatiblePhysicalType, COMP_E_0316 ComputedTypeMismatch, COMP_E_0317 CrossSourceTypeDisagreement, COMP_W_0306 nullability mismatch",
+   "skip_when": "cast matrix itself (14 §6.4), Binding compile flow (15-binding-process), SemanticMapping (15-semantic-mapping)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "15-binding-process"
+   ],
+   "refined_by": [],
+   "refines": [
+    "14"
+   ],
+   "authoritative_for": [
+    "schema-reconciliation rules (widening silent; narrowing warns; incompatible errors; cross-source type agreement)"
+   ],
+   "cross_cut": [],
+   "tests": "15_mapping_and_binding/schema-reconciliation.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "17-temporal-shape-semantics",
+   "cluster": "17_temporal_shape",
+   "file": "17_temporal_shape/temporal-shape-semantics.md",
+   "concern": "TemporalShape classification vocabulary, declaration, grain/asof/request/additivity interactions",
+   "use_when": "TemporalShape four variants (Timeseries/Events/Snapshot/Scd); ScdType roster (Type0-Type6); declaration site (SimpleDataKind only); TemporalShape × Grain interaction matrix; JoinType::AsOf vocabulary (post-v1 deferred); as-of anchor selection rules; Request.temporal block vocabulary; TemporalShape × Additivity advisory roster",
+   "skip_when": "TemporalShape struct shape (see 18-temporal-shape); shape-gated composition rules (see 17-shape-composition-and-validation); validate/compile/plan Preconditions (see 17-shape-composition-and-validation); per-DataKind temporal strategies (see data-kinds 20-24); engine temporal mapping (see registry/temporal_shape_mapping)",
+   "status": "partially ratified",
+   "version": "1.0",
+   "impl": "partially implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "13",
+    "16",
+    "18"
+   ],
+   "refined_by": [
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "32",
+    "33",
+    "34",
+    "35",
+    "17-shape-composition-and-validation"
+   ],
+   "refines": [
+    "18"
+   ],
+   "authoritative_for": [
+    "TemporalShape planner-level semantics",
+    "declaration site prose (authored exclusively on SimpleDataKind)",
+    "TemporalShape × Grain interaction matrix",
+    "JoinType::AsOf variant (post-v1 deferred)",
+    "as-of anchor selection rules per shape pair",
+    "Request.temporal block",
+    "TemporalShape × Additivity advisory-warning roster"
+   ],
+   "cross_cut": [
+    "18-temporal-shape"
+   ],
+   "tests": "17_temporal_shape/temporal-shape-semantics.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "17-shape-composition-and-validation",
+   "cluster": "17_temporal_shape",
+   "file": "17_temporal_shape/shape-composition-and-validation.md",
+   "concern": "Shape-gated composition rules (Unionset/Grainset/implicit), validate/compile/plan Preconditions, error catalog, DEFERRED roster",
+   "use_when": "shape compatibility across Unionset branches; shape constraints on Grainset levels; shape constraints on implicit composition (16 §11); rollup vs as-of anchoring; SCD wide composition anchoring requirement; validate/compile/plan Preconditions VALID_E_17xx/COMP_E_17xx/PLAN_E_17xx/PLAN_W_17xx; DEFERRED-items roster",
+   "skip_when": "TemporalShape classification vocabulary (see 17-temporal-shape-semantics); TemporalShape struct shape (see 18-temporal-shape); per-DataKind composition strategies (see data-kinds 22-24); per-engine SCD/snapshot emission (see registry/temporal_shape_mapping)",
+   "status": "partially ratified",
+   "version": "1.0",
+   "impl": "partially implemented",
+   "prereqs": [
+    "00",
+    "11",
+    "13",
+    "16",
+    "17-temporal-shape-semantics"
+   ],
+   "refined_by": [
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "32",
+    "33",
+    "34",
+    "35"
+   ],
+   "refines": [
+    "16",
+    "17-temporal-shape-semantics"
+   ],
+   "authoritative_for": [
+    "shape-gated composition rules (refining 16 §11)",
+    "historical reference for full Kimball SCD taxonomy (Type0-Type6)",
+    "17-subsystem validate/compile/plan Precondition catalog (VALID_E_1700-1799, COMP_E_1700-1799, PLAN_E_1700-1799, PLAN_W_1700-1799)",
+    "DEFERRED-items roster"
+   ],
+   "cross_cut": [],
+   "tests": "17_temporal_shape/shape-composition-and-validation.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-semantics-pools",
+   "cluster": "18_entities",
+   "file": "18_entities/semantics-pools.md",
+   "concern": "Shared Semantics pools (dimensions/measures/metrics) at the root level and their per-DataKind reference / override grammar, plus orphan-binding policy",
+   "use_when": "root-pool Semantics; reference vs inline authoring; DimensionEntry/MeasureEntry/MetricEntry; DimensionRef/MeasureRef/MetricRef; override scope at reference sites; deferred-body pattern; orphan validation policy; SR-E-1 through SR-E-3",
+   "skip_when": "Dimension/Measure/Metric struct shapes (see 18-dimension/18-measure/18-metric); DataKind interface storage (see 32); compile resolution (see 19)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "18-structural-rules"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the shared Semantics pools (`dimensions:`, `measures:`, `metrics:`) at the root level and their per-DataKind reference / override grammar",
+    "the orphan-binding policy for root-pool Semantics"
+   ],
+   "cross_cut": [
+    "18-dimension",
+    "18-measure",
+    "18-metric"
+   ],
+   "tests": "18_entities/semantics-pools.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-relationship",
+   "cluster": "18_entities",
+   "file": "18_entities/relationship.md",
+   "concern": "Relationship struct shape, identity, cardinality, integrity, optional, cross_filter, JoinType derivation, and JoinKeyExprPair",
+   "use_when": "Relationship struct; EntityId identity; cardinality (OneToOne/OneToMany/ManyToOne/ManyToMany); integrity (Enforced/Assumed/None); optional enum (None/Left/Right/Both); cross_filter enum (None/Left/Right/Both); JoinType derivation; JoinKeyExprPair; defaults matrix; authoring sites (root vs Joinset scope); SR-E-4/5/13/14",
+   "skip_when": "relationship graph traversal (see 16); ResolvedRelationship manifest form (see 33); planner consumption (see 34)",
+   "status": "ratified",
+   "version": "2.2",
+   "impl": "implemented",
+   "prereqs": [
+    "18-structural-rules"
+   ],
+   "refined_by": [
+    "24-joinset-strategy"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `Relationship` struct (identified by its `EntityId`; the field is `id: Option<EntityId>`, minted at parse) — unified shape used at both root `relationships:` and `JoinsetBody.relationships`",
+    "`JoinType`, `Cardinality`, `JoinKeyExprPair`"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/relationship.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-temporal-shape",
+   "cluster": "18_entities",
+   "file": "18_entities/temporal-shape.md",
+   "concern": "TemporalShape type hierarchy — TemporalShape struct, TemporalShapeKind enum, per-variant body structs, ScdType roster, grain placement rules",
+   "use_when": "TemporalShape struct; TemporalShapeKind enum (Timeseries/Events/Snapshot/Scd); TimeseriesBody/EventsBody/SnapshotBody/ScdBody; ScdType (Type1/Type2); grain field (optional on TemporalShape, required on leaf Dataset, forbidden on complex kinds, required on Grainset children); SR-E-6/7/8; forward reference to doc 17",
+   "skip_when": "Grain enum roster (owned by 13); TemporalShape planner semantics (see 17); per-variant temporal interactions (see data-kinds 20-24)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "13",
+    "18-structural-rules"
+   ],
+   "refined_by": [
+    "17-temporal-shape-semantics"
+   ],
+   "refines": [
+    "13"
+   ],
+   "authoritative_for": [
+    "the `TemporalShape` type hierarchy — `TemporalShape` struct, `TemporalShapeKind` enum, per-variant `*Body` structs, `ScdType` (v1 roster `{Type1, Type2}`); `Grain` is consumed via `TemporalShape.grain` but the `Grain` enum itself is owned by `13 §3.1`"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/temporal-shape.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-dimension",
+   "cluster": "18_entities",
+   "file": "18_entities/dimension.md",
+   "concern": "Dimension struct shape and DimensionType roster (Temporal/Categorical/Binary/Geo/Bucketed/Metadata)",
+   "use_when": "Dimension struct; EntityId identity; DimensionType enum (Temporal/Categorical/Binary/Geo/Bucketed/Metadata); TemporalDimensionBody (grains); BucketedDimensionBody/BucketSpec/BucketBound; MetadataDimensionBody/MetadataSource; data_type field; dim_type field; expr field; SR-E-10",
+   "skip_when": "Semantics pools reference grammar (see 18-semantics-pools); compile-time Dimension resolution (see 19); metadata extraction mechanics (see 15)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "18-semantics-pools",
+    "18-structural-rules"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the `Dimension` struct and `DimensionType` roster"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/dimension.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-measure",
+   "cluster": "18_entities",
+   "file": "18_entities/measure.md",
+   "concern": "Measure struct shape, AggregationType roster, and AdditivityType classification",
+   "use_when": "Measure struct; EntityId identity; AggregationType enum (Sum/Avg/Count/CountDistinct/Min/Max/Median/StdDev/Variance); AdditivityType enum (Full/Semi/Non); SemiAdditivity (axes/strategy); SemiAdditivityStrategy roster; agg field (required); additivity field; filters field; SR-E-9/10",
+   "skip_when": "Semantics pools reference grammar (see 18-semantics-pools); AggregationFilter (see 18-filter-taxonomy); function-level additivity (see 14a); effective additivity composition (see 19)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "18-semantics-pools",
+    "18-structural-rules"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the `Measure` struct, `AggregationType` roster, `AdditivityType` roster"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/measure.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-metric",
+   "cluster": "18_entities",
+   "file": "18_entities/metric.md",
+   "concern": "Metric struct shape and cross-DataKind reference resolution",
+   "use_when": "Metric struct; EntityId identity; agg field (optional); expr field (required); additivity field; filters field; deferred-body pattern; cross-DataKind Metric resolution; SR-E-10",
+   "skip_when": "Semantics pools reference grammar (see 18-semantics-pools); AggregationFilter (see 18-filter-taxonomy); effective additivity composition (see 19); planner Metric resolution (see 34)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "18-semantics-pools",
+    "18-structural-rules"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the `Metric` struct"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/metric.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-filter-taxonomy",
+   "cluster": "18_entities",
+   "file": "18_entities/filter-taxonomy.md",
+   "concern": "Two distinct filter types — DataKindFilter (DataKind-level predicate) vs AggregationFilter (Measure/Metric-level conditional aggregation)",
+   "use_when": "DataKindFilter struct (DataKind-level, user-facing); AggregationFilter struct (Measure/Metric-level, conditional aggregation); filter namespace boundary; no cross-referencing; compile lowering to CASE WHEN; SR-E-11",
+   "skip_when": "Measure/Metric filter fields (see 18-measure/18-metric); Request filter activation (see 34); planner filter pushdown (see 34)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "18-structural-rules"
+   ],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the filter taxonomy — `DataKindFilter` (DataKind-level, user-facing predicate) vs `AggregationFilter` (Measure / Metric-level, conditional aggregation)"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/filter-taxonomy.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-ai-context",
+   "cluster": "18_entities",
+   "file": "18_entities/ai-context.md",
+   "concern": "AiContext struct — LLM/agent-facing hint surface (synonyms, description, examples, unit)",
+   "use_when": "AiContext struct; synonyms map; LLM-facing description; examples list; unit field; attachment sites (SemanticModel/DataKind/Semantics)",
+   "skip_when": "carrier entity structs (see 18-dimension/18-measure/18-metric/18-relationship); compile/planner consumption (AiContext is v1 metadata-only)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the `AiContext` struct"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/ai-context.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-keys",
+   "cluster": "18_entities",
+   "file": "18_entities/keys.md",
+   "concern": "Keys struct — primary, unique, and foreign key declarations with bare Semantic names",
+   "use_when": "Keys struct; KeyDecl (primary/unique); ForeignKeyDecl (foreign); bare-name entries; EntityId identity on key decls; relationship graph consumption; metadata role (not runtime constraints); SR-E-10 cross-reference",
+   "skip_when": "relationship graph traversal (see 16); compile key resolution (see 19); planner key consumption (see 34)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "18-structural-rules"
+   ],
+   "refined_by": [
+    "11-semantics-element-catalog",
+    "22-grainset-cross-grain"
+   ],
+   "refines": [],
+   "authoritative_for": [
+    "the `Keys` struct (`primary`, `unique`, `foreign`) with bare-name entries"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/keys.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-semantic-mapping-value",
+   "cluster": "18_entities",
+   "file": "18_entities/semantic-mapping-value.md",
+   "concern": "SemanticMappingValue enum — four variants (Column/Literal/Expr/Metadata) for binding Semantics to physical sources",
+   "use_when": "SemanticMappingValue enum (Column/Literal/Expr/Metadata); LiteralValue roster; UnresolvedPhysicalExpr reference; MetadataDimensionRecipe (compile-synthesized); MetadataExtraction enum (Path); auto vs explicit mapping; YAML shape",
+   "skip_when": "Binding process (see 15); Dataset extras.semantic_mapping authoring (see 32); manifest ResolvedPhysicalSource (see 33)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the `SemanticMapping` / `SemanticMappingValue` value shape at the model-authoring layer"
+   ],
+   "cross_cut": [],
+   "tests": "18_entities/semantic-mapping-value.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "18-structural-rules",
+   "cluster": "18_entities",
+   "file": "18_entities/structural-rules.md",
+   "concern": "Entity-level structural rules (SR-E-*) — numbered validation invariants SR-E-1 through SR-E-14",
+   "use_when": "SR-E-1 through SR-E-14 roster; entity-level invariants; diagnostic code allocation; validation rules for Semantics/Relationship/TemporalShape/Keys; append-only numbering policy",
+   "skip_when": "root-level SR-* rules (see 32); per-entity validation details (see sibling 18-* leaves); diagnostic rendering (see 30)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [],
+   "refined_by": [],
+   "refines": [],
+   "authoritative_for": [
+    "the `SR-E-*` structural-rule codes for entity-level validation"
+   ],
+   "cross_cut": [
+    "18-semantics-pools",
+    "18-relationship",
+    "18-temporal-shape",
+    "18-dimension",
+    "18-measure",
+    "18-metric",
+    "18-filter-taxonomy",
+    "18-keys"
+   ],
+   "tests": "18_entities/structural-rules.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-two-phase-pipeline",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/two-phase-pipeline.md",
+   "concern": "The two-phase expression pipeline architecture and phase boundary contract",
+   "use_when": "understanding the split between compile-time (Phase A) and plan-time (Phase B); phase boundary contract; Request-free vs Request-bound; PhysicalExpr modulo Parameter; crate placement per I7",
+   "skip_when": "Phase A resolution details (19-phase-a-resolution); Phase B placement details (19-phase-b-placement); expression AST structure (14); planner request handling (34)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14"
+   ],
+   "refined_by": [
+    "19-phase-a-resolution",
+    "19-phase-b-placement",
+    "33",
+    "34"
+   ],
+   "authoritative_for": [
+    "the two-phase expression pipeline (Phase A — compile-time resolution; Phase B — plan-time placement) and the SoC between `model::UnresolvedSemanticExpr`, `ir::PhysicalExpr`, and `ir::PlanNode`"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "19_expression_flow/two-phase-pipeline.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-phase-a-resolution",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/phase-a-resolution.md",
+   "concern": "Phase A compile-time resolution algorithm — resolve entry point, ResolvedExprTable, substitution, path resolution, cycle detection, type inference, reconciliation, sub-pass ordering",
+   "use_when": "compile-time resolution mechanics; resolve fold; ResolvedExprTable shape and lookup; per-leaf-kind substitution rules; cross-DataKind path BFS; cycle detection via Tarjan SCC; bottom-up type inference; semantics-boundary reconciliation; per-Binding keying; sub-pass ordering inside compile; referenced-column harvesting; auto-mapping synthesis; relationship join-key lowering",
+   "skip_when": "two-phase architecture (19-two-phase-pipeline); sugar contract (19-sugar-contract); Phase B placement (19-phase-b-placement); expression gates (19-expression-gates); error model (19-error-model)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "11",
+    "13",
+    "14",
+    "14a",
+    "15",
+    "16",
+    "18"
+   ],
+   "refined_by": [
+    "33",
+    "34"
+   ],
+   "authoritative_for": [
+    "the compile-stage `resolve` fold entry point (`model::UnresolvedSemanticExpr` → `ir::PhysicalExpr`, owned by `semstrait-manifest::compile`) and its internal substep order (auto-mapping synthesis → eliminate sugar accessors → substitute typed leaves → fold + partial-eval → translate → reconcile)",
+    "the `ResolvedExprTable` data structure — keying, entry shape, ordering, serialization posture",
+    "the compile-time per-leaf-kind substitution algorithm over the typed-leaf `UnresolvedSemanticLeaf` set from `14 §3.5`",
+    "cross-DataKind path resolution — BFS over the `Relationship` graph, shortest-path semantics, ambiguity detection, `PathSignature` construction",
+    "reference-graph cycle detection (Tarjan SCC over the transitive typed-semantic-leaf closure)",
+    "bottom-up type inference driving `inferred_type` annotation on every resolved node",
+    "Semantics-boundary reconciliation (declared-`data_type` vs. inferred-type `Cast` emission)",
+    "per-Binding table keying (`Dataset` 1:1; `Unionset` / `Grainset` / `Joinset` one-per-constituent-binding)",
+    "the ordering of resolution sub-passes inside `compile`",
+    "referenced-column harvesting algorithm",
+    "the auto-mapping synthesis pre-step and the `Column`-under-manual-mapping rejection rule"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "14-semantic-leaves"
+   ],
+   "tests": "19_expression_flow/phase-a-resolution.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-sugar-contract",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/sugar-contract.md",
+   "concern": "Sugar contract — Family A constant folding / partial evaluation and Family B per-kind accessor lowering",
+   "use_when": "sugar elimination semantics; constant folding over metadata-static expressions; per-kind typed-leaf accessor lowering to Window subtrees; fixpoint iteration; fold language; metadata fold worked example",
+   "skip_when": "Phase A resolution (19-phase-a-resolution); Phase B placement (19-phase-b-placement); expression gates (19-expression-gates)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "authoritative_for": [
+    "the sugar contract — Family A (constant folding / partial evaluation) and Family B (per-kind typed-leaf accessor sugar)"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "19_expression_flow/sugar-contract.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-expression-gates",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/expression-gates.md",
+   "concern": "Per-site expression shape gates (scalar / Boolean / aggregate admission)",
+   "use_when": "per-site expr: shape requirements; aggregate-function-call syntax admission; Measure/Metric/Dimension/filter expr: shape gates; structural shape gates at parse/construction",
+   "skip_when": "Phase A resolution (19-phase-a-resolution); Phase B placement (19-phase-b-placement); sugar contract (19-sugar-contract)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14",
+    "18"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "authoritative_for": [
+    "per-site `expr:` shape gates (scalar / Boolean / aggregate admission)"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "19_expression_flow/expression-gates.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-phase-b-placement",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/phase-b-placement.md",
+   "concern": "Phase B plan-time placement rules — filter placement, group_by handoff, computed Dimension placement, Metric semantics, Additivity axis, advisory channel, aggregation handling",
+   "use_when": "Phase B placement mechanics; ExprLayer-keyed placement (Scalar/Aggregate/PostAggregate); filter placement (WHERE/HAVING split, Measure.filters, Metric.filters); group_by construction from Request; computed Dimension placement; Metric decomposition; function-tag Additivity axis; two-source SoC (function-level vs model-level); effective additivity composition; advisory channel (LossyReaggregation); Aggregate lift; Parameter binding",
+   "skip_when": "two-phase architecture (19-two-phase-pipeline); Phase A resolution (19-phase-a-resolution); sugar contract (19-sugar-contract); expression gates (19-expression-gates); error model (19-error-model)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "14",
+    "14a",
+    "18",
+    "35"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "authoritative_for": [
+    "Phase B placement rules — filter, `group_by` handoff, computed-Dimension placement, Metric lowering, function-tag axis (`Additivity`), advisory channel",
+    "request-layer dimension-variation carrier (`RequestDimensionRef { name, variation }`) and `DimensionVariation` enum",
+    "unified `Additivity` enum and its two-source SoC (function-level in `14a §3.6` vs model-level in `18 §5.2`)",
+    "typed `Diagnostics<PlanErrorKind>` advisory channel and the unified `PLAN_W_2101 LossyReaggregation` cross-DataKind code"
+   ],
+   "refines": [],
+   "cross_cut": [
+    "35-ir-resolved-expr"
+   ],
+   "tests": "19_expression_flow/phase-b-placement.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-error-model",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/error-model.md",
+   "concern": "Expression compile-pipeline error model — CompileError variants, resolution-stage errors, function-resolution errors, boundary-reconciliation warning, fail-fast policy",
+   "use_when": "CompileError variants for expression resolution (EXPR_E_02xx sub-range); UnknownReference, NoRelationshipPath, CyclicReference, UnresolvedColumn, AmbiguousRelationshipPath, TypeInferenceFailure, ColumnInSemanticExprUnderManualMapping, SemanticKindMismatch; function-resolution errors (delegated to 14a); NarrowingCast warning; fail-fast policy; numeric codes as spec cross-reference indices",
+   "skip_when": "Phase A resolution (19-phase-a-resolution); Phase B placement (19-phase-b-placement); other error kinds (ValidateError, PlanErrorKind, AdaptErrorKind)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00",
+    "10",
+    "30"
+   ],
+   "refined_by": [
+    "34"
+   ],
+   "authoritative_for": [
+    "the compile-stage `CompileError` surface for expression resolution (`EXPR_E_02xx` sub-range)"
+   ],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "19_expression_flow/error-model.md#testing-strategy",
+   "migrated": true
+  },
+  {
+   "id": "19-naming-and-scope",
+   "cluster": "19_expression_flow",
+   "file": "19_expression_flow/naming-and-scope.md",
+   "concern": "Naming discipline and v1 scope boundaries",
+   "use_when": "naming conventions (*Kind suffix policy); v1 scope boundaries (out-of-scope items: runtime evaluate, subquery/lambda, stringly-typed parameters, Substrait emission, UDF additivity, per-DataKind advisory specialization)",
+   "skip_when": "Phase A resolution (19-phase-a-resolution); Phase B placement (19-phase-b-placement); error model (19-error-model)",
+   "status": "ratified",
+   "version": "2.1",
+   "impl": "implemented",
+   "prereqs": [
+    "00"
+   ],
+   "refined_by": [],
+   "authoritative_for": [],
+   "refines": [],
+   "cross_cut": [],
+   "tests": "19_expression_flow/naming-and-scope.md#testing-strategy",
+   "migrated": true
+  }
+ ]
+}
