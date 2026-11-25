@@ -1,0 +1,1 @@
+error: at `g_campaigns / g_campaigns.g`: the semantic source `g_campaigns.g` at `month` cannot serve the request's grain; nearest: `g_campaigns.g.g_day` lacks `budget`; `g_campaigns.g.g_month` lacks `avg_clicks`

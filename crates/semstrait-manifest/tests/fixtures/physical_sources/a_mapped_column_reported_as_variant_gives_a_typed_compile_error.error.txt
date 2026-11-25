@@ -1,0 +1,1 @@
+error: physical source bf575591-d8c6-59c7-b3aa-5fbdf5673b12: column `created_at` has native type `variant`, which has no canonical counterpart

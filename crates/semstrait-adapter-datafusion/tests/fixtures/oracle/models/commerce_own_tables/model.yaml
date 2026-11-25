@@ -1,0 +1,142 @@
+# A commerce variant that keeps its own bigint-keyed orders/customers tables and partition rows.
+semantic_model:
+  name: commerce_own_tables
+  dimensions:
+    - {name: channel, data_type: string, type: categorical}
+    - {name: store_id, data_type: string, type: categorical}
+    - {name: store_name, data_type: string, type: categorical}
+    - name: customer_id
+      data_type: bigint
+      type: categorical
+    - name: segment
+      data_type: string
+      type: categorical
+    - name: order_id
+      data_type: bigint
+      type: categorical
+    - name: amount
+      data_type: bigint
+      type: categorical
+    - name: tier
+      data_type: string
+      type: categorical
+    - name: floor
+      data_type: bigint
+      type: categorical
+  measures:
+    - {name: revenue, data_type: double, agg: sum}
+    - name: order_count
+      data_type: bigint
+      agg: count
+    - name: total_amount
+      data_type: double
+      agg: sum
+  metrics:
+    - name: bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when: {eq: [channel, {lit: web}]}
+                  then: {lit: 100.0}
+                - when: {eq: [store_name, {lit: Oslo}]}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - revenue
+  datasets:
+    - name: sales
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_year: year
+          total_amount: amount
+      dimensions:
+        - name: order_year
+          data_type: integer
+          type: categorical
+      measures:
+        - ref: total_amount
+  joinsets:
+    - name: orders_inner_customers
+      dimensions:
+        - ref: customer_id
+        - ref: segment
+      measures:
+        - ref: order_count
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              customer_id: customer_id
+              order_count: order_id
+        - name: customers
+          extras:
+            storage:
+              tables: [warehouse.customers]
+      relationships:
+        - name: orders_to_customers
+          from: orders
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          integrity: assumed
+          optional: none
+    - name: tiered_orders
+      dimensions:
+        - ref: order_id
+        - ref: amount
+        - ref: tier
+        - ref: floor
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+        - name: tiers
+          extras:
+            storage:
+              tables: [warehouse.tiers]
+      relationships:
+        - name: orders_reach_tiers
+          from: orders
+          to: tiers
+          on: cross
+          optional: none
+          cross_filter: both
+          filter:
+            gt_eq: [amount, floor]
+  unionsets:
+    - name: all_sales
+      mode: all
+      dimensions: [{ref: channel}, {ref: store_id}, {ref: store_name}]
+      measures: [{ref: revenue}]
+      metrics: [{ref: bonus}]
+      datasets:
+        - name: web_sales
+          extras:
+            storage: {tables: [warehouse.web_sales]}
+            semantic_mapping: {channel: {lit: web}, revenue: amount}
+      joinsets:
+        - name: store_sales
+          datasets:
+            - name: store_orders
+              extras:
+                storage: {tables: [warehouse.store_orders]}
+                semantic_mapping: {channel: {lit: store}, store_id: store_id, revenue: amount}
+            - name: stores
+              extras:
+                storage: {tables: [warehouse.stores]}
+                semantic_mapping: {store_id: store_id, store_name: store_name}
+          relationships:
+            - name: orders_to_stores
+              from: store_orders
+              to: stores
+              on: [store_id]
+              cardinality: many_to_one
+              optional: none
+              integrity: assumed

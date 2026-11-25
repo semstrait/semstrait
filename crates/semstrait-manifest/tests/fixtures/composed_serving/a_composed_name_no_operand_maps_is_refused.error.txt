@@ -1,0 +1,1 @@
+error: semantic source `txn_details` exposes `channel`, but no operand or child maps it

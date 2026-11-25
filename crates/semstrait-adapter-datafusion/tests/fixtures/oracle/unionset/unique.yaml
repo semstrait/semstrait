@@ -1,0 +1,108 @@
+# A unique union's distinct compares its output, the keyset included.
+
+keyset_distinguishes_rows:
+  # A unique union's keyset reaches each branch, so the distinct compares the keyset beside the value.
+  model: models/commerce
+  request:
+    from: all_sales_unique
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [20.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='all_sales_unique', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $0]
+          Set[&UnionDistinct => $0, $1, $2]
+            + Opt:Trace[semantic_source='all_sales_unique', source_role=&Unionset, delivery=&Rows]
+            Project[true, $0, $1]
+              Read[warehouse.store_sales => amount:fp64?, sale_id:string?]
+                + Opt:Trace[semantic_source='all_sales_unique.store_sales', source_role=&Dataset, originators=('all_sales_unique',), physical_source='store_sales']
+            Project[true, $0, $1]
+              Read[warehouse.web_sales => amount:fp64?, sale_id:string?]
+                + Opt:Trace[semantic_source='all_sales_unique.web_sales', source_role=&Dataset, originators=('all_sales_unique',), physical_source='web_sales']
+
+no_keyset_collapses_rows:
+  # With no keyset, a unique union's distinct compares only the selected value, collapsing equal rows.
+  model: models/commerce
+  request:
+    from: all_sales_no_keyset
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [10.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='all_sales_no_keyset', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $0]
+          Set[&UnionDistinct => $0, $1]
+            + Opt:Trace[semantic_source='all_sales_no_keyset', source_role=&Unionset, delivery=&Rows]
+            Project[true, $0]
+              Read[warehouse.store_sales => amount:fp64?]
+                + Opt:Trace[semantic_source='all_sales_no_keyset.store_sales', source_role=&Dataset, originators=('all_sales_no_keyset',), physical_source='store_sales']
+            Project[true, $0]
+              Read[warehouse.web_sales => amount:fp64?]
+                + Opt:Trace[semantic_source='all_sales_no_keyset.web_sales', source_role=&Dataset, originators=('all_sales_no_keyset',), physical_source='web_sales']
+
+distinct_keeps_different_days:
+  # A unique union's distinct keeps two rows whose keyset values differ, even with the same cost.
+  model: models/marketing
+  request:
+    from: spend_all_unique
+    select: [{dimension: date, granularity: month}, cost]
+  input_data:
+    warehouse.spend_app:
+      - [A, 2026-03-02, 10]
+    warehouse.spend_web:
+      - [A, 2026-03-01, 10]
+  expect:
+    rows:
+      - [date, cost]
+      - [2026-03-01, 20]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, cost]
+      Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_all_unique', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+          Project[$2, $1, $3]
+            Set[&UnionDistinct => $0, $1, $2, $3]
+              + Opt:Trace[semantic_source='spend_all_unique', source_role=&Unionset, delivery=&Rows]
+              Project[$2, true, $1, $0]
+                Read[warehouse.spend_app => date:date?, cost:i64?, campaign_id:string?]
+                  + Opt:Trace[semantic_source='spend_all_unique.app', source_role=&Dataset, originators=('spend_all_unique',), physical_source='spend_app']
+              Project[$2, true, $1, $0]
+                Read[warehouse.spend_web => date:date?, cost:i64?, campaign_id:string?]
+                  + Opt:Trace[semantic_source='spend_all_unique.web', source_role=&Dataset, originators=('spend_all_unique',), physical_source='spend_web']

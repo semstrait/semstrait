@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `s3://lake/orders/` spells one partition key as `Year` and as `year`

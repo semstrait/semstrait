@@ -1,0 +1,100 @@
+# Two root Unionsets of mode all, each over one Source held flat, a third over a one-child Grainset that holds one Source, and two over a Grainset and a one-child Grainset that holds a Unionset.
+semantic_model:
+  name: one_child_sibling
+  dimensions:
+    - {name: remote_key, data_type: string, type: categorical}
+    - {name: campaign, data_type: bigint, type: categorical}
+  measures:
+    - {name: cost, data_type: bigint, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: impressions, data_type: bigint, agg: sum}
+  unionsets:
+    - name: adwords_sources
+      mode: all
+      dimensions: [{ref: remote_key}, {ref: campaign}]
+      measures: [{ref: cost}, {ref: clicks}]
+      datasets:
+        - name: adwords_rt1_source_a
+          extras:
+            storage: {tables: [warehouse.adwords_rt1_source_a]}
+            semantic_mapping: {remote_key: remote_key, campaign: campaign, cost: cost, clicks: clicks}
+    - name: facebookads_sources
+      mode: all
+      dimensions: [{ref: remote_key}, {ref: campaign}]
+      measures: [{ref: impressions}]
+      metrics:
+        - name: impressions_combined
+          data_type: bigint
+          expr: impressions
+      datasets:
+        - name: facebookads_rt_ad_source_a
+          extras:
+            storage: {tables: [warehouse.facebookads_rt_ad_source_a]}
+            semantic_mapping: {remote_key: remote_key, campaign: campaign, impressions: impressions}
+    - name: adwords_chain
+      mode: all
+      dimensions: [{ref: remote_key}, {ref: campaign}]
+      measures: [{ref: cost}, {ref: clicks}]
+      grainsets:
+        - name: adwords
+          datasets:
+            - name: adwords_rt1_source_a
+              extras:
+                storage: {tables: [warehouse.adwords_rt1_source_a]}
+                semantic_mapping: {remote_key: remote_key, campaign: campaign, cost: cost, clicks: clicks}
+    - name: sources
+      mode: all
+      dimensions:
+        - {ref: remote_key, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}]
+      grainsets:
+        - name: adwords
+          datasets:
+            - name: rt1
+              extras:
+                storage: {tables: [warehouse.rt1]}
+                semantic_mapping: {remote_key: remote_key, campaign: campaign, cost: cost, clicks: clicks}
+            - name: rt2
+              extras:
+                storage: {tables: [warehouse.rt2]}
+                semantic_mapping: {remote_key: remote_key, campaign: campaign, clicks: clicks, impressions: impressions}
+        - name: tiktok
+          unionsets:
+            - name: tiktok_disjoint_1
+              mode: all
+              datasets:
+                - name: rt3
+                  extras:
+                    storage: {tables: [warehouse.rt3]}
+                    semantic_mapping: {remote_key: remote_key, campaign: campaign, clicks: clicks}
+                - name: rt4
+                  extras:
+                    storage: {tables: [warehouse.rt4]}
+                    semantic_mapping: {remote_key: remote_key, campaign: campaign, clicks: clicks, impressions: impressions}
+    - name: sources_single
+      mode: all
+      dimensions:
+        - {ref: remote_key, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}]
+      grainsets:
+        - name: adwords
+          datasets:
+            - name: rt1
+              extras:
+                storage: {tables: [warehouse.rt1]}
+                semantic_mapping: {remote_key: remote_key, campaign: campaign, cost: cost, clicks: clicks}
+        - name: tiktok
+          unionsets:
+            - name: tiktok_disjoint_1
+              mode: all
+              datasets:
+                - name: rt3
+                  extras:
+                    storage: {tables: [warehouse.rt3]}
+                    semantic_mapping: {remote_key: remote_key, campaign: campaign, clicks: clicks}
+                - name: rt4
+                  extras:
+                    storage: {tables: [warehouse.rt4]}
+                    semantic_mapping: {remote_key: remote_key, campaign: campaign, clicks: clicks, impressions: impressions}

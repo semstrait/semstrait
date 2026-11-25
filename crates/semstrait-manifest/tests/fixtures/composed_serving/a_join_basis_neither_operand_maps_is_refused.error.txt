@@ -1,0 +1,1 @@
+error: relationship `orders_j_to_customers_j`: its join basis names `customer_id`, which semantic source `txn_details.orders_j` does not map

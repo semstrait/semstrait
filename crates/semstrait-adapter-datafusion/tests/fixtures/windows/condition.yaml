@@ -1,0 +1,32 @@
+# The rank reads every row of its partition whatever a later condition says.
+
+rank_ignores_condition:
+  # The rank reads every row of its partition, whatever a later condition says.
+  request:
+    select: [month, balance]
+  expect:
+    rows:
+      - [month, balance]
+      - [Sep, 210]
+      - [Oct, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: rank
+      #  2 @  1: sum
+      #  3 @  2: equal
+      #  4 @  3: and
+
+    === Plan
+    Root[month, balance]
+      Project[$0, $1]
+        Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}]
+            Project[$0, $1, $2, $3, $4]
+              Read[sales.daily => account:string?, date:date?, month:string?, balance:i64?, cost:i64?]

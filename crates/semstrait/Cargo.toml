@@ -1,0 +1,30 @@
+[package]
+name = "semstrait"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "Facade crate for semstrait: its re-exports, and run from a model to a Substrait plan"
+
+[dependencies]
+semstrait-api = { workspace = true }
+semstrait-common = { workspace = true, features = ["serde"] }
+semstrait-model = { workspace = true }
+semstrait-manifest = { workspace = true }
+semstrait-catalog = { workspace = true }
+semstrait-planner = { workspace = true }
+substrait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tempfile = { workspace = true }
+clap = { workspace = true }
+
+[features]
+default = []
+aws = ["semstrait-api/aws"]
+catalog-iceberg = ["semstrait-api/iceberg"]
+datafusion = ["semstrait-api/datafusion"]
+api-rest = ["semstrait-api/rest"]
+api-cli = ["semstrait-api/cli"]

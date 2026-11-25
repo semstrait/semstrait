@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `s3://lake/orders/*/*.parquet` reads the folder `s3://lake/orders//`, which has no normal form: a folder URI ends in exactly one `/`

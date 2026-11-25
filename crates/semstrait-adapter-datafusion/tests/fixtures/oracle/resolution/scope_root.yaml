@@ -1,0 +1,432 @@
+# Field-first resolution picks a request's scope root among public candidates by compositions, granularity fit, exposed semantics and name order.
+
+lower_case_label:
+  # Selecting from the lower-case Dataset computes its own lower-case region label.
+  model: models/commerce
+  request:
+    from: lower_orders
+    select: [region_label, revenue]
+  expect:
+    rows:
+      - [region_label, revenue]
+      - [eu, 150.0]
+      - [us, 210.0]
+  sql: SELECT lower(region) AS region_label, sum(amount) AS revenue FROM warehouse.orders GROUP BY lower(region)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_string
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: lower
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_label, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='lower_orders', compositions=0, granularity_fit=&NotSelected]
+        Project[lower($0):string?, $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='lower_orders', source_role=&Dataset, physical_source='orders']
+
+upper_case_label:
+  # Selecting from the upper-case Dataset computes its own upper-case region label.
+  model: models/commerce
+  request:
+    from: upper_orders
+    select: [region_label, revenue]
+  expect:
+    rows:
+      - [region_label, revenue]
+      - [EU, 150.0]
+      - [US, 210.0]
+  sql: SELECT upper(region) AS region_label, sum(amount) AS revenue FROM warehouse.orders GROUP BY upper(region)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_string
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: upper
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_label, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='upper_orders', compositions=0, granularity_fit=&NotSelected]
+        Project[upper($0):string?, $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='upper_orders', source_role=&Dataset, physical_source='orders']
+
+bucketed_time_axis:
+  # Bucketing a Dataset's own time axis puts it alone in granularity fit's first group, so it answers.
+  model: resolution/time_axis_candidates
+  request:
+    select: [{dimension: order_date, granularity: month}, revenue]
+  expect:
+    rows:
+      - [order_date, revenue]
+      - [2026-03-01, 30.0]
+      - [2026-04-01, 5.0]
+  sql: SELECT date_trunc('month', order_date) AS order_date, sum(revenue) AS revenue FROM warehouse.orders GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[order_date, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Read[warehouse.orders => order_date:date?, revenue:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+selected_time_axis:
+  # Selecting a Dataset's own time axis with no granularity puts it alone in granularity fit's second group.
+  model: resolution/time_axis_candidates
+  request:
+    select: [order_date, revenue]
+  expect:
+    rows:
+      - [order_date, revenue]
+      - [2026-03-05, 10.0]
+      - [2026-03-20, 20.0]
+      - [2026-04-02, 5.0]
+  sql: SELECT order_date, sum(revenue) AS revenue FROM warehouse.orders GROUP BY order_date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[order_date, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&Selected, granularity=&Day]
+        Project[$0, $1]
+          Read[warehouse.orders => order_date:date?, revenue:fp64?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+no_time_axis_selected:
+  # Selecting neither Dataset's time axis puts all candidates in granularity fit's third group, coarsest first.
+  model: resolution/time_axis_candidates
+  request:
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [71.0]
+  sql: SELECT sum(revenue) AS revenue FROM warehouse.shipments
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='shipments', compositions=0, granularity_fit=&NotSelected, granularity=&Month]
+        Project[$0]
+          Read[warehouse.shipments => revenue:fp64?]
+            + Opt:Trace[semantic_source='shipments', source_role=&Dataset, physical_source='shipments']
+
+fewer_semantics_wins:
+  # Two candidates tie on compositions and granularity fit, so the one exposing fewer semantics answers.
+  model: resolution/semantics_candidates
+  request:
+    select: [{dimension: date, granularity: month}, campaign, clicks]
+  expect:
+    rows:
+      - [date, campaign, clicks]
+      - [2026-03-01, A, 40]
+      - [2026-03-01, B, 20]
+  sql: SELECT date_trunc('month', day) AS date, campaign_id AS campaign, sum(click_count) AS clicks FROM (SELECT * FROM warehouse.web_clicks UNION ALL SELECT * FROM warehouse.app_clicks) GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+
+    === Plan
+    Root[date, campaign, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='all_clicks', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+          Project[$1, $2, $0]
+            Set[&UnionAll => $0, $1, $2]
+              + Opt:Trace[semantic_source='all_clicks', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $2, $1, $3]
+                  Project[$1, true, $2, $0]
+                    Read[warehouse.app_clicks => day:date?, campaign_id:string?, click_count:i64?]
+                      + Opt:Trace[semantic_source='all_clicks.app_clicks', source_role=&Dataset, originators=('all_clicks',), physical_source='app_clicks']
+              Project[$0, $1, $2]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1, $3]
+                    Project[$1, true, $2, $0]
+                      Read[warehouse.web_clicks => day:date?, campaign_id:string?, click_count:i64?]
+                        + Opt:Trace[semantic_source='all_clicks.web_clicks', source_role=&Dataset, originators=('all_clicks',), physical_source='web_clicks']
+
+bucketed_coarsest_first:
+  # Two Datasets bucketing the same granularity tie, so the coarsest answers.
+  model: resolution/daily_monthly_candidates
+  request:
+    select: [{dimension: date, granularity: month}, campaign, clicks]
+  expect:
+    rows:
+      - [date, campaign, clicks]
+      - [2026-03-01, A, 40]
+      - [2026-03-01, B, 20]
+  sql: SELECT date_trunc('month', date) AS date, campaign, sum(clicks) AS clicks FROM warehouse.spend_monthly GROUP BY 1, campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, campaign, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_monthly', compositions=0, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+          Project[$1, $2, $0]
+            Read[warehouse.spend_monthly => date:date?, campaign:string?, clicks:i64?]
+              + Opt:Trace[semantic_source='spend_monthly', source_role=&Dataset, physical_source='spend_monthly']
+
+axis_unselected_coarsest_first:
+  # With the time axis not selected, the coarsest Dataset answers.
+  model: resolution/daily_monthly_candidates
+  request:
+    select: [campaign, clicks]
+  expect:
+    rows:
+      - [campaign, clicks]
+      - [A, 40]
+      - [B, 20]
+  sql: SELECT campaign, sum(clicks) AS clicks FROM warehouse.spend_monthly GROUP BY campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[campaign, clicks]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_monthly', compositions=0, granularity_fit=&NotSelected, granularity=&Month]
+        Project[$0, $1]
+          Read[warehouse.spend_monthly => campaign:string?, clicks:i64?]
+            + Opt:Trace[semantic_source='spend_monthly', source_role=&Dataset, physical_source='spend_monthly']
+
+axis_selected_finest_first:
+  # With the time axis selected but not bucketed, the finest Dataset answers.
+  model: resolution/daily_monthly_candidates
+  request:
+    select: [date, campaign, clicks]
+  expect:
+    rows:
+      - [date, campaign, clicks]
+      - [2026-03-01, A, 10]
+      - [2026-03-02, A, 30]
+      - [2026-03-01, B, 20]
+  sql: SELECT date, campaign, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY date, campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[date, campaign, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_daily', compositions=0, granularity_fit=&Selected, granularity=&Day]
+        Project[$1, $2, $0]
+          Read[warehouse.spend_daily => date:date?, campaign:string?, clicks:i64?]
+            + Opt:Trace[semantic_source='spend_daily', source_role=&Dataset, physical_source='spend_daily']
+
+finer_grain_excludes_coarse:
+  # A granularity finer than a coarse Dataset's own grain excludes it as a candidate, so the finer Dataset answers.
+  model: resolution/daily_monthly_candidates
+  request:
+    select: [{dimension: date, granularity: day}, campaign, clicks]
+  expect:
+    rows:
+      - [date, campaign, clicks]
+      - [2026-03-01, A, 10]
+      - [2026-03-02, A, 30]
+      - [2026-03-01, B, 20]
+  sql: SELECT date_trunc('day', date) AS date, campaign, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, campaign, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_daily', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, (date_trunc('day', $2):date?)::!date?]
+          Project[$1, $2, $0]
+            Read[warehouse.spend_daily => date:date?, campaign:string?, clicks:i64?]
+              + Opt:Trace[semantic_source='spend_daily', source_role=&Dataset, physical_source='spend_daily']
+
+pinned_from_matches_pick:
+  # Pinning from: to the same source field-first resolution would pick gives the identical plan, trace included.
+  model: resolution/daily_monthly_candidates
+  request:
+    from: spend_monthly
+    select: [{dimension: date, granularity: month}, campaign, clicks]
+  expect:
+    rows:
+      - [date, campaign, clicks]
+      - [2026-03-01, A, 40]
+      - [2026-03-01, B, 20]
+  sql: SELECT date_trunc('month', date) AS date, campaign, sum(clicks) AS clicks FROM warehouse.spend_monthly GROUP BY 1, campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, campaign, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_monthly', compositions=0, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+          Project[$1, $2, $0]
+            Read[warehouse.spend_monthly => date:date?, campaign:string?, clicks:i64?]
+              + Opt:Trace[semantic_source='spend_monthly', source_role=&Dataset, physical_source='spend_monthly']
+
+composition_before_grain:
+  # Fewer compositions outranks granularity fit, so the plain Dataset answers ahead of the Joinset.
+  model: resolution/composition_candidates
+  request:
+    select: [{dimension: date, granularity: month}, campaign, clicks]
+  expect:
+    rows:
+      - [date, campaign, clicks]
+      - [2026-03-01, A, 40]
+      - [2026-03-01, B, 20]
+  sql: SELECT date_trunc('month', date) AS date, campaign, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, campaign, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_daily', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+          Project[$1, $2, $0]
+            Read[warehouse.spend_daily => date:date?, campaign:string?, clicks:i64?]
+              + Opt:Trace[semantic_source='spend_daily', source_role=&Dataset, physical_source='spend_daily']
+
+name_order_tie:
+  # Two Datasets that tie on every rank plan as the first in name order, trace included.
+  model: resolution/tied_datasets
+  request:
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+      - [us, 210.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_a', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_a', source_role=&Dataset, physical_source='orders']
+
+pinned_first_in_order:
+  # Pinning from: to the first name in the tie gives the same plan as the unpinned pick.
+  model: resolution/tied_datasets
+  request:
+    from: orders_a
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+      - [us, 210.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_a', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_a', source_role=&Dataset, physical_source='orders']

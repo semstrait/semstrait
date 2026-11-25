@@ -1,0 +1,327 @@
+# The finance domain's main model: transactions, balances and their nested compositions.
+semantic_model:
+  name: finance
+  dimensions:
+    - name: event_date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - name: country
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month, year]
+    - {name: account, data_type: string, type: categorical}
+    - {name: region, data_type: string, type: categorical}
+    - name: g
+      data_type: string
+      type: categorical
+    - name: d
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: tier, data_type: string, type: categorical}
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+    - name: quantity
+      data_type: bigint
+      agg: sum
+    - name: revenue_target
+      data_type: double
+      agg: sum
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi: {axes: [], by: date, strategy: latest}
+    - name: balance_e
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi: {axes: [], by: date, strategy: earliest}
+    - {name: cost, data_type: bigint, agg: sum}
+    - name: balance_y
+      data_type: bigint
+      agg: sum
+      filter: {eq: [account, {lit: Y}]}
+      additivity:
+        semi: {axes: [], by: date, strategy: latest}
+    - name: balance_early
+      data_type: bigint
+      agg: sum
+      filter: {lt: [date, {lit: {date: 2026-10-31}}]}
+      additivity:
+        semi: {axes: [], by: date, strategy: latest}
+    - {name: headcount, data_type: bigint, agg: sum}
+    - name: v
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          by: d
+          strategy: latest
+  datasets:
+    - name: transactions
+      extras:
+        storage:
+          tables: [warehouse.transactions]
+      dimensions:
+        - name: country_type
+          description: "Country and type concatenated"
+          data_type: string
+          type: categorical
+          expr:
+            concat:
+              - {col: country}
+              - {lit: "-"}
+              - {col: txn_type}
+    - name: f4
+      extras:
+        storage:
+          tables: [warehouse.f4]
+        semantic_mapping:
+          g: g
+          d: d
+          v: v
+      dimensions:
+        - ref: g
+        - ref: d
+      measures:
+        - ref: v
+  joinsets:
+    - name: j
+      dimensions: [{ref: date}, {ref: account}, {ref: region}]
+      measures: [{ref: balance}, {ref: balance_e}, {ref: cost}, {ref: balance_y}, {ref: balance_early}]
+      unionsets:
+        - name: u
+          mode: all
+          extras:
+            temporal: {snapshot: {snapshotted_at: date}, granularity: month}
+          datasets:
+            - name: bal_eu
+              extras:
+                storage: {tables: [warehouse.bal_eu]}
+                semantic_mapping: {account: account, date: date, balance: balance, balance_e: balance, cost: balance, balance_y: balance, balance_early: balance}
+                temporal: {snapshot: {snapshotted_at: date}, granularity: day}
+            - name: bal_us
+              extras:
+                storage: {tables: [warehouse.bal_us]}
+                semantic_mapping: {account: account, date: date, balance: balance, balance_e: balance, cost: balance, balance_y: balance, balance_early: balance}
+      datasets:
+        - name: accounts
+          extras:
+            storage: {tables: [warehouse.accounts]}
+            semantic_mapping: {account: account, region: region}
+      relationships:
+        - {name: u_to_accounts, from: u, to: accounts, on: [account], cardinality: many_to_one, optional: left, integrity: assumed}
+    - name: gb2
+      dimensions: [{ref: date}, {ref: account}, {ref: region}]
+      measures: [{ref: balance}, {ref: headcount}]
+      grainsets:
+        - name: gbal3
+          dimensions: [{ref: date}, {ref: account}]
+          extras:
+            temporal: {snapshot: {snapshotted_at: date}, granularity: year}
+          unionsets:
+            - name: u_bal
+              mode: all
+              extras:
+                temporal: {snapshot: {snapshotted_at: date}, granularity: month}
+              datasets:
+                - name: bal_eu
+                  extras:
+                    storage: {tables: [warehouse.bal_eu]}
+                    semantic_mapping: {account: account, date: date, balance: balance}
+                    temporal: {snapshot: {snapshotted_at: date}, granularity: day}
+                - name: bal_us
+                  extras:
+                    storage: {tables: [warehouse.bal_us]}
+                    semantic_mapping: {account: account, date: date, balance: balance}
+          datasets:
+            - name: bal_year
+              extras:
+                storage: {tables: [warehouse.bal_year]}
+                semantic_mapping: {account: account, date: date, headcount: headcount}
+                temporal: {snapshot: {snapshotted_at: date}, granularity: year}
+      datasets:
+        - name: accounts
+          extras:
+            storage: {tables: [warehouse.accounts]}
+            semantic_mapping: {account: account, region: region}
+      relationships:
+        - {name: g_to_accounts, from: gbal3, to: accounts, on: [account], cardinality: many_to_one, optional: left, integrity: assumed}
+    - name: j_disjoint
+      dimensions: [{ref: date}, {ref: account}, {ref: region}, {ref: tier}]
+      measures: [{ref: balance}]
+      unionsets:
+        - name: u
+          mode: all
+          extras:
+            temporal: {snapshot: {snapshotted_at: date}, granularity: month}
+          datasets:
+            - name: bal_eu
+              extras:
+                storage: {tables: [warehouse.bal_eu]}
+                semantic_mapping: {account: account, date: date, region: {lit: eu}, balance: balance}
+                temporal: {snapshot: {snapshotted_at: date}, granularity: day}
+            - name: bal_us
+              extras:
+                storage: {tables: [warehouse.bal_us]}
+                semantic_mapping: {account: account, date: date, region: {lit: us}, balance: balance}
+      datasets:
+        - name: accounts
+          extras:
+            storage: {tables: [warehouse.accounts]}
+            semantic_mapping: {account: account, tier: region}
+      relationships:
+        - {name: u_to_accounts, from: u, to: accounts, on: [account], cardinality: many_to_one, optional: left, integrity: assumed}
+  unionsets:
+    - name: w5
+      mode: all
+      dimensions: [{ref: date}, {ref: account}, {ref: region}]
+      measures: [{ref: balance}, {ref: cost}]
+      joinsets:
+        - name: jb
+          unionsets:
+            - name: u
+              mode: all
+              extras:
+                temporal: {snapshot: {snapshotted_at: date}, granularity: month}
+              datasets:
+                - name: bal_eu
+                  extras:
+                    storage: {tables: [warehouse.bal_eu]}
+                    semantic_mapping: {account: account, date: date, balance: balance, cost: balance}
+                    temporal: {snapshot: {snapshotted_at: date}, granularity: day}
+                - name: bal_us
+                  extras:
+                    storage: {tables: [warehouse.bal_us]}
+                    semantic_mapping: {account: account, date: date, balance: balance, cost: balance}
+          datasets:
+            - name: accounts
+              extras:
+                storage: {tables: [warehouse.accounts]}
+                semantic_mapping: {account: account, region: region}
+          relationships:
+            - {name: u_to_accounts, from: u, to: accounts, on: [account], cardinality: many_to_one, optional: left, integrity: assumed}
+      datasets:
+        - name: bal_apac
+          extras:
+            storage: {tables: [warehouse.bal_apac]}
+            semantic_mapping: {account: account, date: date, balance: balance, cost: balance}
+  grainsets:
+    - name: txn_by_grain
+      dimensions:
+        - ref: event_date
+          is_key: true
+        - ref: country
+          is_key: true
+      measures:
+        - ref: revenue
+        - ref: quantity
+        - ref: revenue_target
+      datasets:
+        - name: transactions
+          extras:
+            storage:
+              tables: [warehouse.transactions]
+            semantic_mapping:
+              event_date: created_at
+              country: country_code
+              revenue: amount
+              quantity: qty
+            temporal:
+              timeseries:
+                occurred_at: event_date
+              granularity: day
+        - name: txn_monthly_agg
+          extras:
+            storage:
+              tables: [warehouse.txn_monthly_agg]
+            semantic_mapping:
+              event_date: month_start
+              country: country_code
+              revenue: total_revenue
+              revenue_target: target
+            temporal:
+              timeseries:
+                occurred_at: event_date
+              granularity: month
+        - name: txn_weekly_agg
+          extras:
+            storage:
+              tables: [warehouse.txn_weekly_agg]
+            semantic_mapping:
+              event_date: week_start
+              country: country_code
+              revenue: total_revenue
+              quantity: total_quantity
+            temporal:
+              timeseries:
+                occurred_at: event_date
+              granularity: week
+    - name: txn_by_grain_daily_monthly
+      dimensions:
+        - ref: event_date
+          is_key: true
+        - ref: country
+          is_key: true
+      measures:
+        - ref: revenue
+      datasets:
+        - name: transactions
+          extras:
+            storage:
+              tables: [warehouse.transactions]
+            semantic_mapping:
+              event_date: created_at
+              country: country_code
+              revenue: amount
+            temporal:
+              timeseries:
+                occurred_at: event_date
+              granularity: day
+        - name: txn_monthly_agg
+          extras:
+            storage:
+              tables: [warehouse.txn_monthly_agg]
+            semantic_mapping:
+              event_date: month_start
+              country: country_code
+              revenue: total_revenue
+            temporal:
+              timeseries:
+                occurred_at: event_date
+              granularity: month
+    - name: gbal2
+      dimensions: [{ref: date}, {ref: account}]
+      measures: [{ref: balance}, {ref: headcount}]
+      unionsets:
+        - name: u_bal
+          mode: all
+          extras:
+            temporal: {snapshot: {snapshotted_at: date}, granularity: month}
+          datasets:
+            - name: bal_eu
+              extras:
+                storage: {tables: [warehouse.bal_eu]}
+                semantic_mapping: {account: account, date: date, balance: balance}
+                temporal: {snapshot: {snapshotted_at: date}, granularity: day}
+            - name: bal_us
+              extras:
+                storage: {tables: [warehouse.bal_us]}
+                semantic_mapping: {account: account, date: date, balance: balance}
+      datasets:
+        - name: bal_year
+          extras:
+            storage: {tables: [warehouse.bal_year]}
+            semantic_mapping: {account: account, date: date, headcount: headcount}
+            temporal: {snapshot: {snapshotted_at: date}, granularity: year}

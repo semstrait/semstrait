@@ -1,0 +1,1 @@
+error: semantic source `jx.y` exposes `balance`, but does not serve its `by` (`order_date`)

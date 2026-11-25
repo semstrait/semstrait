@@ -1,0 +1,43 @@
+# A commerce variant whose revenue keeps its decimal(18,2) precision.
+semantic_model:
+  name: commerce_decimal_revenue
+  measures:
+    - name: revenue
+      data_type: 'decimal(18,2)'
+      agg: sum
+    - name: total_amount
+      data_type: double
+      agg: sum
+  datasets:
+    - name: sales
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_month: month
+          total_amount: amount
+      dimensions:
+        - name: order_month
+          data_type: integer
+          type: categorical
+      measures:
+        - ref: total_amount
+  unionsets:
+    - name: orders
+      mode: all
+      measures:
+        - ref: revenue
+      datasets:
+        - name: eu_orders
+          extras:
+            storage:
+              tables: [warehouse.eu_orders]
+            semantic_mapping:
+              revenue: amount
+        - name: us_orders
+          extras:
+            storage:
+              tables: [warehouse.us_orders]
+            semantic_mapping:
+              revenue: amount

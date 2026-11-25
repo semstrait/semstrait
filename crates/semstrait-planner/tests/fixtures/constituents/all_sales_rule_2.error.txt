@@ -1,0 +1,1 @@
+error: at `all_sales / all_sales.order_items`: the fan-out marker of `avg_amount` has no place above the join that repeats its rows

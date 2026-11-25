@@ -1,0 +1,10 @@
+tables:
+  - namespace: warehouse
+    name: balances
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [X, 2026-10-01, 60]
+      - [X, 2026-10-02, 40]

@@ -1,0 +1,1 @@
+error: relationship `orders_to_customers` has `on: cross` and `optional: left`; a cross join preserves no side, so `optional:` beside it is `none`

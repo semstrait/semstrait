@@ -1,0 +1,48 @@
+# A Unionset whose branches are all keyed Grainsets that map a literal channel.
+semantic_model:
+  name: unionset_grainset_only
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign, data_type: string, type: categorical}
+    - {name: channel, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: budget, data_type: bigint, agg: sum}
+  unionsets:
+    - name: all_spend
+      mode: all
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel}]
+      measures: [{ref: clicks}, {ref: budget}]
+      grainsets:
+        - name: spend_g
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: g_daily
+              extras:
+                storage: {tables: [warehouse.g_daily]}
+                semantic_mapping: {campaign: campaign_id, date: day, channel: {lit: {string: web}}, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: g_monthly
+              extras:
+                storage: {tables: [warehouse.g_monthly]}
+                semantic_mapping: {campaign: campaign_id, date: month_start, channel: {lit: {string: web}}, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+        - name: spend_c
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: c_daily
+              extras:
+                storage: {tables: [warehouse.c_daily]}
+                semantic_mapping: {campaign: campaign_id, date: day, channel: {lit: {string: web}}, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: c_monthly
+              extras:
+                storage: {tables: [warehouse.c_monthly]}
+                semantic_mapping: {campaign: campaign_id, date: month_start, channel: {lit: {string: web}}, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}

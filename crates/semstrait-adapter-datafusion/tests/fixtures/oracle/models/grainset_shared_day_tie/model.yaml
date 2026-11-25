@@ -1,0 +1,46 @@
+# Two Day children tie on the child rank; ads_swapped holds the same tables under swapped child names, so the other table is joined first.
+semantic_model:
+  name: grainset_shared_day_tie
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: campaign, data_type: bigint, type: categorical}
+  measures:
+    - {name: spend, data_type: bigint, agg: sum}
+    - {name: views, data_type: bigint, agg: sum}
+  grainsets:
+    - name: ads
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: spend}, {ref: views}]
+      datasets:
+        - name: first
+          extras:
+            storage: {tables: [warehouse.first]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: second
+          extras:
+            storage: {tables: [warehouse.second]}
+            semantic_mapping: {date: date, campaign: campaign, views: views}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: ads_swapped
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: spend}, {ref: views}]
+      datasets:
+        - name: first
+          extras:
+            storage: {tables: [warehouse.second]}
+            semantic_mapping: {date: date, campaign: campaign, views: views}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: second
+          extras:
+            storage: {tables: [warehouse.first]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

@@ -1,0 +1,79 @@
+# The vocab model: a files Dataset over Parquet paths, a catalog-less table, and a Hive-partitioned events folder.
+semantic_model:
+  name: e2e
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+    - name: status
+      data_type: string
+      type: categorical
+    - name: year
+      data_type: integer
+      type: categorical
+    - name: segment
+      data_type: string
+      type: categorical
+  measures:
+    - name: total
+      data_type: bigint
+      agg: sum
+    - name: paid
+      data_type: bigint
+      agg: sum
+      filter:
+        eq: [status, {lit: paid}]
+    - name: n
+      data_type: bigint
+      agg: count
+  metrics:
+    - name: unpaid
+      data_type: bigint
+      expr:
+        subtract: [total, paid]
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          region: region
+          status: status
+          total: amount
+          paid: amount
+          n: amount
+      dimensions:
+        - ref: region
+        - ref: status
+      measures:
+        - ref: total
+        - ref: paid
+        - ref: n
+      metrics:
+        - ref: unpaid
+    - name: events
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/events/]
+        semantic_mapping:
+          year: year
+          region: region
+          total: amount
+      dimensions:
+        - ref: year
+        - ref: region
+      measures:
+        - ref: total
+    - name: customers
+      extras:
+        storage:
+          tables: [sales.customers]
+        semantic_mapping:
+          segment: segment
+          n: id
+      dimensions:
+        - ref: segment
+      measures:
+        - ref: n

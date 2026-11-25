@@ -1,0 +1,32 @@
+tables:
+  - namespace: warehouse
+    name: g_day
+    columns:
+      - {name: date, type: date}
+      - {name: campaign_id, type: string}
+      - {name: country, type: string}
+      - {name: clicks, type: double}
+    rows:
+      - [2026-03-01, A, SE, 10.0]
+      - [2026-03-02, A, SE, 20.0]
+      - [2026-03-01, A, 'NO', 30.0]
+      - [2026-03-01, B, US, 40.0]
+  - namespace: warehouse
+    name: g_month
+    columns:
+      - {name: date, type: date}
+      - {name: campaign_id, type: string}
+      - {name: country, type: string}
+      - {name: budget, type: double}
+    rows:
+      - [2026-03-01, A, SE, 100.0]
+      - [2026-03-01, A, 'NO', 50.0]
+      - [2026-03-01, B, US, 70.0]
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: region, type: string}
+    rows:
+      - [A, eu]
+      - [B, us]

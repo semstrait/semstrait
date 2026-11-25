@@ -1,0 +1,417 @@
+# Reference model — every public concept exemplified.
+# Validates clean against `parse` + `validate`.
+
+semantic_model:
+  # Root metadata.
+  name: reference_model
+  description: |
+    Reference model exercising every authoring shape in
+    `crates/semstrait-model/`. This file is the
+    canonical example consumed by `tests/schema_roundtrip.rs`.
+  ai_context:
+    description: Demo model for documentation purposes.
+    examples:
+      - "show me revenue by country last quarter"
+    unit: usd
+  labels: [demo, reference]
+
+  # ── Shared root pools ────────────────────────────────
+  # Each entry MUST be referenced from at least one DataKind's
+  # `SemanticInterface`, or validate reports `OrphanSharedSemantics`.
+  dimensions:
+    # Temporal
+    - name: order_ts
+      data_type: timestamp
+      description: Order placement timestamp.
+      type:
+        temporal:
+          granularities: [minute, hour, day, week, month]
+    # Categorical
+    - name: country
+      data_type: string
+      type: categorical
+    # The join basis of `orders_to_customers` — one pooled Semantics, realised
+    # on `customer_id` in orders and on `id` in customers via the per-source
+    # `semantic_mapping:` below (ADR 0038).
+    - name: customer_id
+      data_type: string
+      type: categorical
+    # A partition key is a column: `orders` maps `order_year` to its `year=`
+    # folders (ADR 0081).
+    - name: order_year
+      data_type: integer
+      type: categorical
+    # Binary
+    - name: is_paid
+      data_type: bool
+      type: binary
+    # Geo
+    - name: origin_geo
+      data_type: string
+      type: geo
+    # Bucketed
+    - name: revenue_bucket
+      data_type: string
+      type:
+        bucketed:
+          buckets:
+            - name: small
+              upper:
+                bigint: 100
+            - name: medium
+              lower:
+                bigint: 100
+              upper:
+                bigint: 1000
+            - name: large
+              lower:
+                bigint: 1000
+
+  measures:
+    # `agg:` names a catalog aggregate by its name or an alias (ADR 0089,
+    # rule 20). `sum` + Full additivity.
+    - name: revenue
+      data_type: decimal(18,2)
+      agg: sum
+      additivity: full
+      # Aggregation predicate — one `filter:`, not a roster.
+      filter:
+        eq: [is_paid, true]
+    - name: avg_basket
+      data_type: decimal(18,2)
+      agg: avg
+    - name: order_count
+      data_type: integer
+      agg: count
+    # `count_distinct`: the model's sugar for `count` with DISTINCT.
+    - name: customer_count
+      data_type: integer
+      agg: count_distinct
+    - name: earliest_ts
+      data_type: timestamp
+      agg: min
+    - name: latest_ts
+      data_type: timestamp
+      agg: max
+    - name: median_basket
+      data_type: decimal(18,2)
+      agg: median
+    # The ISO names: `std_dev` and `variance` name neither the sample nor the
+    # population form, so parse refuses them (ADR 0087, rule 20).
+    - name: revenue_stddev
+      data_type: decimal(18,4)
+      agg: stddev_samp
+    - name: revenue_variance
+      data_type: decimal(18,4)
+      agg: var_samp
+    # An alias: `every` is `bool_and`, which the writer writes.
+    - name: all_paid
+      data_type: boolean
+      agg: every
+    # Semi additivity.
+    - name: latest_balance
+      data_type: decimal(18,2)
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          strategy: latest
+
+  metrics:
+    # Computed metric. `expr` is REQUIRED at the declaration
+    # site (or any ref site — `SemanticsRefMissingExpr` catches all-missing).
+    - name: profit_margin
+      data_type: decimal(18,4)
+      expr:
+        divide:
+          - revenue
+          - null_if:
+              left: avg_basket
+              right: 0
+
+  # ── Top-level data kinds ──────────────
+  datasets:
+    # Public Dataset with the full LeafExtras roster (catalog + storage
+    # + semantic_mapping + temporal=Events).
+    - name: orders
+      description: Order-line fact table.
+      ai_context:
+        description: Each row is a single order line.
+        unit: usd
+      extras:
+        catalog: polaris_prod
+        storage:
+          format: parquet
+          paths:
+            - s3://my-bucket/orders/
+          # Each entry names the Dimension that maps a partition key, and
+          # compile checks it against the folders it lists (ADR 0081).
+          partition_def:
+            - type: range
+              dimension: order_year
+        semantic_mapping:
+          revenue: amount_cents
+          country: ship_country
+          order_year: year
+          # Tagged literal: the tag is a canonical type name, and the literal
+          # keeps the tag's type (ADR 0089, rule 8).
+          currency:
+            lit:
+              string: USD
+          # Untyped literal: it holds the parse default of the YAML scalar
+          # (string / bigint / double / boolean / null) until compile types it
+          # (ADR 0085, rule 5).
+          tenant:
+            lit: acme
+        temporal:
+          events:
+            event_time: order_ts
+          granularity: minute
+      # SemanticInterface — refs into the shared pool with one override.
+      # Keyness is per-site (ADR 0039): `order_ts` sits in both keysets, which
+      # is the ordinary cover-arity case rather than an exception.
+      dimensions:
+        - ref: order_ts
+          is_key: true
+          keysets: [natural, surrogate]
+        - ref: country
+        - ref: customer_id
+          is_key: true
+          keysets: [natural]
+        - ref: order_year
+        - ref: is_paid
+        - ref: origin_geo
+        - ref: revenue_bucket
+      measures:
+        - ref: revenue
+          # Override site — the only `expr:` overridable on a Measure
+          # ref site.
+          expr:
+            multiply:
+              - amount_cents
+              - 0.01
+        # `filter:` is overridable at a reference site (ADR 0027).
+        - ref: avg_basket
+          filter:
+            eq: [is_paid, true]
+        - ref: order_count
+        - ref: customer_count
+        - ref: earliest_ts
+        - ref: latest_ts
+        - ref: median_basket
+        - ref: revenue_stddev
+        - ref: revenue_variance
+        - ref: all_paid
+        - ref: latest_balance
+      metrics:
+        - ref: profit_margin
+      filters:
+        - name: paid_only
+          expr:
+            eq:
+              - is_paid
+              - true
+        # NULL-safe equality: true where both operands are NULL, false where
+        # one is (ADR 0092, rule 5).
+        - name: shipped_to_origin
+          expr:
+            is_not_distinct_from: [country, origin_geo]
+
+    # Companion Dataset (referenced by the cross-public relationship).
+    # Demonstrates Snapshot temporal shape on a leaf.
+    - name: customers
+      extras:
+        storage:
+          tables: [analytics.customers]
+        # Per-source realisation of the shared join basis: one Semantics,
+        # a different physical column on this side.
+        semantic_mapping:
+          customer_id: id
+        temporal:
+          snapshot:
+            snapshotted_at: order_ts
+          granularity: day
+      # A marked site naming no keyset joins the reserved `default` keyset.
+      dimensions:
+        - ref: country
+        - ref: customer_id
+          is_key: true
+
+    # Demonstrates Timeseries temporal shape.
+    - name: web_events
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://my-bucket/web_events/]
+        temporal:
+          timeseries:
+            occurred_at: order_ts
+          granularity: hour
+      dimensions:
+        - ref: order_ts
+          is_key: true
+
+    # Demonstrates SCD Type 1 temporal shape.
+    - name: customer_addresses_t1
+      extras:
+        storage:
+          tables: [analytics.customer_addresses_t1]
+        temporal:
+          scd:
+            scd_type: type1
+            valid_from: order_ts
+            valid_to: order_ts
+          granularity: day
+      dimensions:
+        - ref: country
+        - ref: customer_id
+          is_key: true
+
+    # Demonstrates SCD Type 2 temporal shape.
+    - name: customer_addresses_t2
+      extras:
+        storage:
+          tables: [analytics.customer_addresses_t2]
+        temporal:
+          scd:
+            scd_type: type2
+            valid_from: order_ts
+            valid_to: order_ts
+          granularity: day
+      # An SCD Type 2 kind has both a surrogate-shaped keyset and an as-of one;
+      # cover arity means neither has to be elected over the other.
+      dimensions:
+        - ref: country
+        - ref: customer_id
+          is_key: true
+          keysets: [natural, as_of]
+        - ref: order_ts
+          is_key: true
+          keysets: [as_of]
+
+  grainsets:
+    # Public Grainset — composes nested children. A Grainset with one child is
+    # Sugar (glossary *Complex DataKind*). A Dataset child that carries a time
+    # axis declares its own `temporal.granularity:`
+    # (`GrainsetChildMissingGranularity`); a composed child declares one or
+    # derives it from its constituents. A child with no time axis declares
+    # none, and children may share a granularity (ADR 0096).
+    - name: order_rollup
+      description: Roll-up of order-side facts.
+      extras: {}
+      # A complex kind authors keysets exactly as a Dataset does; nothing checks
+      # a composed surface's advice, and that is correct (ADR 0039).
+      dimensions:
+        - ref: order_ts
+          is_key: true
+      datasets:
+        - name: returns
+          extras:
+            storage:
+              tables: [analytics.returns]
+            temporal:
+              events:
+                event_time: order_ts
+              granularity: day
+      unionsets:
+        # A composition that is a constituent of another may declare its own
+        # `extras.temporal.granularity:` (ADR 0074, *A composition that is a
+        # constituent*); only a root composition is refused one
+        # (`TemporalGranularityOnComplex`).
+        - name: refunds_stack
+          extras:
+            temporal:
+              events:
+                event_time: order_ts
+              granularity: day
+          datasets:
+            - name: refunds_primary
+              extras:
+                storage:
+                  tables: [analytics.refunds_primary]
+            - name: refunds_secondary
+              extras:
+                storage:
+                  tables: [analytics.refunds_secondary]
+
+  unionsets:
+    # Public Unionset — UNION ALL is the default `mode`.
+    - name: all_events
+      extras: {}
+      dimensions:
+        - ref: order_ts
+          is_key: true
+      mode: all
+      datasets:
+        - name: mobile_events
+          extras:
+            storage:
+              format: parquet
+              paths: [s3://my-bucket/mobile_events/]
+            temporal:
+              timeseries:
+                occurred_at: order_ts
+              granularity: hour
+        - name: server_events
+          extras:
+            storage:
+              format: parquet
+              paths: [s3://my-bucket/server_events/]
+            temporal:
+              timeseries:
+                occurred_at: order_ts
+              granularity: hour
+
+  joinsets:
+    # Public Joinset — internal `relationships:` and 2 nested children.
+    - name: orders_with_customers
+      extras: {}
+      dimensions:
+        - ref: country
+        - ref: customer_id
+          is_key: true
+      datasets:
+        - name: orders_l
+          extras:
+            storage:
+              tables: [analytics.orders_l]
+            temporal:
+              events:
+                event_time: order_ts
+              granularity: day
+        - name: customers_r
+          extras:
+            storage:
+              tables: [analytics.customers_r]
+            semantic_mapping:
+              customer_id: id
+            temporal:
+              snapshot:
+                snapshotted_at: order_ts
+              granularity: day
+      relationships:
+        - name: orders_l_to_customers_r
+          from: orders_l
+          to: customers_r
+          on: [customer_id]
+          cardinality: many_to_one
+
+  # ── Root-level relationships ───────────────────────
+  relationships:
+    - name: orders_to_customers
+      description: Orders join to customers on customer_id.
+      from: orders
+      to: customers
+      on: [customer_id]
+      cardinality: many_to_one
+      integrity: assumed
+
+    # A basis-less join, stated bare — `on: cross` with `cardinality:` omitted
+    # (ADR 0038). This is the whole shape: a true cartesian product
+    # settles by itself how many rows match, so nothing falls due in
+    # cardinality's place and neither `optional:` nor `cross_filter:` is owed.
+    - name: orders_x_all_events
+      description: Every order against every event — no dimension-name basis.
+      from: orders
+      to: all_events
+      on: cross

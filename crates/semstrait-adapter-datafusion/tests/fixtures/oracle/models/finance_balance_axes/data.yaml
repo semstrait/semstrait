@@ -1,0 +1,17 @@
+tables:
+  - namespace: warehouse
+    name: daily
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2024-09-28, 100, 1]
+      - [A, 2024-09-30, 110, 2]
+      - [A, 2024-10-30, 120, 5]
+      - [A, 2024-10-31, 130, 6]
+      - [B, 2024-09-29, 200, 3]
+      - [B, 2024-09-30, 210, 4]
+      - [B, 2024-10-15, 220, 7]
+      - [B, 2024-10-30, 230, 8]

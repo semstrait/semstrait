@@ -1,0 +1,17 @@
+tables:
+  - namespace: warehouse
+    name: daily
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, c1, 10]
+      - [2024-01-02, c1, 20]
+  - namespace: warehouse
+    name: by_campaign_total
+    columns:
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [c1, 30]

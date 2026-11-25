@@ -1,0 +1,40 @@
+[package]
+name = "semstrait-adapter-datafusion"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "The DataFusion engine adapter: DataFusionRules, with the tests that run a plan on DataFusion"
+
+# The library links no engine (ADR 0068, *The node-common block on the wire, and
+# trace*).
+[dependencies]
+semstrait-adapter = { workspace = true }
+semstrait-common = { workspace = true }
+semstrait-ir = { workspace = true }
+semstrait-sql = { workspace = true }
+substrait = { workspace = true }
+
+# The rows harness: hand-built plans, and the oracle's planned cases, run on
+# DataFusion to literal rows. Arrow, Parquet and the object store are
+# DataFusion's own re-exports.
+[dev-dependencies]
+# A data declaration's dialect for typing, read from its YAML.
+semstrait-common = { workspace = true, features = ["serde"] }
+# `FileFormat` on a files read (ADR 0067).
+semstrait-catalog = { workspace = true }
+datafusion = { workspace = true }
+datafusion-substrait = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+# The protobuf encoding of the byte-equal check.
+prost = { workspace = true }
+# The runners: the oracle and `hand_built` compile each model against its data
+# declaration, then plan; `gate` reads its target's data declaration.
+semstrait-model = { workspace = true }
+semstrait-manifest = { workspace = true }
+semstrait-planner = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+# The store's listing stream and the bytes of `FileSystem`.
+futures-util = { workspace = true }
+bytes = { workspace = true }

@@ -1,0 +1,60 @@
+# A model of a daily and a monthly Dataset competing by granularity fit.
+semantic_model:
+  name: spend_daily_monthly
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+    - name: campaign
+      data_type: string
+      type: categorical
+  measures:
+    - name: clicks
+      data_type: bigint
+      agg: sum
+    - name: budget
+      data_type: bigint
+      agg: sum
+  datasets:
+    - name: spend_daily
+      extras:
+        storage:
+          tables: [warehouse.spend_daily]
+        semantic_mapping:
+          date: date
+          campaign: campaign
+          clicks: clicks
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: date
+          is_key: true
+        - ref: campaign
+          is_key: true
+      measures:
+        - ref: clicks
+    - name: spend_monthly
+      extras:
+        storage:
+          tables: [warehouse.spend_monthly]
+        semantic_mapping:
+          date: date
+          campaign: campaign
+          clicks: clicks
+          budget: budget
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: month
+      dimensions:
+        - ref: date
+          is_key: true
+        - ref: campaign
+          is_key: true
+      measures:
+        - ref: clicks
+        - ref: budget

@@ -1,0 +1,1 @@
+error: semantics `is_paid` reads the named Filter `paid_only` from its `expr:` or `filter:`

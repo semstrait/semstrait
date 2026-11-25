@@ -1,0 +1,128 @@
+tables:
+  - namespace: warehouse
+    name: spend_web
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: cost, type: bigint}
+    rows:
+      - [2026-03-10, A, 5]
+      - [2026-03-20, A, 4]
+  - namespace: warehouse
+    name: spend_store_m
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: cost, type: bigint}
+    rows:
+      - [2026-03-01, B, 8]
+  - namespace: warehouse
+    name: targets
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: target, type: bigint}
+      - {name: month_start, type: date}
+    rows:
+      - [A, 100, null]
+      - [B, 50, null]
+  - namespace: warehouse
+    name: g_day
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+      - {name: impressions, type: bigint}
+      - {name: bal, type: bigint}
+    rows:
+      - [2026-03-10, A, 5, 50, 10]
+      - [2026-03-20, A, 4, 40, 12]
+  - namespace: warehouse
+    name: g_month
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-01, A, 9, 30]
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: campaign_name, type: string}
+      - {name: target, type: bigint}
+    rows:
+      - [A, alpha, 100]
+  - namespace: warehouse
+    name: store
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: budget, type: bigint}
+      - {name: impressions, type: bigint}
+    rows:
+      - [2026-03-01, B, 7, null]
+  - namespace: warehouse
+    name: ad_clicks
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-01, A, 9]
+      - [2026-03-01, B, 3]
+      - [2026-04-01, A, 7]
+  - namespace: warehouse
+    name: ad_views
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: impressions, type: bigint}
+    rows:
+      - [2026-03-01, A, 90]
+      - [2026-03-01, B, 30]
+      - [2026-04-01, A, 70]
+  - namespace: warehouse
+    name: calendar
+    columns:
+      - {name: month_start, type: date}
+      - {name: fiscal_month, type: string}
+    rows:
+      - [2026-03-01, FM03]
+      - [2026-04-01, FM04]
+  - namespace: warehouse
+    name: month_spend
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-01, A, 9]
+      - [2026-03-01, B, 3]
+      - [2026-04-01, A, 7]
+  - namespace: warehouse
+    name: day_views
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: views, type: bigint}
+    rows:
+      - [2026-03-10, A, 5]
+      - [2026-03-20, A, 4]
+  - namespace: warehouse
+    name: spend
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-10, A, 5]
+      - [2026-03-20, A, 4]
+  - namespace: warehouse
+    name: spend_year
+    columns:
+      - {name: year_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-01-01, A, 9]

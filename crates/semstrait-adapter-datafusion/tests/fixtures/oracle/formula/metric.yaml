@@ -1,0 +1,2083 @@
+# A Metric's formula computes its CASE parts, pushes down past a join, or runs over final aggregates.
+
+bonus_joined_to_buyers:
+  # A Metric's part-key subtree joins the frame's buyers subtree on IS NOT DISTINCT FROM.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, revenue_eu_bonus, buyers]
+  expect:
+    rows:
+      - [channel, revenue_eu_bonus, buyers]
+      - [web, 400.0, 1]
+      - [app, 150.0, 1]
+      - [null, 10.0, 1]
+  sql: >-
+    SELECT b.channel, p.revenue_eu_bonus, b.buyers
+    FROM (SELECT channel, count(DISTINCT customer_id) AS buyers FROM warehouse.orders GROUP BY channel) b
+    JOIN (SELECT channel, sum(CASE WHEN part = 1 THEN revenue + 100.0 ELSE revenue END) AS revenue_eu_bonus
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN 1 ELSE 2 END AS part, sum(amount) AS revenue
+    FROM warehouse.orders GROUP BY 1, 2) GROUP BY channel) p
+    ON b.channel IS NOT DISTINCT FROM p.channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  3: sum
+      #  4 @  3: add
+      #  5 @  2: is_not_distinct_from
+
+    === Plan
+    Root[channel, revenue_eu_bonus, buyers]
+      Project[$0, $3, $1]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$3, $0]
+              Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, if_then(equal($1, 1):boolean -> add($2, 100):fp64?, _ -> $3)]
+              Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                Project[$0, $2, $2, if_then(equal($1, 'eu'):boolean? -> 1, _ -> 2)]
+                  Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+                    + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+value_not_repeated:
+  # A value read through a many-to-one join is not repeated, so the Measure reads the joined rows as they are.
+  model: models/commerce
+  request:
+    from: orders_customers
+    select: [region, vip_orders]
+  expect:
+    rows:
+      - [region, vip_orders]
+      - [eu, 2]
+      - [us, 1]
+  sql: >-
+    SELECT o.region, count(CASE WHEN c.segment = 'vip' THEN o.order_id END) AS vip_orders
+    FROM warehouse.orders o JOIN warehouse.customers c ON o.customer_id = c.customer_id
+    GROUP BY o.region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+
+    === Plan
+    Root[region, vip_orders]
+      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='orders_customers', compositions=1, granularity_fit=&NotSelected]
+        Project[$2, if_then(equal($4, 'vip'):boolean? -> $1, _ -> !{Expression})]
+          Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3, $4]
+            + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, cardinality=&ManyToOne]
+            Project[$2, $1, $0]
+              Read[warehouse.orders => region:string?, order_id:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders_customers.orders_j', source_role=&Dataset, originators=('orders_customers',), physical_source='orders']
+            Project[$1, $0]
+              Read[warehouse.customers => segment:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders_customers.customers_j', source_role=&Dataset, originators=('orders_customers',), physical_source='customers']
+
+pushdown_value_not_repeated:
+  # A pushed-down formula's value is not repeated by a many-to-one join.
+  model: models/commerce
+  request:
+    from: orders_customers
+    select: [region, vip_weighted_revenue]
+  expect:
+    rows:
+      - [region, vip_weighted_revenue]
+      - [eu, 300.0]
+      - [us, 410.0]
+  sql: >-
+    SELECT o.region, sum(CASE WHEN c.segment = 'vip' THEN o.amount * 2.0 ELSE o.amount END)
+    AS vip_weighted_revenue
+    FROM warehouse.orders o JOIN warehouse.customers c ON o.customer_id = c.customer_id
+    GROUP BY o.region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[region, vip_weighted_revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_customers', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, if_then(equal($4, 'vip'):boolean? -> multiply($2, 2):fp64?, _ -> $2)]
+          Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3, $4]
+            + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, cardinality=&ManyToOne]
+            Project[$2, $0, $1]
+              Read[warehouse.orders => region:string?, amount:fp64?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders_customers.orders_j', source_role=&Dataset, originators=('orders_customers',), physical_source='orders']
+            Project[$1, $0]
+              Read[warehouse.customers => segment:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders_customers.customers_j', source_role=&Dataset, originators=('orders_customers',), physical_source='customers']
+
+grouped_reads_step_field:
+  # A grouped formula runs in one projection over the final aggregates and reads the step's own field.
+  model: models/commerce
+  request:
+    from: orders
+    select: [region, revenue_adj]
+  expect:
+    rows:
+      - [region, revenue_adj]
+      - [eu, 180.0]
+      - [us, 210.0]
+  sql: SELECT region, CASE WHEN region = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS revenue_adj FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+
+    === Plan
+    Root[region, revenue_adj]
+      Project[$0, if_then(equal($0, 'eu'):boolean? -> multiply($1, 1.2):fp64?, _ -> $2)]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+grouped_any_formula_passes:
+  # A grouped formula passes even when it is not a term the push-down's pattern covers.
+  model: models/commerce
+  request:
+    from: orders
+    select: [region, revenue_eu_bonus]
+  expect:
+    rows:
+      - [region, revenue_eu_bonus]
+      - [eu, 250.0]
+      - [us, 210.0]
+  sql: SELECT region, CASE WHEN region = 'eu' THEN sum(amount) + 100 ELSE sum(amount) END AS revenue_eu_bonus FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: add
+
+    === Plan
+    Root[region, revenue_eu_bonus]
+      Project[$0, if_then(equal($0, 'eu'):boolean? -> add($1, 100):fp64?, _ -> $2)]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+pushdown_one_aggregate:
+  # A pushed-down formula's sum sits in the one aggregate step.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, revenue_adj]
+  expect:
+    rows:
+      - [channel, revenue_adj]
+      - [web, 320.0]
+      - [app, 60.0]
+      - [null, 10.0]
+  sql: SELECT channel, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_adj FROM warehouse.orders GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[channel, revenue_adj]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $2)]
+          Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+pushdown_no_else:
+  # A pushed-down formula with no else adds nothing for the rows its cases do not cover.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, revenue_eu_only]
+  expect:
+    rows:
+      - [channel, revenue_eu_only]
+      - [web, 120.0]
+      - [app, 60.0]
+      - [null, null]
+  sql: SELECT channel, sum(CASE WHEN region = 'eu' THEN amount * 1.2 END) AS revenue_eu_only FROM warehouse.orders GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[channel, revenue_eu_only]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> !{Expression})]
+          Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+pushdown_zero_else:
+  # A pushed-down formula whose else is zero still adds nothing for those rows.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, revenue_eu_or_zero]
+  expect:
+    rows:
+      - [channel, revenue_eu_or_zero]
+      - [web, 120.0]
+      - [app, 60.0]
+      - [null, 0.0]
+  sql: SELECT channel, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE 0.0 END) AS revenue_eu_or_zero FROM warehouse.orders GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[channel, revenue_eu_or_zero]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> 0)]
+          Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+quotient_takes_parts:
+  # A quotient of two Measures takes the parts, so each part's step sums before the quotient divides.
+  model: models/commerce
+  request:
+    from: orders
+    select: [avg_order_value_adj]
+  expect:
+    rows:
+      - [avg_order_value_adj]
+      - [195.0]
+  sql: >-
+    SELECT sum(CASE WHEN part = 1 THEN revenue / order_count * 1.2 ELSE revenue / order_count END) AS avg_order_value_adj
+    FROM (SELECT CASE WHEN region = 'eu' THEN 1 ELSE 2 END AS part, sum(amount) AS revenue, count(order_id) AS order_count
+    FROM warehouse.orders GROUP BY 1)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  3: count
+      #  4 @  2: divide
+      #  5 @  2: multiply
+
+    === Plan
+    Root[avg_order_value_adj]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> multiply(divide($1, ($2)::!fp64, on_division_by_zero⇒[ERROR]):fp64?, 1.2):fp64?, _ -> divide($3, ($4)::!fp64, on_division_by_zero⇒[ERROR]):fp64?)]
+          Aggregate[$4 => $4, sum($0, overflow⇒[ERROR]):fp64?, count($1, overflow⇒[ERROR]):i64, sum($2, overflow⇒[ERROR]):fp64?, count($3, overflow⇒[ERROR]):i64]
+            Project[$1, $2, $1, $2, if_then(equal($0, 'eu'):boolean? -> 1, _ -> 2)]
+              Read[warehouse.orders => region:string?, amount:fp64?, order_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+constant_takes_parts:
+  # A constant result still takes the parts, so each part is summed separately.
+  model: models/commerce
+  request:
+    from: orders
+    select: [revenue_eu_bonus]
+  expect:
+    rows:
+      - [revenue_eu_bonus]
+      - [460.0]
+  sql: >-
+    SELECT sum(CASE WHEN part = 1 THEN revenue + 100.0 ELSE revenue END) AS revenue_eu_bonus
+    FROM (SELECT CASE WHEN region = 'eu' THEN 1 ELSE 2 END AS part, sum(amount) AS revenue
+    FROM warehouse.orders GROUP BY 1)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: add
+
+    === Plan
+    Root[revenue_eu_bonus]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> add($1, 100):fp64?, _ -> $2)]
+          Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$1, $1, if_then(equal($0, 'eu'):boolean? -> 1, _ -> 2)]
+              Read[warehouse.orders => region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+non_additive_takes_parts:
+  # A non-additive Measure takes the parts, so each part is summed on its own.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_eu_weighted]
+  expect:
+    rows:
+      - [buyers_eu_weighted]
+      - [4]
+  sql: >-
+    SELECT sum(CASE WHEN part = 1 THEN buyers * 2 ELSE buyers END) AS buyers_eu_weighted
+    FROM (SELECT CASE WHEN region = 'eu' THEN 1 ELSE 2 END AS part, count(DISTINCT customer_id) AS buyers
+    FROM warehouse.orders GROUP BY 1)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_eu_weighted]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> multiply($1, 2, overflow⇒[ERROR]):i64, _ -> $2)]
+          Aggregate[$2 => $2, count($0, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64]
+            Project[$1, $1, if_then(equal($0, 'eu'):boolean? -> 1, _ -> 2)]
+              Read[warehouse.orders => region:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+avg_with_no_dimension:
+  # An avg over a formula that reads no Dimension takes the whole demand as its formula grain.
+  model: models/commerce
+  request:
+    from: orders
+    select: [avg_customer_revenue]
+  expect:
+    rows:
+      - [avg_customer_revenue]
+      - [360.0]
+  sql: SELECT avg(revenue) AS avg_customer_revenue FROM (SELECT sum(amount) AS revenue FROM warehouse.orders)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+      #  2 @  1: avg
+
+    === Plan
+    Root[avg_customer_revenue]
+      Aggregate[_ => avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+          Project[$0]
+            Read[warehouse.orders => amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+row_level_metric_measure:
+  # A row-level Metric with its own agg: is planned as an ordinary Measure.
+  model: models/commerce
+  request:
+    from: refunds
+    select: [refund_total]
+  expect:
+    rows:
+      - [refund_total]
+      - [60.0]
+  sql: SELECT sum(amount) AS refund_total FROM warehouse.refunds
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[refund_total]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='refunds', compositions=0, granularity_fit=&NotSelected]
+        Project[$0]
+          Read[warehouse.refunds => amount:fp64?]
+            + Opt:Trace[semantic_source='refunds', source_role=&Dataset, physical_source='refunds']
+
+term_before_bucket:
+  # A pushed-down formula's per-row term reads each row's own day, before the month bucket.
+  model: models/commerce
+  request:
+    from: orders
+    select: [{dimension: ordered_at, granularity: month}, revenue_early_adj]
+  expect:
+    rows:
+      - [ordered_at, revenue_early_adj]
+      - [2026-10-01, 330.0]
+  sql: SELECT date_trunc('month', ordered_at) AS ordered_at, sum(CASE WHEN ordered_at < DATE '2026-10-15' THEN amount * 0.9 ELSE amount END) AS revenue_early_adj FROM warehouse.orders GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: lt
+      #  2 @  2: multiply
+      #  3 @  3: date_trunc
+      #  4 @  2: sum
+
+    === Plan
+    Root[ordered_at, revenue_early_adj]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[$0, if_then(lt($0, '2026-10-15':date):boolean? -> multiply($1, 0.9):fp64?, _ -> $1)]
+            Read[warehouse.orders => ordered_at:date?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+steps_join_not_distinct:
+  # Two aggregate steps at different grains join their Metric's subtree to the frame's buyers subtree on IS NOT DISTINCT FROM.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, regions_with_revenue, buyers]
+  expect:
+    rows:
+      - [channel, regions_with_revenue, buyers]
+      - [web, 2, 1]
+      - [app, 1, 1]
+      - [null, 1, 1]
+  sql: >-
+    SELECT b.channel, r.regions_with_revenue, b.buyers
+    FROM (SELECT channel, count(DISTINCT customer_id) AS buyers FROM warehouse.orders GROUP BY channel) b
+    JOIN (SELECT channel, count(formula) AS regions_with_revenue
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel) r
+    ON b.channel IS NOT DISTINCT FROM r.channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+      #  3 @  3: equal
+      #  4 @  2: multiply
+      #  5 @  3: is_not_distinct_from
+
+    === Plan
+    Root[channel, regions_with_revenue, buyers]
+      Project[$0, $3, $1]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$3, $0]
+              Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+          Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+            Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+              Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                Project[$0, $2, $2, $1]
+                  Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+                    + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+predicate_above_step_two:
+  # A predicate on the Metric alone sits above its second aggregate step, and the join drops the whole row.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, regions_with_revenue, buyers]
+    where: {gt: [regions_with_revenue, {lit: 1}]}
+  expect:
+    rows:
+      - [channel, regions_with_revenue, buyers]
+      - [web, 2, 1]
+  sql: >-
+    SELECT b.channel, r.regions_with_revenue, b.buyers
+    FROM (SELECT channel, count(DISTINCT customer_id) AS buyers FROM warehouse.orders GROUP BY channel) b
+    JOIN (SELECT channel, count(formula) AS regions_with_revenue
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel) r
+    ON b.channel IS NOT DISTINCT FROM r.channel
+    WHERE r.regions_with_revenue > 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+      #  3 @  3: equal
+      #  4 @  2: multiply
+      #  5 @  3: gt
+      #  6 @  3: is_not_distinct_from
+
+    === Plan
+    Root[channel, regions_with_revenue, buyers]
+      Project[$0, $3, $1]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$3, $0]
+              Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+          Filter[gt($1, 1):boolean => $0, $1]
+            Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+              Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+                Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                  Project[$0, $2, $2, $1]
+                    Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+                      + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+sum_beside_distinct_count:
+  # A pushed-down formula's sum sits beside a count distinct in one aggregate step.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, revenue_adj, buyers]
+  expect:
+    rows:
+      - [channel, revenue_adj, buyers]
+      - [web, 320.0, 1]
+      - [app, 60.0, 1]
+      - [null, 10.0, 1]
+  sql: SELECT channel, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_adj, count(DISTINCT customer_id) AS buyers FROM warehouse.orders GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+      #  4 @  3: count
+
+    === Plan
+    Root[channel, revenue_adj, buyers]
+      Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):fp64?, count($0, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$3, $0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $2)]
+          Read[warehouse.orders => channel:string?, region:string?, amount:fp64?, customer_id:string?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+fan_out_row_number_marker:
+  # A value repeated by a one-to-many join reads one row per row identity, under a row_number marker.
+  model: models/commerce
+  request:
+    from: orders_order_lines
+    select: [region, gift_amount, line_count]
+  expect:
+    rows:
+      - [region, gift_amount, line_count]
+      - [eu, 100.0, 3]
+      - [us, 200.0, 2]
+  sql: >-
+    SELECT region, sum(amount) FILTER (WHERE kind = 'gift' AND marker = 1) AS gift_amount,
+    count(line_id) AS line_count
+    FROM (SELECT o.region, o.amount, l.kind, l.line_id, row_number() OVER
+    (PARTITION BY o.region, o.order_id, o.amount, l.kind = 'gift') AS marker
+    FROM warehouse.orders o LEFT JOIN warehouse.order_lines l ON o.order_id = l.order_id)
+    GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_comparison
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: count
+      #  3 @  3: equal
+      #  4 @  1: row_number
+      #  5 @  4: and
+      #  6 @  3: coalesce
+
+    === Plan
+    Root[region, gift_amount, line_count]
+      Project[$2, $0, $1]
+        + Opt:Trace[scope_root='orders_order_lines', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, coalesce($2, 0):i64, $0]
+          Aggregate[$5 => $5, sum($0, overflow⇒[ERROR]):fp64?, sum($3, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, !{RexType}, $2, $3, $4, $5]
+              Project[$2, equal($3, 'gift'):boolean?, $5, $1, $0, $0]
+                Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4, $5]
+                  + Opt:Trace[semantic_source='orders_order_lines', source_role=&Joinset, cardinality=&OneToMany]
+                  Aggregate[$2, $1 => $2, $1, sum($0, overflow⇒[ERROR]):fp64?]
+                    Project[$1, $2, $0]
+                      Read[warehouse.orders => region:string?, amount:fp64?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_order_lines.orders_l', source_role=&Dataset, originators=('orders_order_lines',), physical_source='orders']
+                  Aggregate[$0, $2 => $0, $2, count($1, overflow⇒[ERROR]):i64]
+                    Project[$0, $1, $2]
+                      Read[warehouse.order_lines => kind:string?, line_id:string?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_order_lines.order_lines', source_role=&Dataset, originators=('orders_order_lines',), physical_source='order_lines']
+
+parts_under_fan_out:
+  # A formula's parts each read one row per row identity under a one-to-many join.
+  model: models/commerce
+  request:
+    from: orders_order_lines
+    select: [region, gift_revenue]
+  expect:
+    rows:
+      - [region, gift_revenue]
+      - [eu, 100.0]
+      - [us, 200.0]
+  sql: >-
+    SELECT region, sum(CASE WHEN part = 1 THEN revenue END) AS gift_revenue
+    FROM (SELECT o.region, CASE WHEN l.kind = 'gift' THEN 1 END AS part, o.order_id, o.amount AS revenue
+    FROM warehouse.orders o JOIN warehouse.order_lines l ON o.order_id = l.order_id
+    GROUP BY o.region, part, o.order_id, o.amount)
+    GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: row_number
+
+    === Plan
+    Root[region, gift_revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_order_lines', compositions=1, granularity_fit=&NotSelected]
+        Project[if_then(equal($1, 1):boolean? -> $2, _ -> !{Expression}), $0]
+          Aggregate[$4, $1 => $4, $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1, !{RexType}, $2, $3, $4]
+              Project[$2, if_then(equal($3, 'gift'):boolean? -> 1, _ -> !{Expression}), $1, $0, $0]
+                Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                  + Opt:Trace[semantic_source='orders_order_lines', source_role=&Joinset, cardinality=&OneToMany]
+                  Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):fp64?]
+                    Project[$2, $0, $1]
+                      Read[warehouse.orders => region:string?, amount:fp64?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_order_lines.orders_l', source_role=&Dataset, originators=('orders_order_lines',), physical_source='orders']
+                  Aggregate[$0, $1 => $0, $1]
+                    Project[$0, $1]
+                      Read[warehouse.order_lines => kind:string?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_order_lines.order_lines', source_role=&Dataset, originators=('orders_order_lines',), physical_source='order_lines']
+
+case_by_position_channel:
+  # A case result's position, not its text, gives the part a row joins.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, buyers_weighted]
+  expect:
+    rows:
+      - [channel, buyers_weighted]
+      - [web, 4]
+      - [app, 2]
+      - [null, 1]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[channel, buyers_weighted]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[multiply(if_then(equal($1, 1):boolean -> 2, equal($1, 2):boolean -> 2, _ -> 1), $2, overflow⇒[ERROR]):i64, $0]
+          Aggregate[$2, $1 => $2, $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$2, if_then(equal($1, 'eu'):boolean? -> 1, equal($0, 'web'):boolean? -> 2, _ -> 3), $0]
+              Read[warehouse.orders => channel:string?, region:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+case_under_cast:
+  # A case under a cast selects exactly as the case alone does.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_weighted_cast]
+  expect:
+    rows:
+      - [buyers_weighted_cast]
+      - [5.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_weighted_cast]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[multiply((if_then(equal($0, 1):boolean -> 2, equal($0, 2):boolean -> 2, _ -> 1))::!fp64, ($1)::!fp64):fp64]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$2, if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> 3)]
+              Read[warehouse.orders => region:string?, channel:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+case_inside_condition:
+  # A case inside another case's condition still selects its own part.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_inner_doubled]
+  expect:
+    rows:
+      - [buyers_inner_doubled]
+      - [5]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_inner_doubled]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> multiply(2, $2, overflow⇒[ERROR]):i64, _ -> $3)]
+          Aggregate[$2, $3 => $2, $3, count($0, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64]
+            Project[$2, $2, if_then(equal(if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 1, _ -> 0), 1):boolean -> 1, _ -> 2), if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> 3)]
+              Read[warehouse.orders => region:string?, channel:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+equal_results_two_parts:
+  # Two cases with equal results are still two parts, so a shared row counts in each.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_web_or_else]
+  expect:
+    rows:
+      - [buyers_web_or_else]
+      - [3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: sum
+
+    === Plan
+    Root[buyers_web_or_else]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> $1, _ -> $2)]
+          Aggregate[$2 => $2, count($0, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64]
+            Project[$1, $1, if_then(equal($0, 'web'):boolean? -> 1, _ -> 2)]
+              Read[warehouse.orders => channel:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+condition_reads_measure:
+  # A condition that reads a Measure keeps the outer case from selecting, though the inner case still does.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_weighted_flagged]
+  expect:
+    rows:
+      - [buyers_weighted_flagged]
+      - [5]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  1: gte
+      #  4 @  3: and
+      #  5 @  4: multiply
+      #  6 @  4: sum
+
+    === Plan
+    Root[buyers_weighted_flagged]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(and(gte($1, 1):boolean, equal(if_then(equal($0, 1):boolean -> 1, equal($0, 2):boolean -> 1, _ -> 0), 1):boolean):boolean -> multiply(2, $2, overflow⇒[ERROR]):i64, _ -> $3)]
+          Aggregate[$3 => $3, count($0, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64, count($2, overflow⇒[ERROR]):i64]
+            Project[$0, $0, $0, if_then(equal($1, 'eu'):boolean? -> 1, equal($2, 'web'):boolean? -> 2, _ -> 3)]
+              Read[warehouse.orders => customer_id:string?, region:string?, channel:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+case_inside_later_branch:
+  # A case nested in a later branch of another case still selects its own part.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_later_condition]
+  expect:
+    rows:
+      - [buyers_later_condition]
+      - [4]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_later_condition]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> $2, equal($0, 2):boolean -> multiply(2, $3, overflow⇒[ERROR]):i64, _ -> $4)]
+          Aggregate[$3, $4 => $3, $4, count($0, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64, count($2, overflow⇒[ERROR]):i64]
+            Project[$1, $1, $1, if_then(equal($0, 'eu'):boolean? -> 1, equal(if_then(equal($2, 'web'):boolean? -> 1, equal($2, 'app'):boolean? -> 1, _ -> 0), 1):boolean -> 2, _ -> 3), if_then(if_then(equal($0, 'eu'):boolean? -> false, _ -> true) -> if_then(equal($2, 'web'):boolean? -> 1, equal($2, 'app'):boolean? -> 2, _ -> 3), _ -> !{Expression})]
+              Read[warehouse.orders => region:string?, customer_id:string?, channel:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+case_inside_result:
+  # A case nested inside a result selects a further part of that result.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_weighted_nested]
+  expect:
+    rows:
+      - [buyers_weighted_nested]
+      - [6]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_weighted_nested]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 1):boolean -> multiply($2, if_then(equal($1, 1):boolean? -> 2, equal($1, 2):boolean? -> 2, _ -> 1), overflow⇒[ERROR]):i64, _ -> $3)]
+          Aggregate[$2, $3 => $2, $3, count($0, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64]
+            Project[$1, $1, if_then(equal($0, 'eu'):boolean? -> 1, _ -> 2), if_then(equal(if_then(equal($0, 'eu'):boolean? -> 1, _ -> 2), 1):boolean -> if_then(equal($2, 'web'):boolean? -> 1, equal($2, 'app'):boolean? -> 2, _ -> 3), _ -> !{Expression})]
+              Read[warehouse.orders => region:string?, customer_id:string?, channel:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+case_by_result_position:
+  # A case's result, read by its position, gives the parts a formula multiplies.
+  model: models/commerce
+  request:
+    from: orders
+    select: [buyers_weighted]
+  expect:
+    rows:
+      - [buyers_weighted]
+      - [5]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_weighted]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[multiply(if_then(equal($0, 1):boolean -> 2, equal($0, 2):boolean -> 2, _ -> 1), $1, overflow⇒[ERROR]):i64]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$2, if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> 3)]
+              Read[warehouse.orders => region:string?, channel:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+two_metrics_two_grains:
+  # Two Metric subtrees at different formula grains each join the frame's buyers subtree.
+  model: models/commerce
+  request:
+    from: orders
+    select: [channel, regions_with_revenue, avg_customer_revenue]
+  expect:
+    rows:
+      - [channel, regions_with_revenue, avg_customer_revenue]
+      - [web, 2, 300.0]
+      - [app, 1, 50.0]
+      - [null, 1, 10.0]
+  sql: >-
+    SELECT r.channel, r.regions_with_revenue, a.avg_customer_revenue
+    FROM (SELECT channel, count(formula) AS regions_with_revenue
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel) r
+    JOIN (SELECT channel, avg(revenue) AS avg_customer_revenue
+    FROM (SELECT channel, sum(amount) AS revenue FROM warehouse.orders GROUP BY channel) GROUP BY channel) a
+    ON r.channel IS NOT DISTINCT FROM a.channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+      #  4 @  3: count
+      #  5 @  1: avg
+      #  6 @  2: is_not_distinct_from
+
+    === Plan
+    Root[channel, regions_with_revenue, avg_customer_revenue]
+      Project[$0, $1, $3]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+            Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+              Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                Project[$0, $2, $2, $1]
+                  Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+                    + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+          Aggregate[$0 => $0, avg($1, overflow⇒[ERROR]):fp64?]
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+              Project[$2, $0]
+                Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+                  + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+formula_grouped_by_dimension:
+  # A formula is grouped when the demand groups by the one Dimension it reads.
+  model: models/commerce
+  request:
+    from: orders_customers
+    select: [segment, vip_weighted_revenue]
+  expect:
+    rows:
+      - [segment, vip_weighted_revenue]
+      - [vip, 700.0]
+      - [basic, 10.0]
+  sql: >-
+    SELECT segment, CASE WHEN segment = 'vip' THEN revenue * 2.0 ELSE revenue END AS vip_weighted_revenue
+    FROM (SELECT c.segment, sum(o.amount) AS revenue
+    FROM warehouse.orders o JOIN warehouse.customers c ON o.customer_id = c.customer_id
+    GROUP BY c.segment)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+
+    === Plan
+    Root[segment, vip_weighted_revenue]
+      Project[$0, if_then(equal($0, 'vip'):boolean? -> multiply($1, 2):fp64?, _ -> $2)]
+        + Opt:Trace[scope_root='orders_customers', compositions=1, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+          Project[$2, $1, $1]
+            Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+              + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, cardinality=&ManyToOne]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                Project[$1, $0]
+                  Read[warehouse.orders => amount:fp64?, customer_id:string?]
+                    + Opt:Trace[semantic_source='orders_customers.orders_j', source_role=&Dataset, originators=('orders_customers',), physical_source='orders']
+              Aggregate[$1, $0 => $1, $0]
+                Project[$1, $0]
+                  Read[warehouse.customers => segment:string?, customer_id:string?]
+                    + Opt:Trace[semantic_source='orders_customers.customers_j', source_role=&Dataset, originators=('orders_customers',), physical_source='customers']
+
+pushdown_not_repeated:
+  # A pushed-down formula's argument reads one side of a join that neither null-extends nor repeats it.
+  model: models/commerce
+  request:
+    from: orders_customers
+    select: [segment, revenue_adj]
+  expect:
+    rows:
+      - [segment, revenue_adj]
+      - [vip, 380.0]
+      - [basic, 10.0]
+  sql: >-
+    SELECT c.segment, sum(o.revenue_adj) AS revenue_adj
+    FROM (SELECT customer_id, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_adj
+    FROM warehouse.orders GROUP BY customer_id) o
+    JOIN warehouse.customers c ON o.customer_id = c.customer_id
+    GROUP BY c.segment
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[segment, revenue_adj]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_customers', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $2]
+          Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, cardinality=&ManyToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+              Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $2)]
+                Read[warehouse.orders => customer_id:string?, region:string?, amount:fp64?]
+                  + Opt:Trace[semantic_source='orders_customers.orders_j', source_role=&Dataset, originators=('orders_customers',), physical_source='orders']
+            Aggregate[$1, $0 => $1, $0]
+              Project[$1, $0]
+                Read[warehouse.customers => segment:string?, customer_id:string?]
+                  + Opt:Trace[semantic_source='orders_customers.customers_j', source_role=&Dataset, originators=('orders_customers',), physical_source='customers']
+
+measure_and_metric_by_region:
+  # A Measure form and a Metric form of the same formula give one value by region.
+  model: models/commerce_revenue_measures
+  request:
+    from: orders
+    select: [region, revenue_adj, revenue_adj_metric]
+  expect:
+    rows:
+      - [region, revenue_adj, revenue_adj_metric]
+      - [eu, 180.0, 180.0]
+      - [us, 210.0, 210.0]
+  sql: >-
+    SELECT region, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_adj,
+    coalesce(sum(amount) FILTER (WHERE region = 'eu'), 0.0) * 1.2
+    + coalesce(sum(amount) FILTER (WHERE NOT region = 'eu'), 0.0) AS revenue_adj_metric
+    FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  3: not
+      #  4 @  2: sum
+      #  5 @  1: coalesce
+      #  6 @  2: add
+
+    === Plan
+    Root[region, revenue_adj, revenue_adj_metric]
+      Project[$0, $1, add(multiply(coalesce($2, 0):fp64, 1.2):fp64, coalesce($3, 0):fp64):fp64]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?, sum($3, overflow⇒[ERROR]):fp64?]
+          Project[$0, if_then(equal($0, 'eu'):boolean? -> multiply($1, 1.2):fp64?, _ -> $1), $1, $1, equal($0, 'eu'):boolean?, not(equal($0, 'eu'):boolean?):boolean?]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+measure_and_metric_total:
+  # A Measure form and a Metric form of the same formula give one total.
+  model: models/commerce_revenue_measures
+  request:
+    from: orders
+    select: [revenue_adj, revenue_adj_metric]
+  expect:
+    rows:
+      - [revenue_adj, revenue_adj_metric]
+      - [390.0, 390.0]
+  sql: >-
+    SELECT sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_adj,
+    coalesce(sum(amount) FILTER (WHERE region = 'eu'), 0.0) * 1.2
+    + coalesce(sum(amount) FILTER (WHERE NOT region = 'eu'), 0.0) AS revenue_adj_metric
+    FROM warehouse.orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  3: not
+      #  4 @  2: sum
+      #  5 @  1: coalesce
+      #  6 @  2: add
+
+    === Plan
+    Root[revenue_adj, revenue_adj_metric]
+      Project[$0, add(multiply(coalesce($1, 0):fp64, 1.2):fp64, coalesce($2, 0):fp64):fp64]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+          Project[if_then(equal($0, 'eu'):boolean? -> multiply($1, 1.2):fp64?, _ -> $1), $1, $1, equal($0, 'eu'):boolean?, not(equal($0, 'eu'):boolean?):boolean?]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+expr_reads_row_dimension:
+  # A Measure's expr: reads a Dimension on each row, below the aggregate step.
+  model: models/commerce_expr_form
+  request:
+    from: orders_targets
+    select: [region, revenue_eu_adj]
+  expect:
+    rows:
+      - [region, revenue_eu_adj]
+      - [eu, 180.0]
+      - [us, 210.0]
+  sql: SELECT region, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_eu_adj FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[region, revenue_eu_adj]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_targets', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($0, 'eu'):boolean? -> multiply($1, 1.2):fp64?, _ -> $1)]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_targets', source_role=&Dataset, physical_source='orders']
+
+constant_keeps_measure_link:
+  # A constant-folding case still keeps its link to the Measure, so it stays a formula over final aggregates.
+  model: models/commerce_expr_form
+  request:
+    from: orders_targets
+    select: [target]
+  expect:
+    rows:
+      - [target]
+      - [1000]
+  sql: SELECT CASE WHEN FALSE THEN count(order_id) ELSE 1000 END AS target FROM warehouse.orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: count
+
+    === Plan
+    Root[target]
+      Project[if_then(false -> $0, _ -> 1000)]
+        + Opt:Trace[scope_root='orders_targets', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[_ => count($0, overflow⇒[ERROR]):i64]
+          Project[$0]
+            Read[warehouse.orders => order_id:string?]
+              + Opt:Trace[semantic_source='orders_targets', source_role=&Dataset, physical_source='orders']
+
+filter_narrows_linked_subtree:
+  # A reader's own filter narrows a linked subtree's step-1 aggregates without removing its groups.
+  model: models/commerce_expr_form
+  request:
+    from: orders_targets
+    select: [channel, eu_regions]
+  expect:
+    rows:
+      - [channel, eu_regions]
+      - [web, 1]
+      - [app, 1]
+      - [null, 0]
+  sql: >-
+    SELECT channel, count(formula) AS eu_regions
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) FILTER (WHERE region = 'eu') * 1.2
+    ELSE sum(amount) FILTER (WHERE region = 'eu') END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: multiply
+      #  4 @  3: count
+
+    === Plan
+    Root[channel, eu_regions]
+      Project[$0, $2]
+        + Opt:Trace[scope_root='orders_targets', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1, $1]
+          Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+            Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+              Aggregate[$0, $5 => $0, $5, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                Project[$0, $2, $2, equal($1, 'eu'):boolean?, equal($1, 'eu'):boolean?, $1]
+                  Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+                    + Opt:Trace[semantic_source='orders_targets', source_role=&Dataset, physical_source='orders']
+
+linked_subtrees_join_difference:
+  # Two linked subtrees, one under its own filter, join on IS NOT DISTINCT FROM, and the formula sits above the join.
+  model: models/commerce_expr_form
+  request:
+    from: orders_targets
+    select: [channel, regions_gap]
+  expect:
+    rows:
+      - [channel, regions_gap]
+      - [web, 1]
+      - [app, 0]
+      - [null, 1]
+  sql: >-
+    SELECT a.channel, a.regions_with_revenue - e.eu_regions AS regions_gap
+    FROM (SELECT channel, count(formula) AS regions_with_revenue
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel) a
+    JOIN (SELECT channel, count(formula) AS eu_regions
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) FILTER (WHERE region = 'eu') * 1.2
+    ELSE sum(amount) FILTER (WHERE region = 'eu') END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel) e
+    ON a.channel IS NOT DISTINCT FROM e.channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+      #  4 @  3: count
+      #  5 @  2: is_not_distinct_from
+      #  6 @  1: subtract
+
+    === Plan
+    Root[channel, regions_gap]
+      Project[$0, $4]
+        + Opt:Trace[scope_root='orders_targets', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1, $2, $3, subtract($1, $3, overflow⇒[ERROR]):i64]
+          Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+            Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+              Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+                Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                  Project[$0, $2, $2, $1]
+                    Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+                      + Opt:Trace[semantic_source='orders_targets', source_role=&Dataset, physical_source='orders']
+            Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+              Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+                Aggregate[$0, $5 => $0, $5, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                  Project[$0, $2, $2, equal($1, 'eu'):boolean?, equal($1, 'eu'):boolean?, $1]
+                    Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+                      + Opt:Trace[semantic_source='orders_targets', source_role=&Dataset, physical_source='orders']
+
+no_agg_as_dimension:
+  # A row-level Metric with no agg: is planned as a Dimension whose expr: is its formula.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [channel, region_label]
+  expect:
+    rows:
+      - [channel, region_label]
+      - [web, EU]
+      - [web, other]
+      - [app, EU]
+      - [null, other]
+  sql: SELECT DISTINCT channel, CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END AS region_label FROM warehouse.orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: equal
+
+    === Plan
+    Root[channel, region_label]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($1, 'eu'):boolean? -> 'EU', _ -> 'other')]
+          Read[warehouse.orders => channel:string?, region:string?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+formula_reads_linked_subtree:
+  # A formula keeps its link to another Metric, whose subtree joins the frame's on IS NOT DISTINCT FROM.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [channel, revenue_per_region]
+  expect:
+    rows:
+      - [channel, revenue_per_region]
+      - [web, 150.0]
+      - [app, 50.0]
+      - [null, 10.0]
+  sql: >-
+    SELECT t.channel, t.revenue / r.regions_with_revenue AS revenue_per_region
+    FROM (SELECT channel, sum(amount) AS revenue FROM warehouse.orders GROUP BY channel) t
+    JOIN (SELECT channel, count(formula) AS regions_with_revenue
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS formula
+    FROM warehouse.orders GROUP BY channel, region) GROUP BY channel) r
+    ON t.channel IS NOT DISTINCT FROM r.channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+      #  4 @  3: count
+      #  5 @  2: is_not_distinct_from
+      #  6 @  1: divide
+
+    === Plan
+    Root[channel, revenue_per_region]
+      Project[$0, $4]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1, $2, $3, divide($1, ($3)::!fp64, on_division_by_zero⇒[ERROR]):fp64?]
+          Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+              Project[$0, $1]
+                Read[warehouse.orders => channel:string?, amount:fp64?, region:string?]
+                  + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+            Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+              Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($2, 1.2):fp64?, _ -> $3)]
+                Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                  Project[$0, $1, $1, $2]
+                    Read[warehouse.orders => channel:string?, amount:fp64?, region:string?]
+                      + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+formula_reads_each_day:
+  # A formula's per-row term reads each order's own day, before the month bucket groups it.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [{dimension: ordered_at, granularity: month}, revenue_early_adj]
+  expect:
+    rows:
+      - [ordered_at, revenue_early_adj]
+      - [2026-10-01, 330.0]
+  sql: >-
+    SELECT month AS ordered_at, sum(CASE WHEN day < DATE '2026-10-15' THEN revenue * 0.9 ELSE revenue END)
+    AS revenue_early_adj FROM (SELECT date_trunc('month', ordered_at) AS month, ordered_at AS day,
+    sum(amount) AS revenue FROM warehouse.orders GROUP BY 1, 2) GROUP BY month
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+      #  3 @  3: lt
+      #  4 @  2: multiply
+
+    === Plan
+    Root[ordered_at, revenue_early_adj]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(lt($1, '2026-10-15':date):boolean? -> multiply($2, 0.9):fp64?, _ -> $3)]
+          Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+            Project[(date_trunc('month', $0):date?)::!date?, $1, $2, $3]
+              Project[$0, $1, $1, $0]
+                Read[warehouse.orders => ordered_at:date?, amount:fp64?]
+                  + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+tier_reads_label_field:
+  # A grouped formula reads another row-level Metric as the step's own field.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [region_label, tier]
+  expect:
+    rows:
+      - [region_label, tier]
+      - [EU, high]
+      - [other, low]
+  sql: SELECT region_label, CASE WHEN region_label = 'EU' AND sum(amount) > 100 THEN 'high' ELSE 'low' END AS tier FROM (SELECT CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END AS region_label, amount FROM warehouse.orders) GROUP BY region_label
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: gt
+      #  4 @  3: and
+
+    === Plan
+    Root[region_label, tier]
+      Project[$0, if_then(and(equal($0, 'EU'):boolean, gt($1, 100):boolean?):boolean? -> 'high', _ -> 'low')]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[if_then(equal($0, 'eu'):boolean? -> 'EU', _ -> 'other'), $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+formula_grain_holds_column:
+  # A formula grain that holds a plain column averages its values at that grain.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [avg_cust]
+  expect:
+    rows:
+      - [avg_cust]
+      - [180.0]
+  sql: >-
+    SELECT avg(CASE WHEN customer_id IS NOT NULL THEN revenue END) AS avg_cust
+    FROM (SELECT customer_id, sum(amount) AS revenue FROM warehouse.orders GROUP BY customer_id)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_null
+      #  3 @  3: not
+      #  4 @  1: avg
+
+    === Plan
+    Root[avg_cust]
+      Aggregate[_ => avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(not(is_null($0):boolean):boolean -> $1, _ -> !{Expression})]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$1, $0]
+              Read[warehouse.orders => customer_id:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+group_by_row_metric:
+  # The request groups by a row-level Metric's own value.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [region_label, revenue]
+  expect:
+    rows:
+      - [region_label, revenue]
+      - [EU, 150.0]
+      - [other, 210.0]
+  sql: SELECT CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END AS region_label, sum(amount) AS revenue FROM warehouse.orders GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_label, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 'eu'):boolean? -> 'EU', _ -> 'other'), $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+predicate_on_row_metric:
+  # A predicate on a row-level Metric applies before aggregation.
+  model: models/commerce_expr_form
+  request:
+    from: orders
+    select: [region_label, revenue]
+    where: {eq: [region_label, {lit: EU}]}
+  expect:
+    rows:
+      - [region_label, revenue]
+      - [EU, 150.0]
+  sql: SELECT CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END AS region_label, sum(amount) AS revenue FROM warehouse.orders WHERE CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END = 'EU' GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_label, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Filter[equal($0, 'EU'):boolean => $0, $1]
+          Project[if_then(equal($0, 'eu'):boolean? -> 'EU', _ -> 'other'), $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+field_by_position_no_copy:
+  # A grouped formula reads the aggregate step's field by position, with no copy of its CASE.
+  model: models/commerce
+  request:
+    from: orders_label_dimension
+    select: [region_label, eu_revenue]
+  expect:
+    rows:
+      - [region_label, eu_revenue]
+      - [EU, 150.0]
+      - [other, null]
+  sql: SELECT region_label, CASE WHEN region_label = 'EU' THEN sum(amount) END AS eu_revenue FROM (SELECT CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END AS region_label, amount FROM warehouse.orders) GROUP BY region_label
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_label, eu_revenue]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='orders_label_dimension', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(equal($0, 'EU'):boolean -> $1, _ -> !{Expression}), $0]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$1, if_then(equal($0, 'eu'):boolean? -> 'EU', _ -> 'other')]
+              Read[warehouse.orders => region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders_label_dimension', source_role=&Dataset, physical_source='orders']
+
+case_parts_under_fan_out:
+  # A formula's CASE result picks the part that a one-to-many join's rows fall into.
+  model: models/commerce
+  request:
+    from: orders_order_lines_bonus
+    select: [region, gift_or_eu_bonus]
+  input_data:
+    warehouse.order_lines:
+      - [l1, o1, gift, null]
+      - [l2, o1, gift, null]
+      - [l3, o2, std, null]
+      - [l4, o3, gift, null]
+      - [l5, o4, std, null]
+      - [l6, o1, std, null]
+    warehouse.orders:
+      - [o1, null, eu, null, 100.0, null, null, null, null]
+      - [o2, null, eu, null, 50.0, null, null, null, null]
+      - [o3, null, us, null, 200.0, null, null, null, null]
+      - [o4, null, us, null, 10.0, null, null, null, null]
+  expect:
+    rows:
+      - [region, gift_or_eu_bonus]
+      - [eu, 450.0]
+      - [us, 310.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: row_number
+      #  4 @  1: add
+
+    === Plan
+    Root[region, gift_or_eu_bonus]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_order_lines_bonus', compositions=1, granularity_fit=&NotSelected]
+        Project[add(if_then(equal($1, 1):boolean -> 100, equal($1, 2):boolean -> 100, _ -> 0), $2):fp64?, $0]
+          Aggregate[$4, $1 => $4, $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1, !{RexType}, $2, $3, $4]
+              Project[$2, if_then(equal($3, 'gift'):boolean? -> 1, equal($0, 'eu'):boolean? -> 2, _ -> 3), $1, $0, $0]
+                Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                  + Opt:Trace[semantic_source='orders_order_lines_bonus', source_role=&Joinset, cardinality=&OneToMany]
+                  Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):fp64?]
+                    Project[$2, $0, $1]
+                      Read[warehouse.orders => region:string?, amount:fp64?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_order_lines_bonus.orders_l', source_role=&Dataset, originators=('orders_order_lines_bonus',), physical_source='orders']
+                  Aggregate[$0, $1 => $0, $1]
+                    Project[$0, $1]
+                      Read[warehouse.order_lines => kind:string?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_order_lines_bonus.order_lines', source_role=&Dataset, originators=('orders_order_lines_bonus',), physical_source='order_lines']
+
+no_else_adds_nothing:
+  # A CASE with no else gives NULL for a row it selects no result for, which adds nothing.
+  model: models/commerce_expr_form
+  request:
+    from: orders_buyers
+    select: [buyers_weighted_no_else]
+  input_data:
+    warehouse.orders:
+      - [o1, c1, eu, web, 100.0, 2026-10-05]
+      - [o2, c1, eu, app, 50.0, 2026-10-20]
+      - [o3, c1, us, web, 200.0, 2026-10-10]
+      - [o4, c2, us, null, 10.0, 2026-10-25]
+      - [o5, c3, null, web, 40.0, 2026-10-12]
+  expect:
+    rows:
+      - [buyers_weighted_no_else]
+      - [6]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_weighted_no_else]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders_buyers', compositions=0, granularity_fit=&NotSelected]
+        Project[multiply(if_then(equal($0, 1):boolean? -> 2, equal($0, 2):boolean? -> 2, _ -> !{Expression}), $1, overflow⇒[ERROR]):i64?]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$2, if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> !{Expression})]
+              Read[warehouse.orders => region:string?, channel:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders_buyers', source_role=&Dataset, physical_source='orders']
+
+null_condition_second_result:
+  # A CASE condition that is NULL, not true, still takes the next WHEN's result.
+  model: models/commerce_expr_form
+  request:
+    from: orders_buyers
+    select: [buyers_weighted]
+  input_data:
+    warehouse.orders:
+      - [o1, c1, eu, web, 100.0, 2026-10-05]
+      - [o2, c1, eu, app, 50.0, 2026-10-20]
+      - [o3, c1, us, web, 200.0, 2026-10-10]
+      - [o4, c2, us, null, 10.0, 2026-10-25]
+      - [o5, c3, null, web, 40.0, 2026-10-12]
+  expect:
+    rows:
+      - [buyers_weighted]
+      - [7]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+      #  3 @  3: multiply
+      #  4 @  3: sum
+
+    === Plan
+    Root[buyers_weighted]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders_buyers', compositions=0, granularity_fit=&NotSelected]
+        Project[multiply(if_then(equal($0, 1):boolean -> 2, equal($0, 2):boolean -> 2, _ -> 1), $1, overflow⇒[ERROR]):i64]
+          Aggregate[$1 => $1, count($0, overflow⇒[ERROR]):i64]
+            Project[$2, if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> 3)]
+              Read[warehouse.orders => region:string?, channel:string?, customer_id:string?]
+                + Opt:Trace[semantic_source='orders_buyers', source_role=&Dataset, physical_source='orders']
+
+grain_groups_other_bucket:
+  # A coarser formula grain groups two rows into one other bucket.
+  model: models/commerce_expr_form
+  request:
+    from: orders_buyers
+    select: [channel, n_other]
+  input_data:
+    warehouse.orders:
+      - [o1, c1, eu, web, 100.0, 2026-10-05]
+      - [o2, c1, eu, app, 50.0, 2026-10-20]
+      - [o3, c1, us, web, 200.0, 2026-10-10]
+      - [o4, c2, us, null, 10.0, 2026-10-25]
+      - [o5, c3, null, web, 40.0, 2026-10-12]
+  expect:
+    rows:
+      - [channel, n_other]
+      - [web, 1]
+      - [app, 0]
+      - [null, 1]
+  sql: >-
+    SELECT channel, count(CASE WHEN region_label = 'other' THEN revenue END) AS n_other
+    FROM (SELECT channel, CASE WHEN region = 'eu' THEN 'EU' ELSE 'other' END AS region_label,
+    sum(amount) AS revenue FROM warehouse.orders GROUP BY 1, 2) GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  3: count
+
+    === Plan
+    Root[channel, n_other]
+      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='orders_buyers', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($1, 'other'):boolean -> $2, _ -> !{Expression})]
+          Aggregate[$0, $2 => $0, $2, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $2, if_then(equal($1, 'eu'):boolean? -> 'EU', _ -> 'other')]
+              Read[warehouse.orders => channel:string?, region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders_buyers', source_role=&Dataset, physical_source='orders']
+
+renamed_column_row_projection:
+  # Only the row-level projection reads a Dimension's renamed column; the formula above still reads the step's own field.
+  model: models/commerce
+  request:
+    from: orders_region_code
+    select: [region, revenue_adj]
+  input_data:
+    warehouse.orders:
+      - [o1, c1, null, web, 100.0, 2026-10-05, null, null, eu]
+      - [o2, c1, null, app, 50.0, 2026-10-20, null, null, eu]
+      - [o3, c1, null, web, 200.0, 2026-10-10, null, null, us]
+      - [o4, c2, null, null, 10.0, 2026-10-25, null, null, us]
+  expect:
+    rows:
+      - [region, revenue_adj]
+      - [eu, 180.0]
+      - [us, 210.0]
+  sql: SELECT region_code AS region, CASE WHEN region_code = 'eu' THEN sum(amount) * 1.2 ELSE sum(amount) END AS revenue_adj FROM warehouse.orders GROUP BY region_code
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+
+    === Plan
+    Root[region, revenue_adj]
+      Project[$0, if_then(equal($0, 'eu'):boolean? -> multiply($1, 1.2):fp64?, _ -> $2)]
+        + Opt:Trace[scope_root='orders_region_code', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $1]
+            Read[warehouse.orders => region_code:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_region_code', source_role=&Dataset, physical_source='orders']
+
+case_parts_over_grainset:
+  # A CASE's parts are summed separately even where a Grainset answers the request.
+  model: models/commerce
+  request:
+    from: orders_gs
+    select: [{dimension: date, granularity: month}, bonus]
+  expect:
+    rows:
+      - [date, bonus]
+      - [2026-03-01, 230.0]
+      - [2026-04-01, 105.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: date_trunc
+      #  5 @  1: add
+
+    === Plan
+    Root[date, bonus]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_gs', compositions=2, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='orders_gs', source_role=&Grainset, answered_by='orders_gs.orders_daily']
+        Project[add(if_then(equal($1, 1):boolean -> 100, equal($1, 2):boolean -> 100, _ -> 0), $2):fp64?, $0]
+          Aggregate[$2, $1 => $2, $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+              Project[$2, if_then(equal($3, 'eu'):boolean? -> 1, equal(coalesce($1, $4):string?, 'c2'):boolean? -> 2, _ -> 3), $0]
+                Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                  + Opt:Trace[semantic_source='orders_gs.orders_daily', source_role=&Joinset, originators=('orders_gs',), cardinality=&ManyToOne]
+                  Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):fp64?]
+                    Project[$1, $0, $2]
+                      Read[warehouse.web_orders_dated => order_date:date?, customer_id:string?, amount:fp64?]
+                        + Opt:Trace[semantic_source='orders_gs.orders_daily.web_orders_dated', source_role=&Dataset, originators=('orders_gs.orders_daily',), physical_source='web_orders_dated']
+                  Aggregate[$1, $0 => $1, $0]
+                    Project[$1, $0]
+                      Read[warehouse.customers_s4 => region:string?, customer_id:string?]
+                        + Opt:Trace[semantic_source='orders_gs.orders_daily.customers_s4', source_role=&Dataset, originators=('orders_gs.orders_daily',), physical_source='customers_s4']
+
+case_parts_in_union_branch:
+  # A CASE's parts are summed separately inside a Unionset branch that is itself a Joinset.
+  model: models/commerce_own_tables
+  request:
+    from: all_sales
+    select: [bonus]
+  expect:
+    rows:
+      - [bonus]
+      - [260.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: add
+
+    === Plan
+    Root[bonus]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='all_sales', compositions=2, granularity_fit=&NotSelected]
+        Project[add(if_then(equal($0, 1):boolean -> 100, equal($0, 2):boolean -> 100, _ -> 0), $1):fp64?]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$2, if_then(equal($0, 'web'):boolean -> 1, equal($1, 'Oslo'):boolean? -> 2, _ -> 3)]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='all_sales', source_role=&Unionset, delivery=&PartialAggregates]
+                Project[$0, $1, $2]
+                  Aggregate[$0, $2 => $0, $2, sum($1, overflow⇒[ERROR]):fp64?]
+                    Project[$0, $2, $3]
+                      Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                        + Opt:Trace[semantic_source='all_sales.store_sales', source_role=&Joinset, originators=('all_sales',), cardinality=&ManyToOne]
+                        Aggregate[$0, $2 => $0, $2, sum($1, overflow⇒[ERROR]):fp64?]
+                          Project['store', $0, $1]
+                            Read[warehouse.store_orders => amount:fp64?, store_id:string?]
+                              + Opt:Trace[semantic_source='all_sales.store_sales.store_orders', source_role=&Dataset, originators=('all_sales.store_sales',), physical_source='store_orders']
+                        Aggregate[$1, $0 => $1, $0]
+                          Project[$1, $0]
+                            Read[warehouse.stores => store_name:string?, store_id:string?]
+                              + Opt:Trace[semantic_source='all_sales.store_sales.stores', source_role=&Dataset, originators=('all_sales.store_sales',), physical_source='stores']
+                Project[$0, $1, $2]
+                  Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):fp64?]
+                    Project[$2, $1, $0, $3]
+                      Project['web', true, $0, null:string?]
+                        Read[warehouse.web_sales => amount:fp64?]
+                          + Opt:Trace[semantic_source='all_sales.web_sales', source_role=&Dataset, originators=('all_sales',), physical_source='web_sales']
+
+metric_over_aggregates:
+  # A Metric over final aggregates computes its ratio after the aggregate step.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, aov]
+  expect:
+    rows:
+      - [region, aov]
+      - [eu, 75.0]
+      - [us, 105.0]
+  sql: SELECT region, sum(amount) / count(order_id) AS aov FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: count
+      #  3 @  1: divide
+
+    === Plan
+    Root[region, aov]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[divide($1, ($2)::!fp64, on_division_by_zero⇒[ERROR]):fp64?, $0]
+          Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?, count($1, overflow⇒[ERROR]):i64]
+            Project[$1, $2, $0]
+              Read[warehouse.orders => region:string?, amount:fp64?, order_id:string?]
+                + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+filter_on_inlined_aggregate:
+  # A Metric over final aggregates reads another Metric's filter on its own inlined aggregate.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, non_web]
+  expect:
+    rows:
+      - [region, non_web]
+      - [eu, 50.0]
+      - [us, 10.0]
+  sql: >-
+    SELECT region, sum(amount) - sum(amount) FILTER (WHERE channel = 'web') AS non_web
+    FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: subtract
+
+    === Plan
+    Root[region, non_web]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[subtract($1, $2):fp64?, $0]
+          Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$1, $1, equal($2, 'web'):boolean?, $0]
+              Read[warehouse.orders => region:string?, amount:fp64?, channel:string?]
+                + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']

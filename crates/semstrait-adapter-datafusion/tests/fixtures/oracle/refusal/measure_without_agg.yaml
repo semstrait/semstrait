@@ -1,0 +1,13 @@
+# A parse-stage refusal: a Measure with no agg: declaration.
+
+measure_missing_agg:
+  # A Measure with no agg: declaration is a parse-stage refusal.
+  model: refusal/measure_without_agg
+  expect:
+    error:
+      stage: parse
+      variant: MeasureMissingAgg
+      fields:
+        carrier: Measure
+  message: |-
+    error: Measure `<unknown>` is missing required `agg:`

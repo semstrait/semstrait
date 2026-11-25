@@ -1,0 +1,36 @@
+[package]
+name = "semstrait-manifest"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "Resolved semantic-manifest type vocabulary for semstrait"
+
+[dependencies]
+# `io` brings the `FileSystem` transport + `IoErrorKind` the persistence
+# boundary (`Repository`) is built on; `serde` the persisted wire form.
+semstrait-common = { workspace = true, features = ["serde", "io"] }
+semstrait-ir = { workspace = true }
+semstrait-model = { workspace = true }
+semstrait-sql = { workspace = true }
+# `CatalogProvider` for compile-time metadata fetch. Sanctioned
+# forward edge: catalog deps `common` only — no cycle, keeping the
+# crate dependency graph strict and acyclic.
+semstrait-catalog = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Async persistence boundary (`Repository`).
+async-trait = { workspace = true }
+bytes = { workspace = true }
+# Deterministic content-derived `EntityId` minting (UUIDv5, ADR 0010).
+uuid = { workspace = true }
+# SHA-256 over the canonical schema encoding (`schema_fingerprint`).
+sha2 = { workspace = true }
+# Decodes a `key=value` partition folder (ADR 0070, *The listing and its partitions*).
+percent-encoding = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+# Drives the async `Repository` round-trip tests against `InMemoryFileSystem`.
+tokio = { workspace = true }
+tempfile = { workspace = true }

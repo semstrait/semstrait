@@ -1,0 +1,1 @@
+error: the call of `date_trunc` is refused: `date_trunc`'s `granularity` has no value 'second'

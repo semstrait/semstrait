@@ -1,0 +1,1 @@
+error: dataset `orders`: storage pattern `s3://lake/orders/_*.parquet` matched no file

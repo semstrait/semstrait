@@ -1,0 +1,105 @@
+tables:
+  - namespace: warehouse
+    name: transactions
+    columns:
+      - {name: created_at, type: date}
+      - {name: country_code, type: string}
+      - {name: amount, type: double}
+      - {name: qty, type: bigint}
+      - {name: country, type: string}
+      - {name: txn_type, type: string}
+    rows:
+      - [2026-03-02, US, 100.0, 10, null, null]
+      - [2026-03-03, DE, 40.0, 2, null, null]
+      - [2026-03-09, US, 50.0, 5, null, null]
+      - [2026-04-01, DE, 10.0, 4, null, null]
+      - [2026-04-06, US, 120.0, 12, null, null]
+      - [2026-04-07, DE, 30.0, 3, null, null]
+      - [2026-04-14, FR, 20.0, 1, null, null]
+  - namespace: warehouse
+    name: txn_monthly_agg
+    columns:
+      - {name: month_start, type: date}
+      - {name: country_code, type: string}
+      - {name: total_revenue, type: double}
+      - {name: target, type: double}
+    rows:
+      - [2026-03-01, US, 150.0, 200.0]
+      - [2026-03-01, DE, 40.0, 50.0]
+      - [2026-03-01, FR, 0.0, 30.0]
+      - [2026-04-01, US, 120.0, 150.0]
+      - [2026-04-01, DE, 40.0, 60.0]
+  - namespace: warehouse
+    name: txn_weekly_agg
+    columns:
+      - {name: week_start, type: date}
+      - {name: country_code, type: string}
+      - {name: total_revenue, type: double}
+      - {name: total_quantity, type: bigint}
+    rows:
+      - [2026-03-02, US, 100.0, 10]
+      - [2026-03-02, DE, 40.0, 2]
+      - [2026-03-09, US, 50.0, 5]
+      - [2026-03-30, DE, 10.0, 4]
+      - [2026-04-06, US, 120.0, 12]
+      - [2026-04-06, DE, 30.0, 3]
+      - [2026-04-13, FR, 20.0, 1]
+  - namespace: warehouse
+    name: bal_eu
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [X, 2026-10-30, 120]
+      - [X, 2026-10-31, 130]
+  - namespace: warehouse
+    name: bal_us
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [Y, 2026-10-15, 200]
+      - [Y, 2026-10-29, 210]
+  - namespace: warehouse
+    name: accounts
+    columns:
+      - {name: account, type: string}
+      - {name: region, type: string}
+    rows:
+      - [X, eu]
+      - [Y, us]
+  - namespace: warehouse
+    name: bal_year
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: headcount, type: bigint}
+    rows:
+      - [X, 2026-01-01, 4]
+      - [Y, 2026-01-01, 6]
+  - namespace: warehouse
+    name: f4
+    columns:
+      - {name: g, type: string}
+      - {name: d, type: date}
+      - {name: v, type: bigint}
+    rows:
+      - [a, 2024-01-01, 1]
+      - [a, 2024-01-02, 2]
+      - [a, null, 3]
+      - [b, null, 4]
+      - [b, null, 5]
+      - [null, 2024-01-05, 6]
+      - [null, 2024-01-05, 7]
+      - [null, 2024-01-03, 8]
+  - namespace: warehouse
+    name: bal_apac
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [Z, 2026-10-05, 50]
+      - [Z, 2026-10-20, 70]

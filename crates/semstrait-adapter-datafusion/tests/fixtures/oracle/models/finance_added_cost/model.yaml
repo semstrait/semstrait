@@ -1,0 +1,46 @@
+# A finance variant of the daily balances Dataset with cost beside balance.
+semantic_model:
+  name: daily_balance
+  dimensions:
+    - name: account
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+  measures:
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          by: date
+          strategy: latest
+    - name: cost
+      data_type: bigint
+      agg: sum
+  datasets:
+    - name: daily
+      extras:
+        storage:
+          tables: [warehouse.daily]
+        semantic_mapping:
+          account: account
+          date: date
+          balance: balance
+          cost: cost
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: account
+          is_key: true
+        - ref: date
+          is_key: true
+      measures:
+        - ref: balance
+        - ref: cost

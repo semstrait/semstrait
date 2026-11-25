@@ -1,0 +1,1 @@
+error: `ordered_at` is a date, which holds no granularity `hour`

@@ -1,0 +1,1 @@
+error: type error at `name_month`: `date_trunc`'s `value` takes T of the date and timestamp family, not string

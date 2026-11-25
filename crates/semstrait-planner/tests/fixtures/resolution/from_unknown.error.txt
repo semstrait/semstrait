@@ -1,0 +1,1 @@
+error: `nope` is not in the public semantic sources

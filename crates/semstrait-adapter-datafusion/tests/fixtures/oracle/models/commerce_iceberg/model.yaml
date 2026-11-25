@@ -1,0 +1,25 @@
+# A commerce variant whose orders table is Iceberg-dialect.
+semantic_model:
+  name: iceberg_orders
+  dimensions:
+    - name: created_at
+      data_type: timestamp
+      type:
+        temporal:
+          granularities: [month]
+  measures:
+    - name: revenue
+      data_type: bigint
+      agg: sum
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          created_at: created_at
+          revenue: amount
+      dimensions:
+        - ref: created_at
+      measures:
+        - ref: revenue

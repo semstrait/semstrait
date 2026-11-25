@@ -1,0 +1,54 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: account, type: string}
+      - {name: order_date, type: date}
+      - {name: booked_on, type: date}
+    rows:
+      - [A, 2026-09-29, 2026-09-29]
+      - [B, 2026-09-29, 2026-09-29]
+      - [A, 2026-10-20, 2026-10-20]
+      - [A, 2026-10-27, 2026-10-27]
+      - [B, 2026-10-27, 2026-10-27]
+      - [B, 2026-10-31, 2026-10-31]
+  - namespace: warehouse
+    name: balances
+    columns:
+      - {name: account, type: string}
+      - {name: snap_date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [A, 2026-09-29, 100]
+      - [B, 2026-09-29, 200]
+      - [A, 2026-10-06, 105]
+      - [B, 2026-10-06, 205]
+      - [A, 2026-10-13, 110]
+      - [B, 2026-10-13, 208]
+      - [A, 2026-10-20, 120]
+      - [B, 2026-10-20, 210]
+      - [A, 2026-10-27, 150]
+      - [B, 2026-10-27, 230]
+  - namespace: warehouse
+    name: daily_eu
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: a, type: double}
+      - {name: b, type: double}
+    rows:
+      - [X, 2026-10-15, 4.0, 10.0]
+      - [X, 2026-10-31, 6.0, 12.0]
+      - [Y, 2026-10-31, 30.0, 40.0]
+      - [Y, 2026-09-30, 2.0, 4.0]
+  - namespace: warehouse
+    name: daily_rest
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: a, type: double}
+      - {name: b, type: double}
+    rows:
+      - [X, 2026-10-31, 4.0, 8.0]
+      - [Y, 2026-10-20, 1.0, 1.0]
+      - [X, 2026-09-30, 3.0, 3.0]

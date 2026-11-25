@@ -1,0 +1,29 @@
+# A commerce variant whose orders_daily folder holds no object.
+semantic_model:
+  name: empty_read
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+    - name: order_count
+      data_type: bigint
+      agg: count
+  datasets:
+    - name: orders_daily
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders_daily/]
+        semantic_mapping:
+          region: region
+          revenue: amount
+          order_count: order_id
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue
+        - ref: order_count

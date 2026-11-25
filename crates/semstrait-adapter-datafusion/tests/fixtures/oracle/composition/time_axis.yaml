@@ -1,0 +1,1457 @@
+# A nested composition's own marker, grain or literal fold reaches through its constituents to re-aggregate.
+
+root_grainset_to_union_child:
+  # A root Grainset routes to its composed Unionset child, which carries Month but holds day values.
+  model: models/finance
+  request:
+    from: gbal2
+    select: [{dimension: date, granularity: month}, account, balance]
+  expect:
+    rows:
+      - [date, account, balance]
+      - [2026-10-01, X, 130]
+      - [2026-10-01, Y, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, account, balance]
+      Aggregate[$4, $0 => $4, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='gbal2', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='gbal2', source_role=&Grainset, answered_by='gbal2.u_bal']
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='gbal2.u_bal', source_role=&Unionset, originators=('gbal2',), delivery=&PartialAggregates]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1, $3]
+                    Project[$1, true, $2, $0]
+                      Read[warehouse.bal_eu => date:date?, account:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='gbal2.u_bal.bal_eu', source_role=&Dataset, originators=('gbal2.u_bal',), physical_source='bal_eu']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, $1, $3]
+                      Project[$1, true, $2, $0]
+                        Read[warehouse.bal_us => date:date?, account:string?, balance:i64?]
+                          + Opt:Trace[semantic_source='gbal2.u_bal.bal_us', source_role=&Dataset, originators=('gbal2.u_bal',), physical_source='bal_us']
+
+latest_day_by_account:
+  # The marker keeps each account's latest day inside October.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, account, balance]
+  expect:
+    rows:
+      - [date, account, balance]
+      - [2026-10-01, X, 130]
+      - [2026-10-01, Y, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, account, balance]
+      Aggregate[$4, $0 => $4, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1, $3]
+                    Project[$1, true, $2, $0]
+                      Read[warehouse.bal_eu => date:date?, account:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, $1, $3]
+                      Project[$1, true, $2, $0]
+                        Read[warehouse.bal_us => date:date?, account:string?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+kept_operand_marker_in_join:
+  # Keeping the sibling operand puts the marker in the join's own frame, reading the Unionset.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, region, balance]
+  expect:
+    rows:
+      - [date, region, balance]
+      - [2026-10-01, eu, 130]
+      - [2026-10-01, us, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+      #  4 @  1: rank
+
+    === Plan
+    Root[date, region, balance]
+      Aggregate[$3, $4 => $3, $4, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, !{RexType}, $1, $2, $3]
+          Project[$0, $1, (date_trunc('month', $2):date?)::!date?, $3]
+            Project[$2, $0, $0, $3]
+              Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                + Opt:Trace[semantic_source='j', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$1, $2, $0]
+                    Set[&UnionAll => $0, $1, $2]
+                      + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                      Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                        Project[$0, $2, $1, $3]
+                          Project[$2, true, $1, $0]
+                            Read[warehouse.bal_eu => date:date?, balance:i64?, account:string?]
+                              + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                      Project[$0, $1, $2]
+                        Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                          Project[$0, $2, $1, $3]
+                            Project[$2, true, $1, $0]
+                              Read[warehouse.bal_us => date:date?, balance:i64?, account:string?]
+                                + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.accounts => region:string?, account:string?]
+                      + Opt:Trace[semantic_source='j.accounts', source_role=&Dataset, originators=('j',), physical_source='accounts']
+
+plain_sum_no_marker:
+  # A plain sum reads no marker, so re-aggregating through the nested composition changes nothing.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, cost]
+  expect:
+    rows:
+      - [date, cost]
+      - [2026-10-01, 660]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+
+    === Plan
+    Root[date, cost]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, (date_trunc('month', $1):date?)::!date?]
+          Project[$1, $0]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+              Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                Project[$1, $0, $2]
+                  Project[true, $1, $0]
+                    Read[warehouse.bal_eu => date:date?, balance:i64?]
+                      + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+              Project[$0, $1]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.bal_us => date:date?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+earliest_day_by_account:
+  # An earliest-strategy marker keeps each account's earliest day inside October.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, account, balance_e]
+  expect:
+    rows:
+      - [date, account, balance_e]
+      - [2026-10-01, X, 120]
+      - [2026-10-01, Y, 200]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, account, balance_e]
+      Aggregate[$4, $0 => $4, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1, $3]
+                    Project[$1, true, $2, $0]
+                      Read[warehouse.bal_eu => date:date?, account:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, $1, $3]
+                      Project[$1, true, $2, $0]
+                        Read[warehouse.bal_us => date:date?, account:string?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+condition_and_rank_combine:
+  # The marker joins the Measure's own condition with And, so the rank still reads every row of its partition.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, balance_y]
+  expect:
+    rows:
+      - [date, balance_y]
+      - [2026-10-01, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: sum
+      #  4 @  4: date_trunc
+      #  5 @  3: rank
+
+    === Plan
+    Root[date, balance_y]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$2, and(equal($0, 'Y'):boolean?, $1):boolean?, $3]
+                    Project[$2, equal($2, 'Y'):boolean?, $1, $0]
+                      Read[warehouse.bal_eu => date:date?, balance:i64?, account:string?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$2, and(equal($0, 'Y'):boolean?, $1):boolean?, $3]
+                      Project[$2, equal($2, 'Y'):boolean?, $1, $0]
+                        Read[warehouse.bal_us => date:date?, balance:i64?, account:string?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+partitioned_condition_and_rank:
+  # Partitioning the rank by account changes which row the Measure's own condition keeps.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, account, balance_y]
+  expect:
+    rows:
+      - [date, account, balance_y]
+      - [2026-10-01, X, null]
+      - [2026-10-01, Y, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: sum
+      #  4 @  4: date_trunc
+      #  5 @  3: rank
+
+    === Plan
+    Root[date, account, balance_y]
+      Aggregate[$4, $0 => $4, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, and(equal($0, 'Y'):boolean?, $1):boolean?, $3]
+                    Project[$1, equal($1, 'Y'):boolean?, $2, $0]
+                      Read[warehouse.bal_eu => date:date?, account:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, and(equal($0, 'Y'):boolean?, $1):boolean?, $3]
+                      Project[$1, equal($1, 'Y'):boolean?, $2, $0]
+                        Read[warehouse.bal_us => date:date?, account:string?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+rank_reads_dropped_row:
+  # The rank still reads a row that the Measure's own condition later drops.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, balance_early]
+  expect:
+    rows:
+      - [date, balance_early]
+      - [2026-10-01, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: lt
+      #  2 @  2: and
+      #  3 @  3: sum
+      #  4 @  4: date_trunc
+      #  5 @  3: rank
+      #  6 @  1: equal
+
+    === Plan
+    Root[date, balance_early]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, and(lt($2, '2026-10-31':date):boolean?, $0):boolean?, $2]
+                    Project[lt($0, '2026-10-31':date):boolean?, $1, $0]
+                      Read[warehouse.bal_eu => date:date?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, and(lt($2, '2026-10-31':date):boolean?, $0):boolean?, $2]
+                      Project[lt($0, '2026-10-31':date):boolean?, $1, $0]
+                        Read[warehouse.bal_us => date:date?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+union_month_day_values:
+  # A Unionset that carries Month but holds day values buckets the request before the marker keeps the latest day.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 130]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.bal_eu => date:date?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2]
+                      Project[true, $1, $0]
+                        Read[warehouse.bal_us => date:date?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+empty_branch_no_rows:
+  # An empty branch gives no rows, so the other branch's latest day answers alone.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, balance]
+  input_data:
+    warehouse.bal_us: []
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 130]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.bal_eu => date:date?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2]
+                      Project[true, $1, $0]
+                        Read[warehouse.bal_us => date:date?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+null_date_own_group:
+  # A NULL date is its own partition group, and with NULLs last every one of its rows ranks first.
+  model: models/finance
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, balance]
+  input_data:
+    warehouse.bal_eu:
+      - [X, 2026-10-30, 120]
+      - [X, 2026-10-31, 130]
+      - [X, null, 50]
+      - [null, null, 7]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 130]
+      - [null, 57]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.accounts',)]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='j.u', source_role=&Unionset, originators=('j',), delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.bal_eu => date:date?, balance:i64?]
+                        + Opt:Trace[semantic_source='j.u.bal_eu', source_role=&Dataset, originators=('j.u',), physical_source='bal_eu']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2]
+                      Project[true, $1, $0]
+                        Read[warehouse.bal_us => date:date?, balance:i64?]
+                          + Opt:Trace[semantic_source='j.u.bal_us', source_role=&Dataset, originators=('j.u',), physical_source='bal_us']
+
+depth_three_stack:
+  # A third level of composition stacks a plain branch beside an already-nested one.
+  model: models/finance
+  request:
+    from: w5
+    select: [{dimension: date, granularity: month}, account, balance]
+  expect:
+    rows:
+      - [date, account, balance]
+      - [2026-10-01, X, 130]
+      - [2026-10-01, Y, 210]
+      - [2026-10-01, Z, 70]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, account, balance]
+      Aggregate[$4, $0 => $4, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='w5', compositions=3, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='w5', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1, $3]
+                    Project[$1, true, $2, $0]
+                      Read[warehouse.bal_apac => date:date?, account:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='w5.bal_apac', source_role=&Dataset, originators=('w5',), physical_source='bal_apac']
+                Project[$0, $1, $2]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    + Opt:Trace[semantic_source='w5.jb', source_role=&Joinset, originators=('w5',), pruned=('w5.jb.accounts',)]
+                    Project[$1, $2, $0]
+                      Set[&UnionAll => $0, $1, $2]
+                        + Opt:Trace[semantic_source='w5.jb.u', source_role=&Unionset, originators=('w5.jb',), delivery=&PartialAggregates]
+                        Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                          Project[$0, $2, $1, $3]
+                            Project[$1, true, $2, $0]
+                              Read[warehouse.bal_eu => date:date?, account:string?, balance:i64?]
+                                + Opt:Trace[semantic_source='w5.jb.u.bal_eu', source_role=&Dataset, originators=('w5.jb.u',), physical_source='bal_eu']
+                        Project[$0, $1, $2]
+                          Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                            Project[$0, $2, $1, $3]
+                              Project[$1, true, $2, $0]
+                                Read[warehouse.bal_us => date:date?, account:string?, balance:i64?]
+                                  + Opt:Trace[semantic_source='w5.jb.u.bal_us', source_role=&Dataset, originators=('w5.jb.u',), physical_source='bal_us']
+
+literal_branches_prune_sibling:
+  # A literal that differs per branch makes them disjoint, so the join prunes the branch that answers nothing.
+  model: models/finance
+  request:
+    from: j_disjoint
+    select: [{dimension: date, granularity: month}, region, balance]
+  expect:
+    rows:
+      - [date, region, balance]
+      - [2026-10-01, eu, 130]
+      - [2026-10-01, us, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  4: and
+
+    === Plan
+    Root[date, region, balance]
+      Set[&UnionAll => $0, $1, $2]
+        + Opt:Trace[scope_root='j_disjoint', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j_disjoint', source_role=&Joinset, pruned=('j_disjoint.accounts',)]
+        + Opt:Trace[semantic_source='j_disjoint.u', source_role=&Unionset, originators=('j_disjoint',), delivery=&FinalAggregates]
+        Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, !{RexType}, $2, $3, $4]
+            Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?, $3]
+              Project[$1, $0, $2, $3]
+                Project[true, $1, $0, 'eu']
+                  Read[warehouse.bal_eu => date:date?, balance:i64?]
+                    + Opt:Trace[semantic_source='j_disjoint.u.bal_eu', source_role=&Dataset, originators=('j_disjoint.u',), physical_source='bal_eu']
+        Project[$0, $1, $2]
+          Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, !{RexType}, $2, $3, $4]
+              Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?, $3]
+                Project[$1, $0, $2, $3]
+                  Project[true, $1, $0, 'us']
+                    Read[warehouse.bal_us => date:date?, balance:i64?]
+                      + Opt:Trace[semantic_source='j_disjoint.u.bal_us', source_role=&Dataset, originators=('j_disjoint.u',), physical_source='bal_us']
+
+equated_dates_month_grain:
+  # An inner join that equates two children's dates lets a later join hold the coarser grain they share.
+  model: models/marketing_composed_grain
+  request:
+    from: w7
+    select: [{dimension: date, granularity: month}, fiscal_month, impressions, target]
+  input_data:
+    warehouse.store:
+      - [2026-03-01, A, null, 5]
+  expect:
+    rows:
+      - [date, fiscal_month, impressions, target]
+      - [2026-03-01, FM03, 120, 150]
+      - [2026-04-01, FM04, 70, 100]
+      - [2026-03-01, null, 5, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  4: date_trunc
+
+    === Plan
+    Root[date, fiscal_month, impressions, target]
+      Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='w7', compositions=4, granularity_fit=&Requested, granularity=&Month]
+        Project[(date_trunc('month', $0):date?)::!date?, $1, $2, $3]
+          Project[$0, $1, $2, $3]
+            Set[&UnionAll => $0, $1, $2, $3]
+              + Opt:Trace[semantic_source='w7', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+                Project[$0, $1, $3, $5]
+                  Join[&Left, equal($2, $4):boolean? => $0, $1, $2, $3, $4, $5]
+                    + Opt:Trace[semantic_source='w7.jc', source_role=&Joinset, originators=('w7',), cardinality=&ManyToOne]
+                    Aggregate[$1, $2, $0 => $1, $2, $0, sum($3, overflow⇒[ERROR]):i64?]
+                      Project[$2, coalesce($0, $4):date?, $5, $3]
+                        Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4, $5]
+                          + Opt:Trace[semantic_source='w7.jc.clicks_to_views.views_to_calendar', source_role=&Joinset, originators=('w7.jc',), cardinality=&ManyToOne]
+                          Aggregate[$2, $1, $0 => $2, $1, $0, sum($3, overflow⇒[ERROR]):i64?]
+                            Project[$1, $2, coalesce($0, $2):date?, $4]
+                              Join[&Inner, and(equal($0, $2):boolean?, equal($1, $3):boolean?):boolean? => $0, $1, $2, $3, $4]
+                                + Opt:Trace[semantic_source='w7.jc.clicks_to_views', source_role=&Joinset, originators=('w7.jc',), cardinality=&OneToOne]
+                                Aggregate[$1, $0 => $1, $0]
+                                  Project[$1, $0]
+                                    Read[warehouse.ad_clicks => month_start:date?, campaign_id:string?]
+                                      + Opt:Trace[semantic_source='w7.jc.ad_clicks', source_role=&Dataset, originators=('w7.jc',), physical_source='ad_clicks']
+                                Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                                  Project[$2, $0, $1]
+                                    Read[warehouse.ad_views => month_start:date?, impressions:i64?, campaign_id:string?]
+                                      + Opt:Trace[semantic_source='w7.jc.ad_views', source_role=&Dataset, originators=('w7.jc',), physical_source='ad_views']
+                          Aggregate[$0, $1 => $0, $1]
+                            Project[$0, $1]
+                              Read[warehouse.calendar => month_start:date?, fiscal_month:string?]
+                                + Opt:Trace[semantic_source='w7.jc.calendar', source_role=&Dataset, originators=('w7.jc',), physical_source='calendar']
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$1, $0]
+                        Read[warehouse.targets => target:i64?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='w7.jc.targets', source_role=&Dataset, originators=('w7.jc',), physical_source='targets']
+              Project[$0, $1, $2, $3]
+                Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?, sum($4, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1, $3, $2, $4]
+                    Project[$0, null:string?, true, $1, null:i64?]
+                      Read[warehouse.store => month_start:date?, impressions:i64?]
+                        + Opt:Trace[semantic_source='w7.store', source_role=&Dataset, originators=('w7',), physical_source='store']
+
+year_coarser_than_month:
+  # Pruning the sibling operand reads a Grainset constituent that carries Month, bucketed up to the requested Year.
+  model: models/finance
+  request:
+    from: gb2
+    select: [{dimension: date, granularity: year}, account, balance]
+  expect:
+    rows:
+      - [date, account, balance]
+      - [2026-01-01, X, 130]
+      - [2026-01-01, Y, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, account, balance]
+      Aggregate[$4, $0 => $4, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='gb2', compositions=3, granularity_fit=&Requested, granularity=&Year]
+        + Opt:Trace[semantic_source='gb2', source_role=&Joinset, pruned=('gb2.accounts',)]
+        + Opt:Trace[semantic_source='gb2.gbal3', source_role=&Grainset, originators=('gb2',), answered_by='gb2.gbal3.u_bal']
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('year', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='gb2.gbal3.u_bal', source_role=&Unionset, originators=('gb2.gbal3',), delivery=&PartialAggregates]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1, $3]
+                    Project[$1, true, $2, $0]
+                      Read[warehouse.bal_eu => date:date?, account:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='gb2.gbal3.u_bal.bal_eu', source_role=&Dataset, originators=('gb2.gbal3.u_bal',), physical_source='bal_eu']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, $1, $3]
+                      Project[$1, true, $2, $0]
+                        Read[warehouse.bal_us => date:date?, account:string?, balance:i64?]
+                          + Opt:Trace[semantic_source='gb2.gbal3.u_bal.bal_us', source_role=&Dataset, originators=('gb2.gbal3.u_bal',), physical_source='bal_us']
+
+constituent_declares_own_year:
+  # A Grainset constituent's own declared grain is coarser than the branch it is nested beneath.
+  model: models/finance
+  request:
+    from: gb2
+    select: [{dimension: date, granularity: year}, region, balance]
+  expect:
+    rows:
+      - [date, region, balance]
+      - [2026-01-01, eu, 130]
+      - [2026-01-01, us, 210]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+      #  4 @  1: rank
+
+    === Plan
+    Root[date, region, balance]
+      Project[$1, $2, $0]
+        + Opt:Trace[scope_root='gb2', compositions=3, granularity_fit=&Requested, granularity=&Year]
+        Project[($2)::!i64?, $0, $1]
+          Aggregate[$3, $4 => $3, $4, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, !{RexType}, $1, $2, $3]
+              Project[$0, $1, (date_trunc('year', $2):date?)::!date?, $3]
+                Project[$2, $0, $0, $3]
+                  Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                    + Opt:Trace[semantic_source='gb2', source_role=&Joinset, cardinality=&ManyToOne]
+                    Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                      + Opt:Trace[semantic_source='gb2.gbal3', source_role=&Grainset, originators=('gb2',), answered_by='gb2.gbal3.u_bal']
+                      Project[$1, $2, $0]
+                        Set[&UnionAll => $0, $1, $2]
+                          + Opt:Trace[semantic_source='gb2.gbal3.u_bal', source_role=&Unionset, originators=('gb2.gbal3',), delivery=&PartialAggregates]
+                          Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                            Project[$0, $2, $1, $3]
+                              Project[$2, true, $1, $0]
+                                Read[warehouse.bal_eu => date:date?, balance:i64?, account:string?]
+                                  + Opt:Trace[semantic_source='gb2.gbal3.u_bal.bal_eu', source_role=&Dataset, originators=('gb2.gbal3.u_bal',), physical_source='bal_eu']
+                          Project[$0, $1, $2]
+                            Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                              Project[$0, $2, $1, $3]
+                                Project[$2, true, $1, $0]
+                                  Read[warehouse.bal_us => date:date?, balance:i64?, account:string?]
+                                    + Opt:Trace[semantic_source='gb2.gbal3.u_bal.bal_us', source_role=&Dataset, originators=('gb2.gbal3.u_bal',), physical_source='bal_us']
+                    Aggregate[$1, $0 => $1, $0]
+                      Project[$1, $0]
+                        Read[warehouse.accounts => region:string?, account:string?]
+                          + Opt:Trace[semantic_source='gb2.accounts', source_role=&Dataset, originators=('gb2',), physical_source='accounts']
+
+plain_sum_answers_alone:
+  # A plain sum over the coarsest child answers alone, with no marker involved.
+  model: models/finance
+  request:
+    from: gb2
+    select: [{dimension: date, granularity: year}, account, headcount]
+  expect:
+    rows:
+      - [date, account, headcount]
+      - [2026-01-01, X, 4]
+      - [2026-01-01, Y, 6]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, account, headcount]
+      Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='gb2', compositions=3, granularity_fit=&Requested, granularity=&Year]
+        + Opt:Trace[semantic_source='gb2', source_role=&Joinset, pruned=('gb2.accounts',)]
+        + Opt:Trace[semantic_source='gb2.gbal3', source_role=&Grainset, originators=('gb2',), answered_by='gb2.gbal3.bal_year']
+        Project[$0, (date_trunc('year', $1):date?)::!date?, $2]
+          Project[$1, $0, $2]
+            Read[warehouse.bal_year => date:date?, account:string?, headcount:i64?]
+              + Opt:Trace[semantic_source='gb2.gbal3.bal_year', source_role=&Dataset, originators=('gb2.gbal3',), physical_source='bal_year']
+
+strategy_before_constituent_pick:
+  # The semi-additive strategy runs before the Grainset constituent picks its answering child, so every child still counts.
+  model: models/marketing_composed_grain
+  request:
+    from: jg
+    select: [{dimension: date, granularity: month}, campaign_name, bal]
+  expect:
+    rows:
+      - [date, campaign_name, bal]
+      - [2026-03-01, alpha, 12]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+      #  4 @  1: rank
+
+    === Plan
+    Root[date, campaign_name, bal]
+      Project[$2, $1, $0]
+        + Opt:Trace[scope_root='jg', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        Project[($2)::!i64?, $1, $0]
+          Aggregate[$4, $2 => $4, $2, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, !{RexType}, $1, $2, $3]
+              Project[$0, $1, $2, (date_trunc('month', $3):date?)::!date?]
+                Project[$2, $3, $0, $0]
+                  Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                    + Opt:Trace[semantic_source='jg', source_role=&Joinset, cardinality=&ManyToOne]
+                    Aggregate[$2, $1 => $2, $1, sum($0, overflow⇒[ERROR]):i64?]
+                      + Opt:Trace[semantic_source='jg.g', source_role=&Grainset, originators=('jg',), answered_by='jg.g.g_day']
+                      Project[$1, $2, $0]
+                        Read[warehouse.g_day => day:date?, bal:i64?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='jg.g.g_day', source_role=&Dataset, originators=('jg.g',), physical_source='g_day']
+                    Aggregate[$1, $0 => $1, $0]
+                      Project[$1, $0]
+                        Read[warehouse.campaigns => campaign_name:string?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='jg.campaigns', source_role=&Dataset, originators=('jg',), physical_source='campaigns']
+
+target_once_per_bucket:
+  # A Measure with no time axis is read once for each group the bucket produces.
+  model: models/marketing_composed_grain
+  request:
+    from: jg
+    select: [{dimension: date, granularity: month}, campaign_id, impressions, target]
+  expect:
+    rows:
+      - [date, campaign_id, impressions, target]
+      - [2026-03-01, A, 90, 100]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: date_trunc
+      #  5 @  1: row_number
+
+    === Plan
+    Root[date, campaign_id, impressions, target]
+      Project[$1, $0, $2, $3]
+        + Opt:Trace[scope_root='jg', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        Project[$1, $0, ($2)::!i64?, $3]
+          Aggregate[$3, $0 => $3, $0, sum($4, overflow⇒[ERROR]):i64?, sum($5, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, $2, $3, $4, $5, !{RexType}]
+              Project[$0, $1, $2, (date_trunc('month', $3):date?)::!date?, $4, $5]
+                Project[coalesce($1, $3):string?, $3, $4, $0, $2, $5]
+                  Join[&Left, equal($1, $3):boolean? => $0, $1, $2, $3, $4, $5]
+                    + Opt:Trace[semantic_source='jg', source_role=&Joinset, cardinality=&ManyToOne]
+                    Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                      + Opt:Trace[semantic_source='jg.g', source_role=&Grainset, originators=('jg',), answered_by='jg.g.g_day']
+                      Project[$1, $0, $2]
+                        Read[warehouse.g_day => day:date?, campaign_id:string?, impressions:i64?]
+                          + Opt:Trace[semantic_source='jg.g.g_day', source_role=&Dataset, originators=('jg.g',), physical_source='g_day']
+                    Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                      Project[$0, $2, $1]
+                        Read[warehouse.campaigns => campaign_id:string?, target:i64?, campaign_name:string?]
+                          + Opt:Trace[semantic_source='jg.campaigns', source_role=&Dataset, originators=('jg',), physical_source='campaigns']
+
+picked_child_sets_axis:
+  # Whichever child the Grainset constituent picks sets the time axis that the branch above it holds.
+  model: models/marketing_composed_grain
+  request:
+    from: w4
+    select: [{dimension: date, granularity: month}, target]
+  input_data:
+    warehouse.campaigns:
+      - [A, null, 100]
+    warehouse.g_month:
+      - [2026-03-01, A, null, 30]
+  expect:
+    rows:
+      - [date, target]
+      - [2026-03-01, 100]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+
+    === Plan
+    Root[date, target]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='w4', compositions=3, granularity_fit=&Requested, granularity=&Month]
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='w4', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $3]
+                  Join[&Left, equal($1, $2):boolean? => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='w4.jg', source_role=&Joinset, originators=('w4',), cardinality=&ManyToOne]
+                    Aggregate[$1, $0 => $1, $0]
+                      + Opt:Trace[semantic_source='w4.jg.g', source_role=&Grainset, originators=('w4.jg',), answered_by='w4.jg.g.g_month']
+                      Project[$1, $0]
+                        Read[warehouse.g_month => month_start:date?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='w4.jg.g.g_month', source_role=&Dataset, originators=('w4.jg.g',), physical_source='g_month']
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$1, $0]
+                        Read[warehouse.campaigns => target:i64?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='w4.jg.campaigns', source_role=&Dataset, originators=('w4.jg',), physical_source='campaigns']
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1]
+                    Project[$0, null:i64?]
+                      Read[warehouse.store => month_start:date?]
+                        + Opt:Trace[semantic_source='w4.store', source_role=&Dataset, originators=('w4',), physical_source='store']
+
+sibling_branch_no_target:
+  # A sibling branch that maps no Measure contributes no value for it, not even NULL.
+  model: models/marketing_composed_grain
+  request:
+    from: w4
+    select: [{dimension: date, granularity: month}, campaign_id, target]
+  input_data:
+    warehouse.campaigns:
+      - [A, null, 100]
+    warehouse.g_month:
+      - [2026-03-01, A, null, 30]
+  expect:
+    rows:
+      - [date, campaign_id, target]
+      - [2026-03-01, A, 100]
+      - [2026-03-01, B, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: date_trunc
+
+    === Plan
+    Root[date, campaign_id, target]
+      Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='w4', compositions=3, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+          Project[$1, $0, $2]
+            Set[&UnionAll => $0, $1, $2]
+              + Opt:Trace[semantic_source='w4', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                Project[coalesce($1, $2):string?, $0, $3]
+                  Join[&Left, equal($1, $2):boolean? => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='w4.jg', source_role=&Joinset, originators=('w4',), cardinality=&ManyToOne]
+                    Aggregate[$1, $0 => $1, $0]
+                      + Opt:Trace[semantic_source='w4.jg.g', source_role=&Grainset, originators=('w4.jg',), answered_by='w4.jg.g.g_month']
+                      Project[$1, $0]
+                        Read[warehouse.g_month => month_start:date?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='w4.jg.g.g_month', source_role=&Dataset, originators=('w4.jg.g',), physical_source='g_month']
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$0, $1]
+                        Read[warehouse.campaigns => campaign_id:string?, target:i64?]
+                          + Opt:Trace[semantic_source='w4.jg.campaigns', source_role=&Dataset, originators=('w4.jg',), physical_source='campaigns']
+              Project[$0, $1, $2]
+                Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1, $2]
+                    Project[$1, $0, null:i64?]
+                      Read[warehouse.store => month_start:date?, campaign_id:string?]
+                        + Opt:Trace[semantic_source='w4.store', source_role=&Dataset, originators=('w4',), physical_source='store']
+
+plain_sum_unchanged:
+  # A plain sum over the nested composition's rows is unchanged by the re-aggregation.
+  model: models/marketing_composed_grain
+  request:
+    from: j4m
+    select: [{dimension: date, granularity: month}, cost]
+  expect:
+    rows:
+      - [date, cost]
+      - [2026-03-01, 17]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+
+    === Plan
+    Root[date, cost]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j4m', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j4m', source_role=&Joinset, pruned=('j4m.targets',)]
+        Project[$0, (date_trunc('month', $1):date?)::!date?]
+          Project[$1, $0]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='j4m.u', source_role=&Unionset, originators=('j4m',), delivery=&PartialAggregates]
+              Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                Project[$1, $0, $2]
+                  Project[true, $1, $0]
+                    Read[warehouse.spend_store_m => month_start:date?, cost:i64?]
+                      + Opt:Trace[semantic_source='j4m.u.spend_store_m', source_role=&Dataset, originators=('j4m.u',), physical_source='spend_store_m']
+              Project[$0, $1]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.spend_web => day:date?, cost:i64?]
+                        + Opt:Trace[semantic_source='j4m.u.spend_web', source_role=&Dataset, originators=('j4m.u',), physical_source='spend_web']
+
+day_values_single_target:
+  # A branch that holds day values still reads a once-per-group Measure a single time.
+  model: models/marketing_composed_grain
+  request:
+    from: j4m
+    select: [{dimension: date, granularity: month}, target]
+  expect:
+    rows:
+      - [date, target]
+      - [2026-03-01, 150]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+      #  4 @  1: row_number
+
+    === Plan
+    Root[date, target]
+      Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j4m', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, $1, $2, !{RexType}]
+          Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+            Project[$2, $0, $3]
+              Join[&Left, equal($1, $2):boolean? => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='j4m', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Set[&UnionAll => $0, $1]
+                      + Opt:Trace[semantic_source='j4m.u', source_role=&Unionset, originators=('j4m',), delivery=&PartialAggregates]
+                      Aggregate[$1, $0 => $1, $0]
+                        Project[$0, $1]
+                          Project[$1, $0]
+                            Read[warehouse.spend_store_m => month_start:date?, campaign_id:string?]
+                              + Opt:Trace[semantic_source='j4m.u.spend_store_m', source_role=&Dataset, originators=('j4m.u',), physical_source='spend_store_m']
+                      Project[$0, $1]
+                        Aggregate[$1, $0 => $1, $0]
+                          Project[$0, $1]
+                            Project[$1, $0]
+                              Read[warehouse.spend_web => day:date?, campaign_id:string?]
+                                + Opt:Trace[semantic_source='j4m.u.spend_web', source_role=&Dataset, originators=('j4m.u',), physical_source='spend_web']
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0]
+                    Read[warehouse.targets => target:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='j4m.targets', source_role=&Dataset, originators=('j4m',), physical_source='targets']
+
+one_target_per_group:
+  # A Measure with no time axis reads one value for each campaign and bucket.
+  model: models/marketing_composed_grain
+  request:
+    from: j4m
+    select: [{dimension: date, granularity: month}, campaign_id, target]
+  expect:
+    rows:
+      - [date, campaign_id, target]
+      - [2026-03-01, A, 100]
+      - [2026-03-01, B, 50]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: date_trunc
+      #  5 @  1: row_number
+
+    === Plan
+    Root[date, campaign_id, target]
+      Aggregate[$2, $0 => $2, $0, sum($3, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='j4m', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, $1, $2, $3, !{RexType}]
+          Project[$0, $1, (date_trunc('month', $2):date?)::!date?, $3]
+            Project[coalesce($1, $2):string?, $2, $0, $3]
+              Join[&Left, equal($1, $2):boolean? => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='j4m', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Set[&UnionAll => $0, $1]
+                      + Opt:Trace[semantic_source='j4m.u', source_role=&Unionset, originators=('j4m',), delivery=&PartialAggregates]
+                      Aggregate[$1, $0 => $1, $0]
+                        Project[$0, $1]
+                          Project[$1, $0]
+                            Read[warehouse.spend_store_m => month_start:date?, campaign_id:string?]
+                              + Opt:Trace[semantic_source='j4m.u.spend_store_m', source_role=&Dataset, originators=('j4m.u',), physical_source='spend_store_m']
+                      Project[$0, $1]
+                        Aggregate[$1, $0 => $1, $0]
+                          Project[$0, $1]
+                            Project[$1, $0]
+                              Read[warehouse.spend_web => day:date?, campaign_id:string?]
+                                + Opt:Trace[semantic_source='j4m.u.spend_web', source_role=&Dataset, originators=('j4m.u',), physical_source='spend_web']
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1]
+                    Read[warehouse.targets => campaign_id:string?, target:i64?]
+                      + Opt:Trace[semantic_source='j4m.targets', source_role=&Dataset, originators=('j4m',), physical_source='targets']
+
+left_operand_sets_month:
+  # The left operand of a nested join answers at Month alone, so a once-per-group Measure is read once.
+  model: models/marketing_composed_grain
+  request:
+    from: w6
+    select: [{dimension: date, granularity: month}, target]
+  input_data:
+    warehouse.store:
+      - [2026-03-01, A, 30, null]
+  expect:
+    rows:
+      - [date, target]
+      - [2026-03-01, 150]
+      - [2026-04-01, 100]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+
+    === Plan
+    Root[date, target]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='w6', compositions=3, granularity_fit=&Requested, granularity=&Month]
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='w6', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $3]
+                  Join[&Left, equal($1, $2):boolean? => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='w6.jp', source_role=&Joinset, originators=('w6',), cardinality=&ManyToOne]
+                    Aggregate[$1, $0 => $1, $0]
+                      + Opt:Trace[semantic_source='w6.jp.spend_to_views', source_role=&Joinset, originators=('w6.jp',), pruned=('w6.jp.day_views',)]
+                      Project[$1, $0]
+                        Read[warehouse.month_spend => month_start:date?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='w6.jp.month_spend', source_role=&Dataset, originators=('w6.jp',), physical_source='month_spend']
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$1, $0]
+                        Read[warehouse.targets => target:i64?, campaign_id:string?]
+                          + Opt:Trace[semantic_source='w6.jp.targets', source_role=&Dataset, originators=('w6.jp',), physical_source='targets']
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1]
+                    Project[$0, null:i64?]
+                      Read[warehouse.store => month_start:date?]
+                        + Opt:Trace[semantic_source='w6.store', source_role=&Dataset, originators=('w6',), physical_source='store']
+
+coalesced_date_no_day_axis:
+  # A three-way join's Coalesced date takes one operand's value, so the composition does not hold the Day grain.
+  model: models/marketing_own_grain
+  request:
+    from: abc
+    select: [{dimension: date, granularity: day}, account, fiscal_week, avg_cpc, cost]
+  expect:
+    rows:
+      - [date, account, fiscal_week, avg_cpc, cost]
+      - [2026-03-01, X, W11, 3.0, 6.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: coalesce
+      #  3 @  2: date_trunc
+      #  4 @  3: avg
+      #  5 @  3: sum
+
+    === Plan
+    Root[date, account, fiscal_week, avg_cpc, cost]
+      Aggregate[$3, $0, $4 => $3, $0, $4, avg($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='abc', compositions=2, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, $2, (date_trunc('day', $3):date?)::!date?, $4]
+          Project[$0, $1, $2, coalesce($4, $5):date?, $6]
+            Join[&Inner, equal($3, $5):boolean? => $0, $1, $2, $3, $4, $5, $6]
+              + Opt:Trace[semantic_source='abc', source_role=&Joinset, cardinality=&ManyToOne]
+              Project[coalesce($0, $2):string?, $3, $4, $5, coalesce($1, $5):date?]
+                Join[&Left, equal($0, $2):boolean? => $0, $1, $2, $3, $4, $5]
+                  + Opt:Trace[semantic_source='abc.a_to_b', source_role=&Joinset, originators=('abc',), cardinality=&OneToMany]
+                  Project[$1, $0]
+                    Read[warehouse.a_raw => opened:date?, account:string?]
+                      + Opt:Trace[semantic_source='abc.a_raw', source_role=&Dataset, originators=('abc',), physical_source='a_raw']
+                  Project[$1, $2, $2, $0]
+                    Read[warehouse.b_daily => date:date?, account:string?, cpc:fp64?]
+                      + Opt:Trace[semantic_source='abc.b_daily', source_role=&Dataset, originators=('abc',), physical_source='b_daily']
+              Aggregate[$0, $1 => $0, $1]
+                Project[$0, $1]
+                  Read[warehouse.c_calendar => date:date?, fiscal_week:string?]
+                    + Opt:Trace[semantic_source='abc.c_calendar', source_role=&Dataset, originators=('abc',), physical_source='c_calendar']
+
+root_union_derives_day:
+  # A root Unionset whose branch declares no granularity derives the finer sibling's own Day grain.
+  model: models/marketing_own_shape
+  request:
+    from: u_snap_src
+    select: [{dimension: date, granularity: day}, campaign_id, balance]
+  expect:
+    rows:
+      - [date, campaign_id, balance]
+      - ["2026-03-10 00:00:00", A, 80]
+      - ["2026-03-10 00:00:00", B, 50]
+      - ["2026-03-11 00:00:00", A, 70]
+      - ["2026-03-11 00:00:00", B, 40]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: arrow_cast
+      #  3 @  2: date_trunc
+      #  4 @  2: to_local_time
+      #  5 @  1: rank
+      #  6 @  3: equal
+
+    === Plan
+    Root[date, campaign_id, balance]
+      Aggregate[$4, $2 => $4, $2, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='u_snap_src', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2, $3]
+          Project[$0, $1, $2, to_local_time(date_trunc('day', arrow_cast(($2)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>]
+            Project[$2, $1, $0]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='u_snap_src', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2, $3]
+                    Project[true, $2, $1, $0]
+                      Read[warehouse.snap_daily => ts:precisiontimestamp?<6>, campaign_id:string?, balance:i64?]
+                        + Opt:Trace[semantic_source='u_snap_src.snap_daily', source_role=&Dataset, originators=('u_snap_src',), physical_source='snap_daily']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2, $3]
+                      Project[true, $2, $1, $0]
+                        Read[warehouse.snap_raw => ts:precisiontimestamp?<6>, campaign_id:string?, balance:i64?]
+                          + Opt:Trace[semantic_source='u_snap_src.snap_raw', source_role=&Dataset, originators=('u_snap_src',), physical_source='snap_raw']
+
+disjoint_branches_own_markers:
+  # Disjoint Unionset branches each finish their own aggregate under their own marker, inside the union's frame.
+  model: models/marketing_own_shape
+  request:
+    from: u_snap_src
+    select: [{dimension: date, granularity: day}, src, balance]
+  expect:
+    rows:
+      - [date, src, balance]
+      - ["2026-03-10 00:00:00", raw, 80]
+      - ["2026-03-10 00:00:00", daily, 50]
+      - ["2026-03-11 00:00:00", raw, 70]
+      - ["2026-03-11 00:00:00", daily, 40]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+      #  4 @  2: rank
+      #  5 @  2: sum
+      #  6 @  3: equal
+      #  7 @  4: and
+
+    === Plan
+    Root[date, src, balance]
+      Set[&UnionAll => $0, $1, $2]
+        + Opt:Trace[scope_root='u_snap_src', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='u_snap_src', source_role=&Unionset, delivery=&FinalAggregates]
+        Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, !{RexType}, $2, $3, $4]
+            Project[$0, $1, $2, to_local_time(date_trunc('day', arrow_cast(($2)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>, $3]
+              Project[$1, $0, $2, $3]
+                Project[true, $1, $0, 'daily']
+                  Read[warehouse.snap_daily => ts:precisiontimestamp?<6>, balance:i64?]
+                    + Opt:Trace[semantic_source='u_snap_src.snap_daily', source_role=&Dataset, originators=('u_snap_src',), physical_source='snap_daily']
+        Project[$0, $1, $2]
+          Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, !{RexType}, $2, $3, $4]
+              Project[$0, $1, $2, to_local_time(date_trunc('day', arrow_cast(($2)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>, $3]
+                Project[$1, $0, $2, $3]
+                  Project[true, $1, $0, 'raw']
+                    Read[warehouse.snap_raw => ts:precisiontimestamp?<6>, balance:i64?]
+                      + Opt:Trace[semantic_source='u_snap_src.snap_raw', source_role=&Dataset, originators=('u_snap_src',), physical_source='snap_raw']
+
+no_partition_latest_instant:
+  # With no partition beside the day, the latest instant of the day answers, and the earlier row's value is dropped.
+  model: models/marketing_own_shape
+  request:
+    from: u_snap_src
+    select: [{dimension: date, granularity: day}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - ["2026-03-10 00:00:00", 80]
+      - ["2026-03-11 00:00:00", 70]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: arrow_cast
+      #  3 @  2: date_trunc
+      #  4 @  2: to_local_time
+      #  5 @  1: rank
+      #  6 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='u_snap_src', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, to_local_time(date_trunc('day', arrow_cast(($1)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='u_snap_src', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.snap_daily => ts:precisiontimestamp?<6>, balance:i64?]
+                        + Opt:Trace[semantic_source='u_snap_src.snap_daily', source_role=&Dataset, originators=('u_snap_src',), physical_source='snap_daily']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2]
+                      Project[true, $1, $0]
+                        Read[warehouse.snap_raw => ts:precisiontimestamp?<6>, balance:i64?]
+                          + Opt:Trace[semantic_source='u_snap_src.snap_raw', source_role=&Dataset, originators=('u_snap_src',), physical_source='snap_raw']

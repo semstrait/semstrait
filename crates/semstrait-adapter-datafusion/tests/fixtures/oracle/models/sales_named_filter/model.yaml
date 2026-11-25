@@ -1,0 +1,84 @@
+# Grainsets of sales over a Day child and a Month child (sales, whose children both map channel, with named filters on channel; sales_partial, whose Month child maps no channel), and a Unionset of a sales Grainset and a Day Dataset, with a web filter on the Unionset.
+semantic_model:
+  name: sales_named_filter
+  dimensions:
+    - name: ordered_at
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: channel, data_type: string, type: categorical}
+  measures:
+    - {name: revenue, data_type: bigint, agg: sum}
+  grainsets:
+    - name: sales
+      dimensions:
+        - {ref: ordered_at, is_key: true}
+        - {ref: channel, is_key: true}
+      measures: [{ref: revenue}]
+      filters:
+        - {name: web, expr: {eq: [channel, {lit: web}]}}
+        - {name: tv, expr: {eq: [channel, {lit: tv}]}}
+        - {name: not_app, expr: {not: {eq: [channel, {lit: app}]}}}
+        - {name: known, expr: {or: [web, {eq: [channel, {lit: app}]}]}}
+      datasets:
+        - name: d
+          extras:
+            storage: {tables: [warehouse.d]}
+            semantic_mapping: {ordered_at: day, channel: channel, revenue: amount}
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: day}
+        - name: m
+          extras:
+            storage: {tables: [warehouse.m]}
+            semantic_mapping: {ordered_at: month_start, channel: channel, revenue: amount}
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}
+    - name: sales_partial
+      dimensions:
+        - {ref: ordered_at, is_key: true}
+        - {ref: channel}
+      measures: [{ref: revenue}]
+      filters:
+        - {name: web, expr: {eq: [channel, {lit: web}]}}
+      datasets:
+        - name: d
+          extras:
+            storage: {tables: [warehouse.d]}
+            semantic_mapping: {ordered_at: day, channel: channel, revenue: amount}
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: day}
+        - name: m
+          extras:
+            storage: {tables: [warehouse.m]}
+            semantic_mapping: {ordered_at: month_start, revenue: amount}
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}
+  unionsets:
+    - name: all_sales
+      mode: all
+      dimensions: [{ref: ordered_at}, {ref: channel}]
+      measures: [{ref: revenue}]
+      filters:
+        - {name: web, expr: {eq: [channel, {lit: web}]}}
+      datasets:
+        - name: x
+          extras:
+            storage: {tables: [warehouse.x]}
+            semantic_mapping: {ordered_at: day, channel: channel, revenue: amount}
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: day}
+      grainsets:
+        - name: sales
+          dimensions:
+            - {ref: ordered_at, is_key: true}
+            - {ref: channel, is_key: true}
+          measures: [{ref: revenue}]
+          extras:
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}
+          datasets:
+            - name: d
+              extras:
+                storage: {tables: [warehouse.d]}
+                semantic_mapping: {ordered_at: day, channel: channel, revenue: amount}
+                temporal: {timeseries: {occurred_at: ordered_at}, granularity: day}
+            - name: m
+              extras:
+                storage: {tables: [warehouse.m]}
+                semantic_mapping: {ordered_at: month_start, channel: channel, revenue: amount}
+                temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}

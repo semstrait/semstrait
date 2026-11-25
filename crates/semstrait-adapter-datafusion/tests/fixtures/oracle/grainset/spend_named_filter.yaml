@@ -1,0 +1,2380 @@
+# A named filter on a Grainset goes into each chosen child of a drill-across and into the one child that answers alone.
+
+drill_across_web:
+  # No child holds both measures, so each chosen child reads its own web filter.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, campaign, clicks, budget]
+    filters: [web]
+  expect:
+    rows:
+      - [date, campaign, clicks, budget]
+      - [2026-03-01, A, 10, 100]
+      - [2026-03-01, B, 40, 50]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+
+    === Plan
+    Root[date, campaign, clicks, budget]
+      Project[$3, $1, $2, $0]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, coalesce($1, $3):string?, $4, coalesce($2, $5):date?]
+          Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+            Project[$2, $1, $0]
+              Aggregate[$2, $1 => $2, $1, sum($0, overflow⇒[ERROR]):i64?]
+                Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+                  Filter[$3 => $0, $1, $2, $3]
+                    Project[$2, $1, $0, equal($3, 'web'):boolean?]
+                      Read[warehouse.spend_monthly => month_start:date?, campaign:string?, budget:i64?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+            Project[$1, $2, $0]
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+                  Filter[$3 => $0, $1, $2, $3]
+                    Project[$1, $2, $0, equal($3, 'web'):boolean?]
+                      Read[warehouse.spend_daily => day:date?, campaign:string?, clicks:i64?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+budget_web:
+  # The Month child holds the one measure, answers alone and reads its own web filter.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, campaign, budget]
+    filters: [web]
+  expect:
+    rows:
+      - [date, campaign, budget]
+      - [2026-03-01, A, 100]
+      - [2026-03-01, B, 50]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+
+    === Plan
+    Root[date, campaign, budget]
+      Aggregate[$2, $1 => $2, $1, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='spend', source_role=&Grainset, answered_by='spend.spend_monthly']
+        Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+          Filter[$3 => $0, $1, $2, $3]
+            Project[$2, $1, $0, equal($3, 'web'):boolean?]
+              Read[warehouse.spend_monthly => month_start:date?, campaign:string?, budget:i64?, channel:string?]
+                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+
+web_cpc2_at_month:
+  # web_budget is the Month child's own filtered Metric, so its channel filter stays in that child's aggregate: 60 / 30 = 2.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, web_cpc2]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-10, A, web, 10, u1]
+      - [2026-03-15, A, app, 20, u2]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 60]
+      - [2026-03-01, A, app, 40]
+  expect:
+    rows:
+      - [date, web_cpc2]
+      - [2026-03-01, 2.0]
+  sql: SELECT coalesce(m.date, d.date) AS date, CAST(m.web_budget AS DOUBLE) / d.clicks AS web_cpc2 FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, sum(budget) FILTER (WHERE channel = 'web') AS web_budget FROM warehouse.spend_monthly GROUP BY 1) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1) d ON m.date IS NOT DISTINCT FROM d.date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  1: coalesce
+      #  6 @  3: divide
+
+    === Plan
+    Root[date, web_cpc2]
+      Project[$1, divide(($2)::!fp64?, ($0)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Project[$2, coalesce($0, $3):date?, $1]
+          Join[&Outer, is_not_distinct_from($0, $3):boolean => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[(date_trunc('month', $0):date?)::!date?, $1, $2]
+                Project[$0, $1, equal($2, 'web'):boolean?]
+                  Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?]
+                    + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+            Project[$1, $0]
+              Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                Project[$0, (date_trunc('month', $1):date?)::!date?]
+                  Project[$1, $0]
+                    Read[warehouse.spend_daily => day:date?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_cpc_with_its_own_filter:
+  # The Metric's own channel filter conditions both Measures it reads, each in the child that serves it: 60 / 10 = 6, where the filter on budget alone gives 2.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, campaign, web_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-10, A, web, 10, u1]
+      - [2026-03-15, A, app, 20, u2]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 60]
+      - [2026-03-01, A, app, 40]
+  expect:
+    rows:
+      - [date, campaign, web_cpc]
+      - [2026-03-01, A, 6.0]
+  sql: SELECT coalesce(m.date, d.date) AS date, coalesce(m.campaign, d.campaign) AS campaign, CAST(m.budget AS DOUBLE) / d.clicks AS web_cpc FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, campaign, sum(budget) FILTER (WHERE channel = 'web') AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS date, campaign, sum(clicks) FILTER (WHERE channel = 'web') AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON (m.date IS NOT DISTINCT FROM d.date) AND (m.campaign IS NOT DISTINCT FROM d.campaign)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+      #  7 @  3: divide
+
+    === Plan
+    Root[date, campaign, web_cpc]
+      Project[$3, $1, divide(($0)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, coalesce($1, $3):string?, $4, coalesce($2, $5):date?]
+          Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+            Project[$0, $1, $2]
+              Project[$2, $1, $0]
+                Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1, $2, (date_trunc('month', $4):date?)::!date?]
+                    Project[$2, equal($3, 'web'):boolean?, $1, $3, $0]
+                      Read[warehouse.spend_monthly => month_start:date?, campaign:string?, budget:i64?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+            Project[$0, $1, $2]
+              Project[$1, $2, $0]
+                Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $3, (date_trunc('month', $4):date?)::!date?]
+                    Project[$1, $3, $2, equal($3, 'web'):boolean?, $0]
+                      Read[warehouse.spend_daily => day:date?, campaign:string?, clicks:i64?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+distinct_users_under_the_metrics_own_filter:
+  # users is 3 in the child (u1, u2, u3) under channel in (web, app), where a filter after the join (per channel, then summed) would give 2 + 2 = 4; the Metric divides it by the Month child's budget under the same filter, 3 / 6 = 0.5.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, campaign, users_per_budget]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 1, u1]
+      - [2026-03-02, A, web, 1, u2]
+      - [2026-03-03, A, app, 1, u2]
+      - [2026-03-04, A, app, 1, u3]
+      - [2026-03-05, A, tv, 1, u4]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 3]
+      - [2026-03-01, A, app, 3]
+      - [2026-03-01, A, tv, 100]
+  expect:
+    rows:
+      - [date, campaign, users_per_budget]
+      - [2026-03-01, A, 0.5]
+  sql: SELECT coalesce(d.date, m.date) AS date, coalesce(d.campaign, m.campaign) AS campaign, CAST(d.users AS DOUBLE) / m.budget AS users_per_budget FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS date, campaign, count(DISTINCT user_id) FILTER (WHERE channel IN ('web', 'app')) AS users FROM warehouse.spend_daily GROUP BY 1, 2) d FULL JOIN (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, campaign, sum(budget) FILTER (WHERE channel IN ('web', 'app')) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m ON (d.date IS NOT DISTINCT FROM m.date) AND (d.campaign IS NOT DISTINCT FROM m.campaign)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_aggregate_generic
+      @  4: extension:io.substrait:functions_comparison
+      @  5: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+      #  3 @  3: count
+      #  4 @  4: is_not_distinct_from
+      #  5 @  5: and
+      #  6 @  4: coalesce
+      #  7 @  2: divide
+
+    === Plan
+    Root[date, campaign, users_per_budget]
+      Project[$2, $1, divide(($3)::!fp64?, ($0)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Project[$0, coalesce($1, $3):string?, coalesce($2, $4):date?, $5]
+          Join[&Outer, and(is_not_distinct_from($2, $4):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+            Project[$0, $1, $2]
+              Project[$2, $1, $0]
+                Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1, $2, (date_trunc('month', $4):date?)::!date?]
+                    Project[$2, !{RexType}, $1, $3, $0]
+                      Read[warehouse.spend_monthly => month_start:date?, campaign:string?, budget:i64?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+            Project[$0, $1, $2]
+              Project[$1, $0, $2]
+                Aggregate[$1, $0 => $1, $0, count($2, overflow⇒[ERROR]):i64]
+                  Project[$0, (date_trunc('month', $2):date?)::!date?, $3, $4]
+                    Project[$1, $3, $0, $2, !{RexType}]
+                      Read[warehouse.spend_daily => day:date?, campaign:string?, user_id:string?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_cpc2_under_the_named_filter:
+  # The named web filter goes into each child that answers, on top of web_budget's own filter: clicks 10 (web only), web_budget 60, so 60 / 10 = 6.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, web_cpc2]
+    filters: [web]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-10, A, web, 10, u1]
+      - [2026-03-15, A, app, 20, u2]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 60]
+      - [2026-03-01, A, app, 40]
+  expect:
+    rows:
+      - [date, web_cpc2]
+      - [2026-03-01, 6.0]
+  sql: SELECT coalesce(m.date, d.date) AS date, CAST(m.web_budget AS DOUBLE) / d.clicks AS web_cpc2 FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, sum(budget) FILTER (WHERE channel = 'web') AS web_budget FROM warehouse.spend_monthly WHERE channel = 'web' GROUP BY 1) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_daily WHERE channel = 'web' GROUP BY 1) d ON m.date IS NOT DISTINCT FROM d.date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  1: coalesce
+      #  6 @  3: divide
+
+    === Plan
+    Root[date, web_cpc2]
+      Project[$1, divide(($2)::!fp64?, ($0)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Project[$2, coalesce($0, $3):date?, $1]
+          Join[&Outer, is_not_distinct_from($0, $3):boolean => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[(date_trunc('month', $0):date?)::!date?, $2, $3]
+                Filter[$1 => $0, $1, $2, $3]
+                  Project[$0, equal($2, 'web'):boolean?, $1, equal($2, 'web'):boolean?]
+                    Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?]
+                      + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+            Project[$1, $0]
+              Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                Project[$0, (date_trunc('month', $1):date?)::!date?]
+                  Filter[$2 => $0, $1, $2]
+                    Project[$1, $0, equal($2, 'web'):boolean?]
+                      Read[warehouse.spend_daily => day:date?, clicks:i64?, channel:string?]
+                        + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+
+web_cpc_of_a_reads_a_metric_one_child_maps_whole:
+  # web_budget is the Month child's whole Metric (budget under channel = web); the Metric's own campaign filter joins it: web_budget under A is 60, clicks under A are 10 + 20, so 60 / 30 = 2.0, where no campaign filter gives 110 / 70.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, web_cpc_of_a]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-10, A, web, 10, u1]
+      - [2026-03-15, A, app, 20, u2]
+      - [2026-03-20, B, web, 40, u3]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 60]
+      - [2026-03-01, A, app, 40]
+      - [2026-03-01, B, web, 50]
+  expect:
+    rows:
+      - [date, web_cpc_of_a]
+      - [2026-03-01, 2.0]
+  sql: SELECT coalesce(m.date, d.date) AS date, CAST(m.web_budget AS DOUBLE) / d.clicks AS web_cpc_of_a FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, sum(budget) FILTER (WHERE channel = 'web' AND campaign = 'A') AS web_budget FROM warehouse.spend_monthly GROUP BY 1) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) FILTER (WHERE campaign = 'A') AS clicks FROM warehouse.spend_daily GROUP BY 1) d ON m.date IS NOT DISTINCT FROM d.date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:semstrait:datafusion
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: date_trunc
+      #  4 @  4: sum
+      #  5 @  1: is_not_distinct_from
+      #  6 @  1: coalesce
+      #  7 @  4: divide
+
+    === Plan
+    Root[date, web_cpc_of_a]
+      Project[$1, divide(($2)::!fp64?, ($0)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Project[$2, coalesce($0, $3):date?, $1]
+          Join[&Outer, is_not_distinct_from($0, $3):boolean => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+            Project[$0, $1]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[(date_trunc('month', $1):date?)::!date?, $2, $3]
+                  Project[$3, $0, $1, and(equal($2, 'web'):boolean?, equal($3, 'A'):boolean?):boolean?]
+                    Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?, campaign:string?]
+                      + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+            Project[$0, $1]
+              Project[$1, $0]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $2, (date_trunc('month', $3):date?)::!date?]
+                    Project[$2, $1, equal($2, 'A'):boolean?, $0]
+                      Read[warehouse.spend_daily => day:date?, clicks:i64?, campaign:string?]
+                        + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_only_cpc_on_a_dataset_sums_the_formula_over_the_channels_the_request_does_not_group_by:
+  # The CASE reads channel outside an aggregate and the request groups by month only, so the parts rule splits by the CASE parts and sums them: the web part is 150 / 50 = 3.0, and app and store share the ELSE part, which counts once as 0.5, so the month is 3.5 (summing per channel would give 4.0).
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, web_only_cpc]
+  expect:
+    rows:
+      - [date, web_only_cpc]
+      - [2026-03-01, 3.5]
+  sql: SELECT d AS date, sum(CASE WHEN is_web THEN CAST(budget AS DOUBLE) / clicks ELSE 0.5 END) AS web_only_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, channel = 'web' AS is_web, sum(budget) AS budget, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  3: divide
+
+    === Plan
+    Root[date, web_only_cpc]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, if_then(equal($1, 1):boolean -> divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> 0.5)]
+          Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+            Project[(date_trunc('month', $0):date?)::!date?, $1, $2, $3]
+              Project[$0, $2, $3, if_then(equal($1, 'web'):boolean? -> 1, _ -> 2)]
+                Read[warehouse.spend_flat => day:date?, channel:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_only_cpc_on_a_grainset_takes_the_parts_that_each_child_forms_on_its_own_rows:
+  # The Dataset twin above splits by the CASE parts. Each child forms the part key channel = 'web' on its own rows, the Month child too, and groups by month and the key; the children join Full on both: the web part is 150 / 50 = 3.0, and app with store share the ELSE part, which counts once as 0.5, so the month is 3.5 (summing per channel would give 4.0).
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, web_only_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 20, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 5, u3]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 30]
+      - [2026-03-01, B, web, 50]
+      - [2026-03-01, B, store, 20]
+  expect:
+    rows:
+      - [date, web_only_cpc]
+      - [2026-03-01, 3.5]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks ELSE 0.5 END) AS web_only_cpc FROM (SELECT coalesce(m.d, c.d) AS d, coalesce(m.k, c.k) AS k, m.budget, c.clicks FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) c ON m.d IS NOT DISTINCT FROM c.d AND m.k IS NOT DISTINCT FROM c.k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+      #  7 @  3: divide
+
+    === Plan
+    Root[date, web_only_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$3, if_then(equal($0, 1):boolean? -> divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> 0.5)]
+            Project[coalesce($0, $3):i64?, $1, $4, coalesce($2, $5):date?]
+              Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($0, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, (date_trunc('month', $3):date?)::!date?]
+                      Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $1, $2, $0]
+                        Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?]
+                          + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, (date_trunc('month', $3):date?)::!date?]
+                      Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $2, $1, $0]
+                        Read[warehouse.spend_daily => day:date?, clicks:i64?, channel:string?]
+                          + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+channel_mix_cpc_on_a_dataset_takes_three_parts_that_each_read_two_dimensions:
+  # Three WHENs each read campaign and channel. The parts are A web (100 / 10 = 10.0), app or B (100 / 64 * 2 = 3.125), A store (0.25) and the ELSE (A tv, 0.5): 13.875, where summing per campaign and channel would give 26.25.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, channel_mix_cpc]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+      - [2026-03-04, B, store, 4, 20, u3]
+      - [2026-03-05, A, store, 4, 8, u2]
+      - [2026-03-06, A, tv, 2, 2, u4]
+  expect:
+    rows:
+      - [date, channel_mix_cpc]
+      - [2026-03-01, 13.875]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks WHEN 2 THEN CAST(budget AS DOUBLE) / clicks * 2.0 WHEN 3 THEN 0.25 ELSE 0.5 END) AS channel_mix_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' AND campaign = 'A' THEN 1 WHEN channel = 'app' OR campaign = 'B' THEN 2 WHEN channel = 'store' AND campaign = 'A' THEN 3 ELSE 4 END AS k, sum(budget) AS budget, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:semstrait:datafusion
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  2: or
+      #  4 @  3: date_trunc
+      #  5 @  4: sum
+      #  6 @  4: divide
+      #  7 @  4: multiply
+
+    === Plan
+    Root[date, channel_mix_cpc]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[if_then(equal($1, 1):boolean -> divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, equal($1, 2):boolean -> multiply(divide(($4)::!fp64?, ($5)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, 2):fp64?, equal($1, 3):boolean -> 0.25, _ -> 0.5), $0]
+          Aggregate[$5, $4 => $5, $4, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, $2, $3, $4, (date_trunc('month', $5):date?)::!date?]
+              Project[$3, $4, $3, $4, if_then(and(equal($1, 'web'):boolean?, equal($2, 'A'):boolean?):boolean? -> 1, or(equal($1, 'app'):boolean?, equal($2, 'B'):boolean?):boolean? -> 2, and(equal($1, 'store'):boolean?, equal($2, 'A'):boolean?):boolean? -> 3, _ -> 4), $0]
+                Read[warehouse.spend_flat => day:date?, channel:string?, campaign:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+channel_mix_cpc_on_a_grainset_takes_the_same_three_parts:
+  # Each child forms the four-valued key on its own rows, the Month child from its campaign and channel; the Full join on month and the key gives the Dataset twin's 13.875.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, channel_mix_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 20, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 4, u3]
+      - [2026-03-05, A, store, 4, u2]
+      - [2026-03-06, A, tv, 2, u4]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 30]
+      - [2026-03-01, B, web, 50]
+      - [2026-03-01, B, store, 20]
+      - [2026-03-01, A, store, 8]
+      - [2026-03-01, A, tv, 2]
+  expect:
+    rows:
+      - [date, channel_mix_cpc]
+      - [2026-03-01, 13.875]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks WHEN 2 THEN CAST(budget AS DOUBLE) / clicks * 2.0 WHEN 3 THEN 0.25 ELSE 0.5 END) AS channel_mix_cpc FROM (SELECT coalesce(m.d, c.d) AS d, coalesce(m.k, c.k) AS k, m.budget, c.clicks FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS d, CASE WHEN channel = 'web' AND campaign = 'A' THEN 1 WHEN channel = 'app' OR campaign = 'B' THEN 2 WHEN channel = 'store' AND campaign = 'A' THEN 3 ELSE 4 END AS k, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' AND campaign = 'A' THEN 1 WHEN channel = 'app' OR campaign = 'B' THEN 2 WHEN channel = 'store' AND campaign = 'A' THEN 3 ELSE 4 END AS k, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) c ON m.d IS NOT DISTINCT FROM c.d AND m.k IS NOT DISTINCT FROM c.k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:semstrait:datafusion
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  2: or
+      #  4 @  3: date_trunc
+      #  5 @  4: sum
+      #  6 @  1: is_not_distinct_from
+      #  7 @  1: coalesce
+      #  8 @  4: divide
+      #  9 @  4: multiply
+
+    === Plan
+    Root[date, channel_mix_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$3, if_then(equal($0, 1):boolean? -> divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, equal($0, 2):boolean? -> multiply(divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, 2):fp64?, equal($0, 3):boolean? -> 0.25, _ -> 0.5)]
+            Project[coalesce($0, $3):i64?, $1, $4, coalesce($2, $5):date?]
+              Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($0, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, (date_trunc('month', $4):date?)::!date?]
+                      Project[if_then(and(equal($2, 'web'):boolean?, equal($3, 'A'):boolean?):boolean? -> 1, or(equal($2, 'app'):boolean?, equal($3, 'B'):boolean?):boolean? -> 2, and(equal($2, 'store'):boolean?, equal($3, 'A'):boolean?):boolean? -> 3, _ -> 4), $1, $3, $2, $0]
+                        Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?, campaign:string?]
+                          + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $3, (date_trunc('month', $4):date?)::!date?]
+                      Project[if_then(and(equal($2, 'web'):boolean?, equal($3, 'A'):boolean?):boolean? -> 1, or(equal($2, 'app'):boolean?, equal($3, 'B'):boolean?):boolean? -> 2, and(equal($2, 'store'):boolean?, equal($3, 'A'):boolean?):boolean? -> 3, _ -> 4), $3, $2, $1, $0]
+                        Read[warehouse.spend_daily => day:date?, clicks:i64?, channel:string?, campaign:string?]
+                          + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+nested_cpc_on_a_dataset_takes_a_key_column_for_each_case:
+  # The outer CASE splits by the row-level Metric channel_label, read as a Dimension, and the inner ones by campaign: A web 100 / 10 = 10.0, B web 50 / 40 * 3 = 3.75, B store 0.5, and A app, A store, A tv share 0.25: 14.5, where summing per campaign and channel would give 15.0.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, nested_cpc]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+      - [2026-03-04, B, store, 4, 20, u3]
+      - [2026-03-05, A, store, 4, 8, u2]
+      - [2026-03-06, A, tv, 2, 2, u4]
+  expect:
+    rows:
+      - [date, nested_cpc]
+      - [2026-03-01, 14.5]
+  sql: SELECT d AS date, sum(CASE WHEN k1 = 1 THEN (CASE WHEN k2 = 1 THEN CAST(budget AS DOUBLE) / clicks ELSE CAST(budget AS DOUBLE) / clicks * 3.0 END) ELSE (CASE WHEN k3 = 1 THEN 0.5 ELSE 0.25 END) END) AS nested_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN (CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB' THEN 1 ELSE 2 END AS k1, CASE WHEN (CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB' THEN (CASE WHEN campaign = 'A' THEN 1 ELSE 2 END) END AS k2, CASE WHEN NOT coalesce((CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB', false) THEN (CASE WHEN campaign = 'B' THEN 1 ELSE 2 END) END AS k3, sum(budget) AS budget, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1, 2, 3, 4) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  3: divide
+      #  5 @  3: multiply
+
+    === Plan
+    Root[date, nested_cpc]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, if_then(equal($1, 1):boolean -> if_then(equal($2, 1):boolean? -> divide(($4)::!fp64?, ($5)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> multiply(divide(($6)::!fp64?, ($7)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, 3):fp64?), _ -> if_then(equal($3, 1):boolean? -> 0.5, _ -> 0.25))]
+          Aggregate[$0, $5, $6, $7 => $0, $5, $6, $7, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?, sum($4, overflow⇒[ERROR]):i64?]
+            Project[(date_trunc('month', $0):date?)::!date?, $1, $2, $3, $4, $5, $6, $7]
+              Project[$0, $3, $4, $3, $4, if_then(equal(if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), if_then(equal(if_then(equal(if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), 1):boolean -> if_then(equal($2, 'A'):boolean? -> 1, _ -> 2), _ -> !{Expression}), if_then(equal(if_then(equal(if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), 2):boolean -> if_then(equal($2, 'B'):boolean? -> 1, _ -> 2), _ -> !{Expression})]
+                Read[warehouse.spend_flat => day:date?, channel:string?, campaign:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+nested_cpc_on_a_grainset_takes_the_same_key_columns_in_each_child:
+  # Each child forms the three key columns on its own rows, channel_label from its own channel, and the children join Full on month and all three: the Dataset twin's 14.5.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, nested_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 20, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 4, u3]
+      - [2026-03-05, A, store, 4, u2]
+      - [2026-03-06, A, tv, 2, u4]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 30]
+      - [2026-03-01, B, web, 50]
+      - [2026-03-01, B, store, 20]
+      - [2026-03-01, A, store, 8]
+      - [2026-03-01, A, tv, 2]
+  expect:
+    rows:
+      - [date, nested_cpc]
+      - [2026-03-01, 14.5]
+  sql: SELECT d AS date, sum(CASE WHEN k1 = 1 THEN (CASE WHEN k2 = 1 THEN CAST(budget AS DOUBLE) / clicks ELSE CAST(budget AS DOUBLE) / clicks * 3.0 END) ELSE (CASE WHEN k3 = 1 THEN 0.5 ELSE 0.25 END) END) AS nested_cpc FROM (SELECT coalesce(m.d, c.d) AS d, coalesce(m.k1, c.k1) AS k1, coalesce(m.k2, c.k2) AS k2, coalesce(m.k3, c.k3) AS k3, m.budget, c.clicks FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS d, CASE WHEN (CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB' THEN 1 ELSE 2 END AS k1, CASE WHEN (CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB' THEN (CASE WHEN campaign = 'A' THEN 1 ELSE 2 END) END AS k2, CASE WHEN NOT coalesce((CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB', false) THEN (CASE WHEN campaign = 'B' THEN 1 ELSE 2 END) END AS k3, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2, 3, 4) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN (CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB' THEN 1 ELSE 2 END AS k1, CASE WHEN (CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB' THEN (CASE WHEN campaign = 'A' THEN 1 ELSE 2 END) END AS k2, CASE WHEN NOT coalesce((CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END) = 'WEB', false) THEN (CASE WHEN campaign = 'B' THEN 1 ELSE 2 END) END AS k3, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2, 3, 4) c ON m.d IS NOT DISTINCT FROM c.d AND m.k1 IS NOT DISTINCT FROM c.k1 AND m.k2 IS NOT DISTINCT FROM c.k2 AND m.k3 IS NOT DISTINCT FROM c.k3) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+      #  7 @  3: divide
+      #  8 @  3: multiply
+
+    === Plan
+    Root[date, nested_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$5, if_then(equal($0, 1):boolean? -> if_then(equal($1, 1):boolean? -> divide(($3)::!fp64?, ($4)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> multiply(divide(($3)::!fp64?, ($4)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, 3):fp64?), _ -> if_then(equal($2, 1):boolean? -> 0.5, _ -> 0.25))]
+            Project[coalesce($0, $5):i64?, coalesce($1, $6):i64?, coalesce($2, $7):i64?, $3, $8, coalesce($4, $9):date?]
+              Join[&Outer, and(and(and(is_not_distinct_from($4, $9):boolean, is_not_distinct_from($0, $5):boolean):boolean, is_not_distinct_from($1, $6):boolean):boolean, is_not_distinct_from($2, $7):boolean):boolean => $0, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+                + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                Project[$1, $2, $3, $4, $0]
+                  Aggregate[$4, $0, $1, $2 => $4, $0, $1, $2, sum($3, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, $2, $3, (date_trunc('month', $6):date?)::!date?]
+                      Project[if_then(equal(if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), if_then(equal(if_then(equal(if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), 1):boolean -> if_then(equal($3, 'A'):boolean? -> 1, _ -> 2), _ -> !{Expression}), if_then(equal(if_then(equal(if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), 2):boolean -> if_then(equal($3, 'B'):boolean? -> 1, _ -> 2), _ -> !{Expression}), $1, $3, if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $0]
+                        Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?, campaign:string?]
+                          + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                Project[$1, $2, $3, $4, $0]
+                  Aggregate[$4, $0, $1, $2 => $4, $0, $1, $2, sum($3, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, $2, $5, (date_trunc('month', $6):date?)::!date?]
+                      Project[if_then(equal(if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), if_then(equal(if_then(equal(if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), 1):boolean -> if_then(equal($3, 'A'):boolean? -> 1, _ -> 2), _ -> !{Expression}), if_then(equal(if_then(equal(if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), 'WEB'):boolean -> 1, _ -> 2), 2):boolean -> if_then(equal($3, 'B'):boolean? -> 1, _ -> 2), _ -> !{Expression}), $3, if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $1, $0]
+                        Read[warehouse.spend_daily => day:date?, clicks:i64?, channel:string?, campaign:string?]
+                          + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_cpc_or_users_on_a_dataset_counts_distinct_users_per_part:
+  # The web part is 150 / 50 = 3.0; the ELSE part counts the distinct users of app, store and tv once: u2, u3 and u4 are 3, where counting per campaign and channel would give 4 (u2 is in A app and A store). The month is 6.0.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, web_cpc_or_users]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+      - [2026-03-04, B, store, 4, 20, u3]
+      - [2026-03-05, A, store, 4, 8, u2]
+      - [2026-03-06, A, tv, 2, 2, u4]
+  expect:
+    rows:
+      - [date, web_cpc_or_users]
+      - [2026-03-01, 6.0]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks ELSE CAST(users AS DOUBLE) END) AS web_cpc_or_users FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(budget) AS budget, sum(clicks) AS clicks, count(DISTINCT user_id) AS users FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  4: count
+      #  5 @  3: divide
+
+    === Plan
+    Root[date, web_cpc_or_users]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, if_then(equal($1, 1):boolean -> divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> ($4)::!fp64)]
+          Aggregate[$0, $4 => $0, $4, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?, count($3, overflow⇒[ERROR]):i64]
+            Project[(date_trunc('month', $0):date?)::!date?, $1, $2, $3, $4]
+              Project[$0, $2, $3, $4, if_then(equal($1, 'web'):boolean? -> 1, _ -> 2)]
+                Read[warehouse.spend_flat => day:date?, channel:string?, budget:i64?, clicks:i64?, user_id:string?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_cpc_or_users_on_a_grainset_counts_distinct_users_per_part_inside_the_child:
+  # The Day child counts the distinct users of each part on its own rows (3 in the ELSE part), so no part regroups rows that are already aggregated: the Dataset twin's 6.0, not 7.0.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, web_cpc_or_users]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 20, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 4, u3]
+      - [2026-03-05, A, store, 4, u2]
+      - [2026-03-06, A, tv, 2, u4]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 30]
+      - [2026-03-01, B, web, 50]
+      - [2026-03-01, B, store, 20]
+      - [2026-03-01, A, store, 8]
+      - [2026-03-01, A, tv, 2]
+  expect:
+    rows:
+      - [date, web_cpc_or_users]
+      - [2026-03-01, 6.0]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks ELSE CAST(users AS DOUBLE) END) AS web_cpc_or_users FROM (SELECT coalesce(m.d, c.d) AS d, coalesce(m.k, c.k) AS k, m.budget, c.clicks, c.users FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(clicks) AS clicks, count(DISTINCT user_id) AS users FROM warehouse.spend_daily GROUP BY 1, 2) c ON m.d IS NOT DISTINCT FROM c.d AND m.k IS NOT DISTINCT FROM c.k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_aggregate_generic
+      @  5: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  4: count
+      #  5 @  1: is_not_distinct_from
+      #  6 @  5: and
+      #  7 @  1: coalesce
+      #  8 @  3: divide
+
+    === Plan
+    Root[date, web_cpc_or_users]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$3, if_then(equal($0, 1):boolean? -> divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> ($4)::!fp64?)]
+            Project[coalesce($0, $3):i64?, $1, $4, coalesce($2, $5):date?, $6]
+              Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($0, $3):boolean):boolean => $0, $1, $2, $3, $4, $5, $6]
+                + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, (date_trunc('month', $3):date?)::!date?]
+                      Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $1, $2, $0]
+                        Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?]
+                          + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                Project[$1, $2, $0, $3]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?, count($3, overflow⇒[ERROR]):i64]
+                    Project[$0, $2, (date_trunc('month', $3):date?)::!date?, $4]
+                      Project[if_then(equal($3, 'web'):boolean? -> 1, _ -> 2), $3, $1, $0, $2]
+                        Read[warehouse.spend_daily => day:date?, clicks:i64?, user_id:string?, channel:string?]
+                          + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_avg_cpc_or_zero_on_a_dataset_takes_avg_cpc_per_part:
+  # avg_cpc has its own agg:, so each part computes it at its own formula grain: the web part's avg_cpc is 150 / 50 = 3.0 and the ELSE part gives 0.0, so the month is 3.0 (avg_cpc over the whole month would give 180 / 70).
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, web_avg_cpc_or_zero]
+  expect:
+    rows:
+      - [date, web_avg_cpc_or_zero]
+      - [2026-03-01, 3.0]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN cpc ELSE 0.0 END) AS web_avg_cpc_or_zero FROM (SELECT d, k, avg(CAST(budget AS DOUBLE) / clicks) AS cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(budget) AS budget, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY d, k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  3: divide
+      #  5 @  3: avg
+      #  6 @  1: is_not_distinct_from
+      #  7 @  4: and
+
+    === Plan
+    Root[date, web_avg_cpc_or_zero]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, if_then(equal($1, 1):boolean -> $4, _ -> 0)]
+          Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+            Aggregate[$0, $1 => $0, $1]
+              Project[(date_trunc('month', $0):date?)::!date?, $1]
+                Project[$0, if_then(equal($1, 'web'):boolean? -> 1, _ -> 2)]
+                  Read[warehouse.spend_flat => day:date?, channel:string?, budget:i64?, clicks:i64?]
+                    + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+            Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+              Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1, (date_trunc('month', $2):date?)::!date?, $3]
+                    Project[$2, $3, $0, if_then(equal($1, 'web'):boolean? -> 1, _ -> 2)]
+                      Read[warehouse.spend_flat => day:date?, channel:string?, budget:i64?, clicks:i64?]
+                        + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_avg_cpc_or_zero_on_a_grainset_computes_avg_cpc_per_part:
+  # The formula group of avg_cpc inherits the part key: each child groups by month and the key, avg_cpc is averaged per month and part, and the parts are summed: the Dataset twin's 3.0.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, web_avg_cpc_or_zero]
+  expect:
+    rows:
+      - [date, web_avg_cpc_or_zero]
+      - [2026-03-01, 3.0]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN cpc ELSE 0.0 END) AS web_avg_cpc_or_zero FROM (SELECT d, k, avg(CAST(budget AS DOUBLE) / clicks) AS cpc FROM (SELECT coalesce(m.d, c.d) AS d, coalesce(m.k, c.k) AS k, m.budget, c.clicks FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) c ON m.d IS NOT DISTINCT FROM c.d AND m.k IS NOT DISTINCT FROM c.k) GROUP BY d, k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+      #  7 @  3: divide
+      #  8 @  3: avg
+
+    === Plan
+    Root[date, web_avg_cpc_or_zero]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$2, if_then(equal($0, 1):boolean? -> $1, _ -> 0)]
+            Project[$1, $2, $0]
+              Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                Project[$3, $0, divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                  Project[coalesce($0, $3):i64?, $1, $4, coalesce($2, $5):date?]
+                    Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($0, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                      + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                      Project[$1, $2, $0]
+                        Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                          Project[$0, $1, (date_trunc('month', $3):date?)::!date?]
+                            Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $1, $2, $0]
+                              Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?]
+                                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                      Project[$1, $2, $0]
+                        Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                          Project[$0, $2, (date_trunc('month', $3):date?)::!date?]
+                            Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $2, $1, $0]
+                              Read[warehouse.spend_daily => day:date?, clicks:i64?, channel:string?]
+                                + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+early_cpc_on_a_dataset_reads_date_at_its_own_grain_at_month:
+  # The request groups by date at month, so the CASE reads date at day (ADR 0083 rule 4): March splits into 03-01 and 03-02 (120 / 40 = 3.0) and the ELSE part (0.5), so 3.5; April is the ELSE part, 0.5.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, early_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 30, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 4, u3]
+      - [2026-04-01, A, web, 10, u1]
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 30, 20, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+      - [2026-03-04, B, store, 4, 20, u3]
+      - [2026-04-01, A, web, 10, 25, u1]
+  expect:
+    rows:
+      - [date, early_cpc]
+      - [2026-03-01, 3.5]
+      - [2026-04-01, 0.5]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks ELSE 0.5 END) AS early_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN day < DATE '2026-03-03' THEN 1 ELSE 2 END AS k, sum(budget) AS budget, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: lt
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: equal
+      #  5 @  3: divide
+
+    === Plan
+    Root[date, early_cpc]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, if_then(equal($1, 1):boolean -> divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> 0.5)]
+          Aggregate[$0, $3 => $0, $3, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+            Project[(date_trunc('month', $0):date?)::!date?, $1, $2, $3]
+              Project[$0, $1, $2, if_then(lt($0, '2026-03-03':date):boolean? -> 1, _ -> 2)]
+                Read[warehouse.spend_flat => day:date?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+early_cpc_on_a_grainset_of_day_children_reads_date_at_its_own_grain_at_month:
+  # Each Day child forms the key date < 2026-03-03 on its unbucketed day and groups by month and the key: the Dataset twin's 3.5 and 0.5. Reading the bucketed month would put all of March in the first part (190 / 84).
+  model: models/spend_named_filter
+  request:
+    from: spend_days
+    select: [{dimension: date, granularity: month}, early_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 30, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 4, u3]
+      - [2026-04-01, A, web, 10, u1]
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 30, 20, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+      - [2026-03-04, B, store, 4, 20, u3]
+      - [2026-04-01, A, web, 10, 25, u1]
+  expect:
+    rows:
+      - [date, early_cpc]
+      - [2026-03-01, 3.5]
+      - [2026-04-01, 0.5]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks ELSE 0.5 END) AS early_cpc FROM (SELECT coalesce(b.d, c.d) AS d, coalesce(b.k, c.k) AS k, b.budget, c.clicks FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN day < DATE '2026-03-03' THEN 1 ELSE 2 END AS k, sum(budget) AS budget FROM warehouse.spend_flat GROUP BY 1, 2) b FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN day < DATE '2026-03-03' THEN 1 ELSE 2 END AS k, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) c ON b.d IS NOT DISTINCT FROM c.d AND b.k IS NOT DISTINCT FROM c.k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: lt
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+      #  7 @  1: equal
+      #  8 @  3: divide
+
+    === Plan
+    Root[date, early_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend_days', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$3, if_then(equal($0, 1):boolean? -> divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> 0.5)]
+            Project[coalesce($0, $3):i64?, $1, $4, coalesce($2, $5):date?]
+              Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($0, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='spend_days', source_role=&Grainset, cardinality=&OneToOne]
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+                      Project[if_then(lt($0, '2026-03-03':date):boolean? -> 1, _ -> 2), $1, $0]
+                        Read[warehouse.spend_flat => day:date?, budget:i64?]
+                          + Opt:Trace[semantic_source='spend_days.days_budget', source_role=&Dataset, originators=('spend_days',), physical_source='spend_flat']
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+                      Project[if_then(lt($0, '2026-03-03':date):boolean? -> 1, _ -> 2), $1, $0]
+                        Read[warehouse.spend_daily => day:date?, clicks:i64?]
+                          + Opt:Trace[semantic_source='spend_days.days_clicks', source_role=&Dataset, originators=('spend_days',), physical_source='spend_daily']
+
+web_only_cpc_through_a_joinset_over_the_grainset_takes_the_parts:
+  # Reading no name of campaigns keeps the Grainset operand alone, and the nested spend takes the parts as the public spend does: 3.5.
+  model: models/spend_named_filter
+  request:
+    from: j
+    select: [{dimension: date, granularity: month}, web_only_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 20, u2]
+      - [2026-03-03, B, web, 40, u1]
+      - [2026-03-04, B, store, 5, u3]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 30]
+      - [2026-03-01, B, web, 50]
+      - [2026-03-01, B, store, 20]
+  expect:
+    rows:
+      - [date, web_only_cpc]
+      - [2026-03-01, 3.5]
+  sql: SELECT d AS date, sum(CASE k WHEN 1 THEN CAST(budget AS DOUBLE) / clicks ELSE 0.5 END) AS web_only_cpc FROM (SELECT coalesce(m.d, c.d) AS d, coalesce(m.k, c.k) AS k, m.budget, c.clicks FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS d, CASE WHEN channel = 'web' THEN 1 ELSE 2 END AS k, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) c ON m.d IS NOT DISTINCT FROM c.d AND m.k IS NOT DISTINCT FROM c.k) GROUP BY d
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+      #  4 @  1: is_not_distinct_from
+      #  5 @  4: and
+      #  6 @  1: coalesce
+      #  7 @  3: divide
+
+    === Plan
+    Root[date, web_only_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.campaigns',)]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$3, if_then(equal($0, 1):boolean? -> divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> 0.5)]
+            Project[coalesce($0, $3):i64?, $1, $4, coalesce($2, $5):date?]
+              Join[&Outer, and(is_not_distinct_from($2, $5):boolean, is_not_distinct_from($0, $3):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='j.spend', source_role=&Grainset, originators=('j',), cardinality=&OneToOne]
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, (date_trunc('month', $3):date?)::!date?]
+                      Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $1, $2, $0]
+                        Read[warehouse.spend_monthly => month_start:date?, budget:i64?, channel:string?]
+                          + Opt:Trace[semantic_source='j.spend.spend_monthly', source_role=&Dataset, originators=('j.spend',), physical_source='spend_monthly']
+                Project[$1, $2, $0]
+                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                    Project[$0, $2, (date_trunc('month', $3):date?)::!date?]
+                      Project[if_then(equal($2, 'web'):boolean? -> 1, _ -> 2), $2, $1, $0]
+                        Read[warehouse.spend_daily => day:date?, clicks:i64?, channel:string?]
+                          + Opt:Trace[semantic_source='j.spend.spend_daily', source_role=&Dataset, originators=('j.spend',), physical_source='spend_daily']
+
+web_cpc2_through_a_joinset_over_the_grainset:
+  # Reading no name of campaigns keeps the Grainset operand alone, and the nested spend computes web_cpc2 itself, as web_budget 60 over clicks 10 + 20.
+  model: models/spend_named_filter
+  request:
+    from: j
+    select: [campaign, web_cpc2]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-10, A, web, 10, u1]
+      - [2026-03-15, A, app, 20, u2]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 60]
+      - [2026-03-01, A, app, 40]
+  expect:
+    rows:
+      - [campaign, web_cpc2]
+      - [A, 2.0]
+  sql: SELECT coalesce(m.campaign, d.campaign) AS campaign, CAST(m.web_budget AS DOUBLE) / d.clicks AS web_cpc2 FROM (SELECT campaign, sum(budget) FILTER (WHERE channel = 'web') AS web_budget FROM warehouse.spend_monthly GROUP BY campaign) m FULL JOIN (SELECT campaign, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY campaign) d ON m.campaign IS NOT DISTINCT FROM d.campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  1: coalesce
+      #  5 @  2: divide
+
+    === Plan
+    Root[campaign, web_cpc2]
+      Project[$0, divide(($2)::!fp64?, ($1)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&NotSelected, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.campaigns',)]
+        Project[coalesce($0, $2):string?, $3, $1]
+          Join[&Outer, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='j.spend', source_role=&Grainset, originators=('j',), cardinality=&OneToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$0, $1, equal($2, 'web'):boolean?]
+                Read[warehouse.spend_monthly => campaign:string?, budget:i64?, channel:string?]
+                  + Opt:Trace[semantic_source='j.spend.spend_monthly', source_role=&Dataset, originators=('j.spend',), physical_source='spend_monthly']
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$0, $1]
+                Read[warehouse.spend_daily => campaign:string?, clicks:i64?]
+                  + Opt:Trace[semantic_source='j.spend.spend_daily', source_role=&Dataset, originators=('j.spend',), physical_source='spend_daily']
+
+web_cpc2_through_a_built_join_over_the_grainset:
+  # Reading region builds the Joinset's join, so the Grainset operand gives partial aggregates and no one child serves clicks and budget: GrainNotServable, an open question (what a Grainset operand gives where its parent takes partial aggregates).
+  model: models/spend_named_filter
+  request:
+    from: j
+    select: [campaign, region, web_cpc2]
+  expect:
+    error:
+      stage: plan
+      variant: GrainNotServable
+      fields:
+        path: [j, j.spend]
+        source: j.spend
+        requested: null
+        source_granularity: month
+  message: |-
+    error: at `j / j.spend`: the semantic source `j.spend` at `month` cannot serve the request's grain; nearest: `j.spend.spend_daily` lacks `budget`; `j.spend.spend_monthly` lacks `clicks`
+
+web_cpc2_per_target_reads_the_value_that_a_nested_grainset_computes:
+  # spend_plan computes web_cpc2_per_target over its children: web_cpc2 comes from jp, which keeps its nested spend alone, and that spend computes it as 60 / 30 for A and 50 / 40 for B; target comes from targets. So A is 2.0 / 4 = 0.5 and B is 1.25 / 5 = 0.25; under campaign = 'A' only A has a value.
+  model: models/spend_named_filter
+  request:
+    from: spend_plan
+    select: [campaign, web_cpc2_per_target, web_cpc2_per_target_of_a]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-10, A, web, 10, u1]
+      - [2026-03-15, A, app, 20, u2]
+      - [2026-03-20, B, web, 40, u3]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 60]
+      - [2026-03-01, A, app, 40]
+      - [2026-03-01, B, web, 50]
+  expect:
+    rows:
+      - [campaign, web_cpc2_per_target, web_cpc2_per_target_of_a]
+      - [A, 0.5, 0.5]
+      - [B, 0.25, null]
+  sql: WITH m AS (SELECT campaign, sum(budget) FILTER (WHERE channel = 'web') AS web_budget, sum(budget) FILTER (WHERE channel = 'web' AND campaign = 'A') AS web_budget_a FROM warehouse.spend_monthly GROUP BY campaign), d AS (SELECT campaign, sum(clicks) AS clicks, sum(clicks) FILTER (WHERE campaign = 'A') AS clicks_a FROM warehouse.spend_daily GROUP BY campaign), t AS (SELECT campaign, sum(target) AS target, sum(target) FILTER (WHERE campaign = 'A') AS target_a FROM warehouse.targets GROUP BY campaign) SELECT coalesce(m.campaign, d.campaign, t.campaign) AS campaign, CAST(m.web_budget AS DOUBLE) / d.clicks / CAST(t.target AS DOUBLE) AS web_cpc2_per_target, CAST(m.web_budget_a AS DOUBLE) / d.clicks_a / CAST(t.target_a AS DOUBLE) AS web_cpc2_per_target_of_a FROM m FULL JOIN d ON m.campaign IS NOT DISTINCT FROM d.campaign FULL JOIN t ON coalesce(m.campaign, d.campaign) IS NOT DISTINCT FROM t.campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  3: and
+      #  4 @  1: is_not_distinct_from
+      #  5 @  1: coalesce
+      #  6 @  2: divide
+
+    === Plan
+    Root[campaign, web_cpc2_per_target, web_cpc2_per_target_of_a]
+      Project[$0, divide($4, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, divide($3, ($1)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_plan', compositions=3, granularity_fit=&NotSelected]
+        Project[coalesce($0, $3):string?, $1, $2, $4, $5]
+          Join[&Outer, is_not_distinct_from($0, $3):boolean => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='spend_plan', source_role=&Grainset, cardinality=&OneToOne]
+            Project[$0, $2, $1]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+                Project[$0, $1, $1, equal($0, 'A'):boolean?]
+                  Read[warehouse.targets => campaign:string?, target:i64?]
+                    + Opt:Trace[semantic_source='spend_plan.targets', source_role=&Dataset, originators=('spend_plan',), physical_source='targets']
+            Project[$0, divide(($3)::!fp64?, ($1)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, divide(($4)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+              + Opt:Trace[semantic_source='spend_plan.jp', source_role=&Joinset, originators=('spend_plan',), pruned=('spend_plan.jp.campaigns',)]
+              Project[coalesce($0, $3):string?, $4, $5, $1, $2]
+                Join[&Outer, is_not_distinct_from($0, $3):boolean => $0, $1, $2, $3, $4, $5]
+                  + Opt:Trace[semantic_source='spend_plan.jp.spend', source_role=&Grainset, originators=('spend_plan.jp',), cardinality=&OneToOne]
+                  Project[$0, $2, $1]
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+                      Project[$0, $1, equal($2, 'web'):boolean?, $1, and(equal($2, 'web'):boolean?, equal($0, 'A'):boolean?):boolean?]
+                        Read[warehouse.spend_monthly => campaign:string?, budget:i64?, channel:string?]
+                          + Opt:Trace[semantic_source='spend_plan.jp.spend.spend_monthly', source_role=&Dataset, originators=('spend_plan.jp.spend',), physical_source='spend_monthly']
+                  Project[$0, $2, $1]
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+                      Project[$0, $1, $1, equal($0, 'A'):boolean?]
+                        Read[warehouse.spend_daily => campaign:string?, clicks:i64?]
+                          + Opt:Trace[semantic_source='spend_plan.jp.spend.spend_daily', source_role=&Dataset, originators=('spend_plan.jp.spend',), physical_source='spend_daily']
+
+web_only_cpc_per_target_in_eu_through_a_joinset_where_no_child_forms_the_part_key_under_the_filter:
+  # regional_spend_plan's jp.spend does not compute web_only_cpc_per_target_in_eu: its part key reads channel, and under region = 'eu' clicks comes only from spend_clicks, which lacks channel. So jp keeps the Metric over jp.spend's Measures, which follow rules 1 to 7 and rule 9 of ADR 0084: under the filter, clicks needs a child that maps channel and region, and target one that maps channel. No child does: GrainNotServable on jp.spend, as on a nested Grainset whose children cannot form a part key.
+  model: models/spend_named_filter
+  request:
+    from: regional_spend_plan
+    select: [campaign, web_only_cpc_per_target_in_eu]
+  expect:
+    error:
+      stage: plan
+      variant: GrainNotServable
+      fields:
+        path: [regional_spend_plan, regional_spend_plan.jp, regional_spend_plan.jp.spend]
+        source: regional_spend_plan.jp.spend
+        requested: null
+        source_granularity: month
+  message: |-
+    error: at `regional_spend_plan / regional_spend_plan.jp / regional_spend_plan.jp.spend`: the semantic source `regional_spend_plan.jp.spend` at `month` cannot serve the request's grain; nearest: `regional_spend_plan.jp.spend.spend_monthly` lacks `clicks`, `target`; `regional_spend_plan.jp.spend.spend_clicks` lacks `channel`, `budget`, `target`; `regional_spend_plan.jp.spend.spend_daily` lacks `budget`, `target`, `region`; `regional_spend_plan.jp.spend.spend_targets` lacks `channel`, `budget`, `clicks`
+
+web_only_cpc_per_target_in_eu_by_region_through_a_joinset_where_no_child_forms_the_part_key_under_the_filter:
+  # Grouping by region, the Dimension that the filter reads, gives clicks no child that maps it with channel either: the same GrainNotServable.
+  model: models/spend_named_filter
+  request:
+    from: regional_spend_plan
+    select: [campaign, region, web_only_cpc_per_target_in_eu]
+  expect:
+    error:
+      stage: plan
+      variant: GrainNotServable
+      fields:
+        path: [regional_spend_plan, regional_spend_plan.jp, regional_spend_plan.jp.spend]
+        source: regional_spend_plan.jp.spend
+        requested: null
+        source_granularity: month
+  message: |-
+    error: at `regional_spend_plan / regional_spend_plan.jp / regional_spend_plan.jp.spend`: the semantic source `regional_spend_plan.jp.spend` at `month` cannot serve the request's grain; nearest: `regional_spend_plan.jp.spend.spend_monthly` lacks `clicks`, `target`; `regional_spend_plan.jp.spend.spend_clicks` lacks `channel`, `budget`, `target`; `regional_spend_plan.jp.spend.spend_daily` lacks `region`, `budget`, `target`; `regional_spend_plan.jp.spend.spend_targets` lacks `channel`, `budget`, `clicks`
+
+avg_cpc_by_a_row_level_metric_on_a_dataset:
+  # The reference: channel_label is a row-level Metric, planned as a Dimension, so avg_cpc's formula grain is the label: WEB is 150 / 50 = 3.0 and OTHER is 30 / 20 = 1.5.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [channel_label, avg_cpc]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+  expect:
+    rows:
+      - [channel_label, avg_cpc]
+      - [OTHER, 1.5]
+      - [WEB, 3.0]
+  sql: SELECT label AS channel_label, avg(CAST(budget AS DOUBLE) / clicks) AS avg_cpc FROM (SELECT CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) AS budget, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: divide
+      #  4 @  2: avg
+
+    === Plan
+    Root[channel_label, avg_cpc]
+      Aggregate[$1 => $1, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Project[divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0]
+          Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+            Project[$1, $2, if_then(equal($0, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+              Read[warehouse.spend_flat => channel:string?, budget:i64?, clicks:i64?]
+                + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+avg_cpc_by_a_row_level_metric_on_a_grainset:
+  # The Grainset groups each formula group by channel_label, as the Dataset does: WEB is 150 / 50 = 3.0 and OTHER is 30 / 20 = 1.5, where grouping by no name would give 180 / 70 on both rows.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [channel_label, avg_cpc]
+  expect:
+    rows:
+      - [channel_label, avg_cpc]
+      - [OTHER, 1.5]
+      - [WEB, 3.0]
+  sql: SELECT coalesce(m.label, d.label) AS channel_label, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS avg_cpc FROM (SELECT CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1) m FULL JOIN (SELECT CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1) d ON m.label IS NOT DISTINCT FROM d.label GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  1: coalesce
+      #  5 @  2: divide
+      #  6 @  2: avg
+
+    === Plan
+    Root[channel_label, avg_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Aggregate[$0 => $0, avg($1, overflow⇒[ERROR]):fp64?]
+          Project[$1, divide(($0)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+            Project[$0, coalesce($1, $2):string?, $3]
+              Join[&Outer, is_not_distinct_from($1, $2):boolean => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                Project[$1, $0]
+                  Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, if_then(equal($0, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                      Read[warehouse.spend_monthly => channel:string?, budget:i64?]
+                        + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[if_then(equal($0, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $1]
+                    Read[warehouse.spend_daily => channel:string?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_cpc_avg_beside_a_measure_from_a_child_that_lacks_channel:
+  # web_cpc_avg reads channel outside an aggregate, so only its formula group demands channel; targets, which gives target and lacks channel, serves the group at the demand's grain. A's (web, app) values are 100 / 10 and 0.0, so 5.0; B's web value is 50 / 40 = 1.25.
+  model: models/spend_named_filter
+  request:
+    from: spend_targets
+    select: [campaign, target, web_cpc_avg]
+  expect:
+    rows:
+      - [campaign, target, web_cpc_avg]
+      - [A, 4, 5.0]
+      - [B, 5, 1.25]
+  sql: SELECT coalesce(t.campaign, w.campaign) AS campaign, t.target, w.web_cpc_avg FROM (SELECT campaign, sum(target) AS target FROM warehouse.targets GROUP BY 1) t FULL JOIN (SELECT campaign, avg(CASE WHEN channel = 'web' THEN CAST(budget AS DOUBLE) / clicks ELSE 0.0 END) AS web_cpc_avg FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.channel, d.channel) AS channel, m.budget, d.clicks FROM (SELECT campaign, channel, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, channel, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.channel IS NOT DISTINCT FROM d.channel) GROUP BY 1) w ON t.campaign IS NOT DISTINCT FROM w.campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_not_distinct_from
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  2: equal
+      #  6 @  1: divide
+      #  7 @  1: avg
+
+    === Plan
+    Root[campaign, target, web_cpc_avg]
+      Project[coalesce($0, $2):string?, $1, $3]
+        + Opt:Trace[scope_root='spend_targets', compositions=1, granularity_fit=&NotSelected]
+        Join[&Outer, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          + Opt:Trace[semantic_source='spend_targets', source_role=&Grainset, cardinality=&OneToOne]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='spend_targets', source_role=&Grainset, answered_by='spend_targets.targets']
+            Project[$0, $1]
+              Read[warehouse.targets => campaign:string?, target:i64?]
+                + Opt:Trace[semantic_source='spend_targets.targets', source_role=&Dataset, originators=('spend_targets',), physical_source='targets']
+          Aggregate[$0 => $0, avg($1, overflow⇒[ERROR]):fp64?]
+            Project[$1, if_then(equal($2, 'web'):boolean? -> divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, _ -> 0)]
+              Project[$0, $1, $2, $3]
+                Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                  Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                    + Opt:Trace[semantic_source='spend_targets', source_role=&Grainset, cardinality=&OneToOne]
+                    Project[$2, $0, $1]
+                      Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$2, $0, $1]
+                          Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                            + Opt:Trace[semantic_source='spend_targets.target_budget', source_role=&Dataset, originators=('spend_targets',), physical_source='spend_monthly']
+                    Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                      Project[$0, $1, $2]
+                        Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                          + Opt:Trace[semantic_source='spend_targets.target_clicks', source_role=&Dataset, originators=('spend_targets',), physical_source='spend_daily']
+
+web_max_cpc_on_a_dataset:
+  # The reference for an agg: Metric over an agg: Metric: the CASE reads channel outside an aggregate, so the formula grain is (campaign, channel); avg_cpc there is 100 / 10 = 10.0 and 30 / 20 = 1.5 for A, 50 / 40 = 1.25 for B (store's 20 / 5 is not web), and max gives (A, 10.0), (B, 1.25).
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [campaign, web_max_cpc]
+  expect:
+    rows:
+      - [campaign, web_max_cpc]
+      - [A, 10.0]
+      - [B, 1.25]
+  sql: SELECT campaign, max(CASE WHEN channel = 'web' THEN cpc ELSE 0.0 END) AS web_max_cpc FROM (SELECT campaign, channel, avg(cpc) AS cpc FROM (SELECT campaign, channel, CAST(sum(budget) AS DOUBLE) / sum(clicks) AS cpc FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  1: divide
+      #  3 @  1: avg
+      #  4 @  2: is_not_distinct_from
+      #  5 @  3: and
+      #  6 @  2: equal
+      #  7 @  1: max
+
+    === Plan
+    Root[campaign, web_max_cpc]
+      Aggregate[$0 => $0, max($1):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, if_then(equal($1, 'web'):boolean? -> $4, _ -> 0)]
+          Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+            Aggregate[$0, $1 => $0, $1]
+              Project[$0, $1]
+                Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+            Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+              Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $3, $0, $1]
+                    Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_max_cpc_on_a_grainset:
+  # The Grainset computes avg_cpc at web_max_cpc's formula grain (campaign, channel), runs the CASE on each row there and takes max up to campaign, as the Dataset does.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, web_max_cpc]
+  expect:
+    rows:
+      - [campaign, web_max_cpc]
+      - [A, 10.0]
+      - [B, 1.25]
+  sql: SELECT campaign, max(CASE WHEN channel = 'web' THEN cpc ELSE 0.0 END) AS web_max_cpc FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.channel, d.channel) AS channel, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, channel, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, channel, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.channel IS NOT DISTINCT FROM d.channel GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_not_distinct_from
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  1: divide
+      #  6 @  1: avg
+      #  7 @  2: equal
+      #  8 @  1: max
+
+    === Plan
+    Root[campaign, web_max_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Aggregate[$0 => $0, max($1):fp64?]
+          Project[$1, if_then(equal($2, 'web'):boolean? -> $0, _ -> 0)]
+            Project[$2, $0, $1]
+              Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                  Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                    Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                      + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                      Project[$2, $0, $1]
+                        Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                          Project[$2, $0, $1]
+                            Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                      Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                        Project[$0, $1, $2]
+                          Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                            + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_max_cpc_beside_a_measure_on_a_grainset:
+  # budget sits at the demand's grain and web_max_cpc in a subtree at its formula grain; the two join on campaign: A is 100 + 30 and B is 50.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, budget, web_max_cpc]
+  expect:
+    rows:
+      - [campaign, budget, web_max_cpc]
+      - [A, 130, 10.0]
+      - [B, 50, 1.25]
+  sql: SELECT b.campaign, b.budget, w.web_max_cpc FROM (SELECT campaign, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1) b JOIN (SELECT campaign, max(CASE WHEN channel = 'web' THEN cpc ELSE 0.0 END) AS web_max_cpc FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.channel, d.channel) AS channel, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, channel, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, channel, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.channel IS NOT DISTINCT FROM d.channel GROUP BY 1, 2) GROUP BY 1) w ON b.campaign = w.campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_not_distinct_from
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  1: divide
+      #  6 @  1: avg
+      #  7 @  2: equal
+      #  8 @  1: max
+
+    === Plan
+    Root[campaign, budget, web_max_cpc]
+      Project[coalesce($1, $2):string?, $0, $3]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Join[&Outer, is_not_distinct_from($1, $2):boolean => $0, $1, $2, $3]
+          + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+          Project[$1, $0]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, answered_by='spend.spend_monthly']
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+              Project[$1, $0]
+                Read[warehouse.spend_monthly => campaign:string?, budget:i64?]
+                  + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+          Aggregate[$0 => $0, max($1):fp64?]
+            Project[$1, if_then(equal($2, 'web'):boolean? -> $0, _ -> 0)]
+              Project[$2, $0, $1]
+                Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                  Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                    Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                      Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                        + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                        Project[$2, $0, $1]
+                          Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                            Project[$2, $0, $1]
+                              Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                        Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                          Project[$0, $1, $2]
+                            Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_max_cpc_of_a_on_a_dataset:
+  # The reference, over the Grainset children's rows: web_max_cpc_of_a's own campaign filter reaches avg_cpc's subtree, so A keeps 10.0 and B's one web value is NULL.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [campaign, web_max_cpc_of_a]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+  expect:
+    rows:
+      - [campaign, web_max_cpc_of_a]
+      - [A, 10.0]
+      - [B, null]
+  sql: SELECT campaign, max(CASE WHEN channel = 'web' THEN cpc ELSE 0.0 END) AS web_max_cpc_of_a FROM (SELECT campaign, channel, avg(cpc) AS cpc FROM (SELECT campaign, channel, CAST(sum(budget) FILTER (WHERE campaign = 'A') AS DOUBLE) / sum(clicks) FILTER (WHERE campaign = 'A') AS cpc FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: divide
+      #  4 @  2: avg
+      #  5 @  1: is_not_distinct_from
+      #  6 @  3: and
+      #  7 @  2: max
+
+    === Plan
+    Root[campaign, web_max_cpc_of_a]
+      Aggregate[$0 => $0, max($1):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, if_then(equal($1, 'web'):boolean? -> $4, _ -> 0)]
+          Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+            Aggregate[$0, $1 => $0, $1]
+              Project[$0, $1]
+                Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+            Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+              Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $3, equal($0, 'A'):boolean?, equal($0, 'A'):boolean?, $0, $1]
+                    Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_max_cpc_of_a_on_a_grainset:
+  # The filter conditions budget and clicks in the children that serve them, inside avg_cpc's subtree at (campaign, channel), as on the Dataset.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, web_max_cpc_of_a]
+  expect:
+    rows:
+      - [campaign, web_max_cpc_of_a]
+      - [A, 10.0]
+      - [B, null]
+  sql: SELECT campaign, max(CASE WHEN channel = 'web' THEN cpc ELSE 0.0 END) AS web_max_cpc_of_a FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.channel, d.channel) AS channel, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, channel, sum(budget) FILTER (WHERE campaign = 'A') AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, channel, sum(clicks) FILTER (WHERE campaign = 'A') AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.channel IS NOT DISTINCT FROM d.channel GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  2: divide
+      #  7 @  2: avg
+      #  8 @  2: max
+
+    === Plan
+    Root[campaign, web_max_cpc_of_a]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Aggregate[$0 => $0, max($1):fp64?]
+          Project[$1, if_then(equal($2, 'web'):boolean? -> $0, _ -> 0)]
+            Project[$2, $0, $1]
+              Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                  Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                    Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                      + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                      Project[$0, $1, $2]
+                        Project[$2, $0, $1]
+                          Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+                            Project[$2, equal($0, 'A'):boolean?, $0, $1]
+                              Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                      Project[$0, $1, $2]
+                        Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                          Project[$0, $1, $2, equal($0, 'A'):boolean?]
+                            Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_label_max_cpc_on_a_dataset:
+  # The reference for an agg: Metric that reads a row-level Metric: channel_label is planned as a Dimension, so the formula grain is (campaign, channel_label); avg_cpc there is 100 / 10 = 10.0 on WEB and 30 / 20 = 1.5 on OTHER for A, 50 / 40 = 1.25 on WEB and 20 / 5 = 4.0 on OTHER for B, and max over the CASE gives (A, 10.0), (B, 1.25).
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [campaign, web_label_max_cpc]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc]
+      - [A, 10.0]
+      - [B, 1.25]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc FROM (SELECT campaign, label, avg(cpc) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, CAST(sum(budget) AS DOUBLE) / sum(clicks) AS cpc FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: divide
+      #  4 @  2: avg
+      #  5 @  1: is_not_distinct_from
+      #  6 @  3: and
+      #  7 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc]
+      Aggregate[$0 => $0, max($1):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, if_then(equal($1, 'WEB'):boolean -> $4, _ -> 0)]
+          Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+            Aggregate[$0, $1 => $0, $1]
+              Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+            Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+              Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $3, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                    Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_label_max_cpc_on_a_grainset:
+  # channel_label is a Dimension for the formula grain, as on the Dataset: each child forms it from its own channel, avg_cpc is computed at (campaign, channel_label) and max takes it up to campaign: the Dataset twin's rows.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, web_label_max_cpc]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc]
+      - [A, 10.0]
+      - [B, 1.25]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.label, d.label) AS label, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.label IS NOT DISTINCT FROM d.label GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  2: divide
+      #  7 @  2: avg
+      #  8 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Aggregate[$0 => $0, max($1):fp64?]
+          Project[$1, if_then(equal($2, 'WEB'):boolean? -> $0, _ -> 0)]
+            Project[$2, $0, $1]
+              Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                  Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                    Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                      + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                      Project[$2, $0, $1]
+                        Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                          Project[$2, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                            Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                      Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                        Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $2]
+                          Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                            + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_label_max_cpc_beside_a_measure_on_a_dataset:
+  # The reference, over the Grainset children's rows: budget at campaign is 100 + 30 for A and 50 for B, beside web_label_max_cpc at its formula grain.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [campaign, budget, web_label_max_cpc]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+  expect:
+    rows:
+      - [campaign, budget, web_label_max_cpc]
+      - [A, 130, 10.0]
+      - [B, 50, 1.25]
+  sql: SELECT b.campaign, b.budget, w.web_label_max_cpc FROM (SELECT campaign, sum(budget) AS budget FROM warehouse.spend_flat GROUP BY 1) b JOIN (SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc FROM (SELECT campaign, label, avg(cpc) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, CAST(sum(budget) AS DOUBLE) / sum(clicks) AS cpc FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY 1, 2) GROUP BY 1) w ON b.campaign = w.campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: divide
+      #  4 @  1: avg
+      #  5 @  2: is_not_distinct_from
+      #  6 @  3: and
+      #  7 @  1: max
+
+    === Plan
+    Root[campaign, budget, web_label_max_cpc]
+      Project[$0, $1, $3]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$1, $0]
+              Read[warehouse.spend_flat => campaign:string?, budget:i64?, channel:string?, clicks:i64?]
+                + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+          Aggregate[$0 => $0, max($1):fp64?]
+            Project[$0, if_then(equal($1, 'WEB'):boolean -> $4, _ -> 0)]
+              Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+                Aggregate[$0, $1 => $0, $1]
+                  Project[$0, if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                    Read[warehouse.spend_flat => campaign:string?, budget:i64?, channel:string?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+                Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+                  Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                    Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$1, $3, $0, if_then(equal($2, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                        Read[warehouse.spend_flat => campaign:string?, budget:i64?, channel:string?, clicks:i64?]
+                          + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_label_max_cpc_beside_a_measure_on_a_grainset:
+  # budget sits at the demand's grain, which does not hold channel_label, and web_label_max_cpc in a subtree at (campaign, channel_label); the two join on campaign, one row each: the Dataset twin's rows.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, budget, web_label_max_cpc]
+  expect:
+    rows:
+      - [campaign, budget, web_label_max_cpc]
+      - [A, 130, 10.0]
+      - [B, 50, 1.25]
+  sql: SELECT b.campaign, b.budget, w.web_label_max_cpc FROM (SELECT campaign, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1) b JOIN (SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.label, d.label) AS label, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.label IS NOT DISTINCT FROM d.label GROUP BY 1, 2) GROUP BY 1) w ON b.campaign = w.campaign
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: is_not_distinct_from
+      #  4 @  3: and
+      #  5 @  2: coalesce
+      #  6 @  1: divide
+      #  7 @  1: avg
+      #  8 @  1: max
+
+    === Plan
+    Root[campaign, budget, web_label_max_cpc]
+      Project[coalesce($1, $2):string?, $0, $3]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Join[&Outer, is_not_distinct_from($1, $2):boolean => $0, $1, $2, $3]
+          + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+          Project[$1, $0]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, answered_by='spend.spend_monthly']
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+              Project[$1, $0]
+                Read[warehouse.spend_monthly => campaign:string?, budget:i64?]
+                  + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+          Aggregate[$0 => $0, max($1):fp64?]
+            Project[$1, if_then(equal($2, 'WEB'):boolean? -> $0, _ -> 0)]
+              Project[$2, $0, $1]
+                Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                  Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                    Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                      Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                        + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                        Project[$2, $0, $1]
+                          Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                            Project[$2, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                              Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                        Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                          Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $2]
+                            Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_label_max_cpc_of_a_on_a_dataset:
+  # The reference, over the Grainset children's rows: the filter narrows avg_cpc's budget and clicks, not the groups at (campaign, channel_label), so A keeps 100 / 10 = 10.0 on WEB and B's one WEB group reads NULL.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [campaign, web_label_max_cpc_of_a]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc_of_a]
+      - [A, 10.0]
+      - [B, null]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc_of_a FROM (SELECT campaign, label, avg(cpc) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, CAST(sum(budget) FILTER (WHERE campaign = 'A') AS DOUBLE) / sum(clicks) FILTER (WHERE campaign = 'A') AS cpc FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: divide
+      #  4 @  2: avg
+      #  5 @  1: is_not_distinct_from
+      #  6 @  3: and
+      #  7 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc_of_a]
+      Aggregate[$0 => $0, max($1):fp64?]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, if_then(equal($1, 'WEB'):boolean -> $4, _ -> 0)]
+          Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+            Aggregate[$0, $1 => $0, $1]
+              Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+            Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+              Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $3, equal($0, 'A'):boolean?, equal($0, 'A'):boolean?, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                    Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_label_max_cpc_of_a_on_a_grainset:
+  # channel_label is a Dimension under the filter too: each child forms it from its own channel with no condition, and the filter conditions budget and clicks only: the Dataset twin's rows.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, web_label_max_cpc_of_a]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc_of_a]
+      - [A, 10.0]
+      - [B, null]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc_of_a FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.label, d.label) AS label, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) FILTER (WHERE campaign = 'A') AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(clicks) FILTER (WHERE campaign = 'A') AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.label IS NOT DISTINCT FROM d.label GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  2: divide
+      #  7 @  2: avg
+      #  8 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc_of_a]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Aggregate[$0 => $0, max($1):fp64?]
+          Project[$1, if_then(equal($2, 'WEB'):boolean? -> $0, _ -> 0)]
+            Project[$2, $0, $1]
+              Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                  Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                    Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                      + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                      Project[$0, $1, $2]
+                        Project[$2, $0, $1]
+                          Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+                            Project[$2, equal($0, 'A'):boolean?, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                              Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                      Project[$0, $1, $2]
+                        Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                          Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $2, equal($0, 'A'):boolean?]
+                            Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_label_max_cpc_of_a_beside_the_unfiltered_one_on_a_dataset:
+  # The reference, over the Grainset children's rows: both Metrics group by (campaign, channel_label), and only the filtered one narrows avg_cpc's budget and clicks to A.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [campaign, web_label_max_cpc, web_label_max_cpc_of_a]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc, web_label_max_cpc_of_a]
+      - [A, 10.0, 10.0]
+      - [B, 1.25, null]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc, max(CASE WHEN label = 'WEB' THEN cpc_a ELSE 0.0 END) AS web_label_max_cpc_of_a FROM (SELECT campaign, label, avg(cpc) AS cpc, avg(cpc_a) AS cpc_a FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, CAST(sum(budget) AS DOUBLE) / sum(clicks) AS cpc, CAST(sum(budget) FILTER (WHERE campaign = 'A') AS DOUBLE) / sum(clicks) FILTER (WHERE campaign = 'A') AS cpc_a FROM warehouse.spend_flat GROUP BY 1, 2) GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: divide
+      #  4 @  2: avg
+      #  5 @  1: is_not_distinct_from
+      #  6 @  3: and
+      #  7 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc, web_label_max_cpc_of_a]
+      Project[$0, $1, $3]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$0 => $0, max($1):fp64?]
+            Project[$0, if_then(equal($1, 'WEB'):boolean -> $4, _ -> 0)]
+              Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+                Aggregate[$0, $1 => $0, $1]
+                  Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                    Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+                Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+                  Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                    Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$2, $3, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                        Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                          + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+          Aggregate[$0 => $0, max($1):fp64?]
+            Project[$0, if_then(equal($1, 'WEB'):boolean -> $4, _ -> 0)]
+              Join[&Inner, and(is_not_distinct_from($0, $2):boolean, is_not_distinct_from($1, $3):boolean):boolean => $0, $1, $2, $3, $4]
+                Aggregate[$0, $1 => $0, $1]
+                  Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                    Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+                Aggregate[$1, $2 => $1, $2, avg($0, overflow⇒[ERROR]):fp64?]
+                  Project[divide(($2)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0, $1]
+                    Aggregate[$4, $5 => $4, $5, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$2, $3, equal($0, 'A'):boolean?, equal($0, 'A'):boolean?, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                        Read[warehouse.spend_flat => campaign:string?, channel:string?, budget:i64?, clicks:i64?]
+                          + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+web_label_max_cpc_of_a_beside_the_unfiltered_one_on_a_grainset:
+  # The unfiltered Metric reads channel_label plain and the filtered one reads it with no condition too, so both share the children's channel_label: the Dataset twin's rows.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [campaign, web_label_max_cpc, web_label_max_cpc_of_a]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc, web_label_max_cpc_of_a]
+      - [A, 10.0, 10.0]
+      - [B, 1.25, null]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc, max(CASE WHEN label = 'WEB' THEN cpc_a ELSE 0.0 END) AS web_label_max_cpc_of_a FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.label, d.label) AS label, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc, avg(CAST(m.budget_a AS DOUBLE) / d.clicks_a) AS cpc_a FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) AS budget, sum(budget) FILTER (WHERE campaign = 'A') AS budget_a FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(clicks) AS clicks, sum(clicks) FILTER (WHERE campaign = 'A') AS clicks_a FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.label IS NOT DISTINCT FROM d.label GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  2: divide
+      #  7 @  2: avg
+      #  8 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc, web_label_max_cpc_of_a]
+      Project[$0, $1, $2]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        Aggregate[$0 => $0, max($1):fp64?, max($2):fp64?]
+          Project[$2, if_then(equal($3, 'WEB'):boolean? -> $1, _ -> 0), if_then(equal($3, 'WEB'):boolean? -> $0, _ -> 0)]
+            Project[$5, $2, coalesce($0, $3):string?, coalesce($1, $4):string?]
+              Join[&Outer, and(is_not_distinct_from($0, $3):boolean, is_not_distinct_from($1, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                  Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                    Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                      Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                        + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                        Project[$2, $0, $1]
+                          Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                            Project[$2, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                              Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                        Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                          Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $2]
+                            Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+                Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                  Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                    Project[$0, $1, $2, $3]
+                      Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                        Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                          + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                          Project[$0, $1, $2]
+                            Project[$2, $0, $1]
+                              Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+                                Project[$2, equal($0, 'A'):boolean?, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                                  Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                    + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                          Project[$0, $1, $2]
+                            Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                              Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $2, equal($0, 'A'):boolean?]
+                                Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                                  + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+web_label_max_cpc_of_a_through_a_joinset_over_the_grainset:
+  # The nested spend computes the filtered Metric as the public spend does: channel_label is a Dimension with no condition in each child: the Dataset twin's rows.
+  model: models/spend_named_filter
+  request:
+    from: j
+    select: [campaign, web_label_max_cpc_of_a]
+  expect:
+    rows:
+      - [campaign, web_label_max_cpc_of_a]
+      - [A, 10.0]
+      - [B, null]
+  sql: SELECT campaign, max(CASE WHEN label = 'WEB' THEN cpc ELSE 0.0 END) AS web_label_max_cpc_of_a FROM (SELECT coalesce(m.campaign, d.campaign) AS campaign, coalesce(m.label, d.label) AS label, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS cpc FROM (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(budget) FILTER (WHERE campaign = 'A') AS budget FROM warehouse.spend_monthly GROUP BY 1, 2) m FULL JOIN (SELECT campaign, CASE WHEN channel = 'web' THEN 'WEB' ELSE 'OTHER' END AS label, sum(clicks) FILTER (WHERE campaign = 'A') AS clicks FROM warehouse.spend_daily GROUP BY 1, 2) d ON m.campaign IS NOT DISTINCT FROM d.campaign AND m.label IS NOT DISTINCT FROM d.label GROUP BY 1, 2) GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  1: is_not_distinct_from
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  2: divide
+      #  7 @  2: avg
+      #  8 @  2: max
+
+    === Plan
+    Root[campaign, web_label_max_cpc_of_a]
+      Project[$0, $1]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&NotSelected, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.campaigns',)]
+        Aggregate[$0 => $0, max($1):fp64?]
+          Project[$1, if_then(equal($2, 'WEB'):boolean? -> $0, _ -> 0)]
+            Project[$2, $0, $1]
+              Aggregate[$0, $1 => $0, $1, avg($2, overflow⇒[ERROR]):fp64?]
+                Project[$1, $2, divide(($0)::!fp64?, ($3)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+                  Project[$0, coalesce($1, $3):string?, coalesce($2, $4):string?, $5]
+                    Join[&Outer, and(is_not_distinct_from($1, $3):boolean, is_not_distinct_from($2, $4):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                      + Opt:Trace[semantic_source='j.spend', source_role=&Grainset, originators=('j',), cardinality=&OneToOne]
+                      Project[$0, $1, $2]
+                        Project[$2, $0, $1]
+                          Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+                            Project[$2, equal($0, 'A'):boolean?, $0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER')]
+                              Read[warehouse.spend_monthly => campaign:string?, channel:string?, budget:i64?]
+                                + Opt:Trace[semantic_source='j.spend.spend_monthly', source_role=&Dataset, originators=('j.spend',), physical_source='spend_monthly']
+                      Project[$0, $1, $2]
+                        Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                          Project[$0, if_then(equal($1, 'web'):boolean? -> 'WEB', _ -> 'OTHER'), $2, equal($0, 'A'):boolean?]
+                            Read[warehouse.spend_daily => campaign:string?, channel:string?, clicks:i64?]
+                              + Opt:Trace[semantic_source='j.spend.spend_daily', source_role=&Dataset, originators=('j.spend',), physical_source='spend_daily']
+
+clicks_beside_avg_cpc_on_a_dataset:
+  # The reference at month: clicks is 10 + 30 + 40 = 80 in March and 20 in April; avg_cpc is 280 / 80 = 3.5 and 50 / 20 = 2.5.
+  model: models/spend_named_filter
+  request:
+    from: spend_flat
+    select: [{dimension: date, granularity: month}, clicks, avg_cpc]
+  input_data:
+    warehouse.spend_flat:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 30, 60, u2]
+      - [2026-03-20, B, web, 40, 120, u1]
+      - [2026-04-10, A, web, 20, 50, u1]
+  expect:
+    rows:
+      - [date, clicks, avg_cpc]
+      - [2026-03-01, 80, 3.5]
+      - [2026-04-01, 20, 2.5]
+  sql: SELECT coalesce(k.date, c.date) AS date, k.clicks, c.avg_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_flat GROUP BY 1) k FULL JOIN (SELECT date, avg(cpc) AS avg_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS date, CAST(sum(budget) AS DOUBLE) / sum(clicks) AS cpc FROM warehouse.spend_flat GROUP BY 1) GROUP BY 1) c ON k.date IS NOT DISTINCT FROM c.date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+      #  3 @  2: divide
+      #  4 @  2: avg
+      #  5 @  3: is_not_distinct_from
+
+    === Plan
+    Root[date, clicks, avg_cpc]
+      Project[$0, $1, $3]
+        + Opt:Trace[scope_root='spend_flat', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Join[&Inner, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, (date_trunc('month', $1):date?)::!date?]
+              Project[$1, $0]
+                Read[warehouse.spend_flat => day:date?, clicks:i64?, budget:i64?]
+                  + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+          Aggregate[$1 => $1, avg($0, overflow⇒[ERROR]):fp64?]
+            Project[divide(($1)::!fp64?, ($2)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?, $0]
+              Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+                  Project[$2, $1, $0]
+                    Read[warehouse.spend_flat => day:date?, clicks:i64?, budget:i64?]
+                      + Opt:Trace[semantic_source='spend_flat', source_role=&Dataset, physical_source='spend_flat']
+
+clicks_beside_avg_cpc_on_a_grainset_fixes_month_once_for_every_group:
+  # budget's child is monthly, so rule 2 fixes date at month for the whole demand: the group of clicks reads the Day child at month, as avg_cpc's group does, and the two join on one grain, as the Dataset twin gives. A group that fixed its own axis would join clicks per day to avg_cpc per month.
+  model: models/spend_named_filter
+  request:
+    from: spend
+    select: [date, clicks, avg_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 30, u2]
+      - [2026-03-20, B, web, 40, u1]
+      - [2026-04-10, A, web, 20, u1]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 60]
+      - [2026-03-01, B, web, 120]
+      - [2026-04-01, A, web, 50]
+  expect:
+    rows:
+      - [date, clicks, avg_cpc]
+      - [2026-03-01, 80, 3.5]
+      - [2026-04-01, 20, 2.5]
+  sql: SELECT coalesce(k.date, c.date) AS date, k.clicks, c.avg_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1) k FULL JOIN (SELECT coalesce(m.date, d.date) AS date, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS avg_cpc FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1) d ON m.date IS NOT DISTINCT FROM d.date GROUP BY 1) c ON k.date IS NOT DISTINCT FROM c.date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+      #  3 @  3: is_not_distinct_from
+      #  4 @  3: coalesce
+      #  5 @  2: divide
+      #  6 @  2: avg
+
+    === Plan
+    Root[date, clicks, avg_cpc]
+      Project[coalesce($1, $2):date?, $0, $3]
+        + Opt:Trace[scope_root='spend', compositions=1, granularity_fit=&Selected, granularity=&Day]
+        Join[&Outer, is_not_distinct_from($1, $2):boolean => $0, $1, $2, $3]
+          + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+          Project[$1, $0]
+            + Opt:Trace[semantic_source='spend', source_role=&Grainset, answered_by='spend.spend_daily']
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+              Project[$0, (date_trunc('month', $1):date?)::!date?]
+                Project[$1, $0]
+                  Read[warehouse.spend_daily => day:date?, clicks:i64?]
+                    + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+          Aggregate[$0 => $0, avg($1, overflow⇒[ERROR]):fp64?]
+            Project[$2, divide(($0)::!fp64?, ($1)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+              Project[$0, $1, $2]
+                Project[$0, $2, coalesce($1, $3):date?]
+                  Join[&Outer, is_not_distinct_from($1, $3):boolean => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='spend', source_role=&Grainset, cardinality=&OneToOne]
+                    Project[$1, $0]
+                      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$0, (date_trunc('month', $1):date?)::!date?]
+                          Project[$1, $0]
+                            Read[warehouse.spend_monthly => month_start:date?, budget:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_monthly', source_role=&Dataset, originators=('spend',), physical_source='spend_monthly']
+                    Project[$1, $0]
+                      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$0, (date_trunc('month', $1):date?)::!date?]
+                          Project[$1, $0]
+                            Read[warehouse.spend_daily => day:date?, clicks:i64?]
+                              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Dataset, originators=('spend',), physical_source='spend_daily']
+
+clicks_beside_avg_cpc_through_a_joinset_names_the_daily_child_on_the_clicks_group:
+  # Reading no name of campaigns keeps the Grainset operand alone, and the nested spend groups as the public spend does: the daily child alone answers the group of clicks, so that group's line names it as answered_by, and the drill-across of avg_cpc's group names no child.
+  model: models/spend_named_filter
+  request:
+    from: j
+    select: [date, clicks, avg_cpc]
+  input_data:
+    warehouse.spend_daily:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 30, u2]
+      - [2026-03-20, B, web, 40, u1]
+      - [2026-04-10, A, web, 20, u1]
+    warehouse.spend_monthly:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 60]
+      - [2026-03-01, B, web, 120]
+      - [2026-04-01, A, web, 50]
+  expect:
+    rows:
+      - [date, clicks, avg_cpc]
+      - [2026-03-01, 80, 3.5]
+      - [2026-04-01, 20, 2.5]
+  sql: SELECT coalesce(k.date, c.date) AS date, k.clicks, c.avg_cpc FROM (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1) k FULL JOIN (SELECT coalesce(m.date, d.date) AS date, avg(CAST(m.budget AS DOUBLE) / d.clicks) AS avg_cpc FROM (SELECT CAST(date_trunc('month', month_start) AS DATE) AS date, sum(budget) AS budget FROM warehouse.spend_monthly GROUP BY 1) m FULL JOIN (SELECT CAST(date_trunc('month', day) AS DATE) AS date, sum(clicks) AS clicks FROM warehouse.spend_daily GROUP BY 1) d ON m.date IS NOT DISTINCT FROM d.date GROUP BY 1) c ON k.date IS NOT DISTINCT FROM c.date
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+      #  3 @  3: is_not_distinct_from
+      #  4 @  3: coalesce
+      #  5 @  2: divide
+      #  6 @  2: avg
+
+    === Plan
+    Root[date, clicks, avg_cpc]
+      Project[coalesce($1, $2):date?, $0, $3]
+        + Opt:Trace[scope_root='j', compositions=2, granularity_fit=&Selected, granularity=&Month]
+        + Opt:Trace[semantic_source='j', source_role=&Joinset, pruned=('j.campaigns',)]
+        Join[&Outer, is_not_distinct_from($1, $2):boolean => $0, $1, $2, $3]
+          + Opt:Trace[semantic_source='j.spend', source_role=&Grainset, originators=('j',), cardinality=&OneToOne]
+          Project[$1, $0]
+            + Opt:Trace[semantic_source='j.spend', source_role=&Grainset, originators=('j',), answered_by='j.spend.spend_daily']
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+              Project[$0, (date_trunc('month', $1):date?)::!date?]
+                Project[$1, $0]
+                  Read[warehouse.spend_daily => day:date?, clicks:i64?]
+                    + Opt:Trace[semantic_source='j.spend.spend_daily', source_role=&Dataset, originators=('j.spend',), physical_source='spend_daily']
+          Aggregate[$0 => $0, avg($1, overflow⇒[ERROR]):fp64?]
+            Project[$2, divide(($0)::!fp64?, ($1)::!fp64?, on_division_by_zero⇒[ERROR]):fp64?]
+              Project[$0, $1, $2]
+                Project[$0, $2, coalesce($1, $3):date?]
+                  Join[&Outer, is_not_distinct_from($1, $3):boolean => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='j.spend', source_role=&Grainset, originators=('j',), cardinality=&OneToOne]
+                    Project[$1, $0]
+                      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$0, (date_trunc('month', $1):date?)::!date?]
+                          Project[$1, $0]
+                            Read[warehouse.spend_monthly => month_start:date?, budget:i64?]
+                              + Opt:Trace[semantic_source='j.spend.spend_monthly', source_role=&Dataset, originators=('j.spend',), physical_source='spend_monthly']
+                    Project[$1, $0]
+                      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$0, (date_trunc('month', $1):date?)::!date?]
+                          Project[$1, $0]
+                            Read[warehouse.spend_daily => day:date?, clicks:i64?]
+                              + Opt:Trace[semantic_source='j.spend.spend_daily', source_role=&Dataset, originators=('j.spend',), physical_source='spend_daily']

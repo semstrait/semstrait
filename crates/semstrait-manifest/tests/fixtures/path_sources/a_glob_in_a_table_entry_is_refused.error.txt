@@ -1,0 +1,1 @@
+error: dataset `orders`: `tables:` entry `warehouse.orders_*` is a glob; a table entry names one table

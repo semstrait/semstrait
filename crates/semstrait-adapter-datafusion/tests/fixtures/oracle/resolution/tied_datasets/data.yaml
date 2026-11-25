@@ -1,0 +1,15 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: region, type: string}
+      - {name: channel, type: string}
+      - {name: amount, type: double}
+      - {name: ordered_at, type: date}
+    rows:
+      - [o1, c1, eu, web, 100.0, 2026-10-05]
+      - [o2, c1, eu, app, 50.0, 2026-10-20]
+      - [o3, c1, us, web, 200.0, 2026-10-10]
+      - [o4, c2, us, null, 10.0, 2026-10-25]

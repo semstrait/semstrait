@@ -1,0 +1,91 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: order_id, type: string}
+      - {name: amount, type: bigint}
+      - {name: cust_key, type: bigint}
+      - {name: region_code, type: string}
+    rows:
+      - [o1, 100, null, null]
+      - [o2, 40, null, null]
+  - namespace: warehouse
+    name: order_lines
+    columns:
+      - {name: line_id, type: string}
+      - {name: order_id, type: string}
+      - {name: ad_id, type: string}
+    rows:
+      - [l1, o1, ad1]
+      - [l2, o1, ad2]
+      - [l3, o2, ad2]
+  - namespace: warehouse
+    name: placements
+    columns:
+      - {name: ad_id, type: string}
+      - {name: ad_type, type: string}
+    rows:
+      - [ad1, search]
+      - [ad2, search]
+  - namespace: warehouse
+    name: customers
+    columns:
+      - {name: customer_id, type: bigint}
+      - {name: segment, type: string}
+      - {name: region, type: string}
+    rows:
+      - [1, SMB, EU]
+      - [2, SMB, US]
+      - [3, ENT, US]
+      - [4, SMB, null]
+      - [5, ENT, APAC]
+  - namespace: warehouse
+    name: regions
+    columns:
+      - {name: reg, type: string}
+      - {name: region_name, type: string}
+    rows:
+      - [EU, Europe]
+      - [US, United States]
+      - [APAC, Asia Pacific]
+      - [LATAM, Latin America]
+  - namespace: warehouse
+    name: web
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: revenue, type: bigint}
+    rows:
+      - [A, 10]
+      - [B, 20]
+  - namespace: warehouse
+    name: store
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: revenue, type: bigint}
+    rows:
+      - [B, 5]
+      - [C, 7]
+objects:
+  - uri: s3://semstrait-e2e/a/orders/part-0.parquet
+    columns:
+      - {name: id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [x1, 10.0]
+      - [x2, 30.0]
+  - uri: s3://semstrait-e2e/c/orders/part-0.parquet
+    columns:
+      - {name: id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [y1, 50.0]
+  - uri: s3://semstrait-e2e/orders/part-0.parquet
+    columns:
+      - {name: created_at, type: timestamp}
+      - {name: order_id, type: string}
+      - {name: qty, type: bigint}
+    rows:
+      - ['2026-01-01T10:00:00', A1, 9]
+      - ['2026-01-01T10:00:00', A1, 10]
+      - ['2026-01-01T12:00:00', B2, 4]
+      - ['2026-01-02T08:30:00', C3, 3]

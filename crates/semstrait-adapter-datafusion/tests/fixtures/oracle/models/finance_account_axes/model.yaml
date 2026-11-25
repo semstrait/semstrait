@@ -1,0 +1,113 @@
+# A finance variant whose Measures declare their own axes.
+semantic_model:
+  name: finance_account_axes
+  dimensions:
+    - name: account
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+    - name: region
+      data_type: string
+      type: categorical
+  measures:
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          strategy: latest
+    - name: opening_balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          by: date
+          strategy: earliest
+    - name: a
+      data_type: double
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          by: date
+          strategy: latest
+    - name: b
+      data_type: double
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          by: date
+          strategy: latest
+    - name: cost
+      data_type: integer
+      agg: sum
+    - name: avg_cost
+      data_type: double
+      agg: avg
+    - name: users
+      data_type: bigint
+      agg: count_distinct
+  metrics:
+    - name: m
+      data_type: double
+      expr:
+        divide: [a, b]
+    - name: m_lin
+      data_type: double
+      expr:
+        subtract: [a, b]
+  datasets:
+    - name: balances
+      extras:
+        storage:
+          tables: [warehouse.balances]
+        semantic_mapping:
+          account: account
+          date: date
+          balance: balance
+          opening_balance: balance
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: account
+          is_key: true
+        - ref: date
+          is_key: true
+      measures:
+        - ref: balance
+        - ref: opening_balance
+    - name: daily
+      extras:
+        storage:
+          tables: [warehouse.daily]
+        semantic_mapping:
+          account: account
+          region: region
+          date: date
+          a: a
+          b: b
+          cost: cost
+          avg_cost: cost
+          users: usr
+      dimensions:
+        - ref: account
+        - ref: region
+        - ref: date
+      measures:
+        - ref: a
+        - ref: b
+        - ref: cost
+        - ref: avg_cost
+        - ref: users
+      metrics:
+        - ref: m
+        - ref: m_lin

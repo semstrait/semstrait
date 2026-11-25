@@ -1,0 +1,33 @@
+# A Grainset over a daily Dataset and a one-branch Unionset that states day over its one monthly Dataset.
+semantic_model:
+  name: one_child_finer_stated
+  dimensions:
+    - {name: region, data_type: string, type: categorical}
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+  measures:
+    - {name: revenue, data_type: bigint, agg: sum}
+  grainsets:
+    - name: all_ads
+      dimensions: [{ref: region}, {ref: date}]
+      measures: [{ref: revenue}]
+      datasets:
+        - name: other
+          extras:
+            storage: {tables: [warehouse.other]}
+            semantic_mapping: {date: date, region: region, revenue: revenue}
+            temporal: {events: {event_time: date}, granularity: day}
+      unionsets:
+        - name: inner
+          mode: all
+          extras:
+            temporal: {events: {event_time: date}, granularity: day}
+          datasets:
+            - name: monthly
+              extras:
+                storage: {tables: [warehouse.monthly]}
+                semantic_mapping: {date: date, region: region, revenue: revenue}
+                temporal: {events: {event_time: date}, granularity: month}

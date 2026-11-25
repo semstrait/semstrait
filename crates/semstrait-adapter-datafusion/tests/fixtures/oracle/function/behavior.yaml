@@ -1,0 +1,174 @@
+# A canonical function's behaviour on a NULL operand, a cast, or a pattern match.
+
+concat_null_operand:
+  # concat gives NULL when one of its operands is NULL.
+  model: models/commerce
+  request:
+    from: rows
+    select: [c]
+  expect:
+    rows:
+      - [c]
+      - [US-purchase]
+      - [null]
+  sql: SELECT DISTINCT a || '-' || b AS c FROM warehouse.rows
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_string
+    Functions:
+      #  1 @  1: is_null
+      #  2 @  2: or
+      #  3 @  2: not
+      #  4 @  3: concat
+
+    === Plan
+    Root[c]
+      Aggregate[$0 => $0]
+        + Opt:Trace[scope_root='rows', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(not(or(or(is_null($0):boolean, is_null('-'):boolean):boolean, is_null($1):boolean):boolean):boolean -> concat($0, '-', $1, null_handling⇒[IGNORE_NULLS]):string, _ -> !{Expression})]
+          Read[warehouse.rows => a:string?, b:string?]
+            + Opt:Trace[semantic_source='rows', source_role=&Dataset, physical_source='rows']
+
+concat_two_columns:
+  # country_type joins two columns with a literal separator.
+  model: models/finance
+  request:
+    from: transactions
+    select: [country_type]
+  input_data:
+    warehouse.transactions:
+      - [null, null, null, null, US, purchase]
+  expect:
+    rows:
+      - [country_type]
+      - [US-purchase]
+  sql: SELECT DISTINCT country || '-' || txn_type AS country_type FROM warehouse.transactions
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_string
+    Functions:
+      #  1 @  1: is_null
+      #  2 @  2: or
+      #  3 @  2: not
+      #  4 @  3: concat
+
+    === Plan
+    Root[country_type]
+      Aggregate[$0 => $0]
+        + Opt:Trace[scope_root='transactions', compositions=0, granularity_fit=&NotSelected]
+        Project[if_then(not(or(or(is_null($0):boolean, is_null('-'):boolean):boolean, is_null($1):boolean):boolean):boolean -> concat($0, '-', $1, null_handling⇒[IGNORE_NULLS]):string, _ -> !{Expression})]
+          Read[warehouse.transactions => country:string?, txn_type:string?]
+            + Opt:Trace[semantic_source='transactions', source_role=&Dataset, physical_source='transactions']
+
+regexp_pattern_market:
+  # A model-authored regexp pattern reads a market code from a campaign's name, upper-cased, or NULL where it does not match.
+  model: models/marketing_inline_campaign
+  request:
+    from: campaigns
+    select: [dataset_name, campaign, market]
+  expect:
+    rows:
+      - [dataset_name, campaign, market]
+      - [adwords, DE_summer, DE]
+      - [impact, Acme DE Spring, DE]
+      - [adwords, summer_sale, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:io.substrait:functions_string
+    Functions:
+      #  1 @  1: regexp_like
+      #  2 @  1: regexp_instr
+      #  3 @  2: gt
+      #  4 @  3: and
+      #  5 @  4: concat
+      #  6 @  1: regexp_replace
+      #  7 @  4: upper
+      #  8 @  2: equal
+
+    === Plan
+    Root[dataset_name, campaign, market]
+      Aggregate[$1, $0, $2 => $1, $0, $2]
+        + Opt:Trace[scope_root='campaigns', compositions=0, granularity_fit=&NotSelected]
+        Project[$1, $0, if_then(!{RexType} -> upper(if_then(and(regexp_like($1, '^([A-Z]{2})_'):boolean?, gt(regexp_instr($1, '^([A-Z]{2})_', 1:i32, 1:i32, '', 1:i32):i64?, 0):boolean?):boolean? -> regexp_replace($1, concat('^(?s:.*?)(', '^([A-Z]{2})_', ')(?s:.*)$', null_handling⇒[IGNORE_NULLS]):string, '\\2', 'g'):string?, _ -> !{Expression})):string?, equal($0, 'impact'):boolean? -> if_then(and(regexp_like($1, '^Acme ([A-Z]{2})'):boolean?, gt(regexp_instr($1, '^Acme ([A-Z]{2})', 1:i32, 1:i32, '', 1:i32):i64?, 0):boolean?):boolean? -> regexp_replace($1, concat('^(?s:.*?)(', '^Acme ([A-Z]{2})', ')(?s:.*)$', null_handling⇒[IGNORE_NULLS]):string, '\\2', 'g'):string?, _ -> !{Expression}), _ -> '')]
+          Read[warehouse.campaigns => dataset_name:string?, campaign:string?]
+            + Opt:Trace[semantic_source='campaigns', source_role=&Dataset, physical_source='campaigns']
+
+eq_excludes_null:
+  # eq is NULL where either operand is NULL, so a NULL pair never passes it.
+  model: models/commerce
+  request:
+    from: pairs
+    select: [n]
+    where: {eq: [a, b]}
+  expect:
+    rows:
+      - [n]
+      - [1]
+  sql: SELECT count(*) AS n FROM warehouse.pairs WHERE a = b
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: count
+
+    === Plan
+    Root[n]
+      Aggregate[_ => count(1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='pairs', compositions=0, granularity_fit=&NotSelected]
+        Filter[equal($0, $1):boolean? => $0, $1]
+          Project[$0, $1]
+            Read[warehouse.pairs => a:string?, b:string?]
+              + Opt:Trace[semantic_source='pairs', source_role=&Dataset, physical_source='pairs']
+
+distinct_from_includes_null:
+  # is_not_distinct_from is true where both operands are NULL, unlike eq.
+  model: models/commerce
+  request:
+    from: pairs
+    select: [n]
+    where: {is_not_distinct_from: [a, b]}
+  expect:
+    rows:
+      - [n]
+      - [2]
+  sql: SELECT count(*) AS n FROM warehouse.pairs WHERE a IS NOT DISTINCT FROM b
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: is_not_distinct_from
+      #  2 @  2: count
+
+    === Plan
+    Root[n]
+      Aggregate[_ => count(1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='pairs', compositions=0, granularity_fit=&NotSelected]
+        Filter[is_not_distinct_from($0, $1):boolean => $0, $1]
+          Project[$0, $1]
+            Read[warehouse.pairs => a:string?, b:string?]
+              + Opt:Trace[semantic_source='pairs', source_role=&Dataset, physical_source='pairs']

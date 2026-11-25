@@ -1,0 +1,71 @@
+# The data declaration of `acme_eu_ad_platform_v3.yaml`: one object in each
+# Dataset's Parquet folder `example/exports/acme/eu/<platform>/<account>/`, with
+# the columns that the Dataset maps, each of the type the model gives it. No rows: the
+# corpus compile gate reads none.
+objects:
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/adwords/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: adwords-country, type: string}
+      - {name: adwords-campaign, type: string}
+      - {name: currency, type: string}
+      - {name: adwords-cost, type: "decimal(18,2)"}
+      - {name: adwords-clicks, type: "decimal(18,2)"}
+      - {name: adwords-impressions, type: "decimal(18,2)"}
+      - {name: adwords_conversions, type: "decimal(18,2)"}
+      - {name: adwords_allConvValue, type: "decimal(18,2)"}
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/bing/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: bing-CampaignName, type: string}
+      - {name: currency, type: string}
+      - {name: bing-impressions, type: "decimal(18,2)"}
+      - {name: bing-clicks, type: "decimal(18,2)"}
+      - {name: bing-cost, type: "decimal(18,2)"}
+      - {name: bing-Conversions, type: "decimal(18,2)"}
+      - {name: bing-Revenue, type: "decimal(18,2)"}
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/facebookads/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: facebookads-country, type: string}
+      - {name: facebookads-campaign_name, type: string}
+      - {name: currency, type: string}
+      - {name: facebookads-spend, type: "decimal(18,2)"}
+      - {name: facebookads-impressions, type: "decimal(18,2)"}
+      - {name: facebookads-clicks, type: "decimal(18,2)"}
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/tiktok/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: tiktok-country, type: string}
+      - {name: tiktok-campaign_name, type: string}
+      - {name: currency, type: string}
+      - {name: tiktok-stat_cost, type: "decimal(18,2)"}
+      - {name: tiktok-show_cnt, type: "decimal(18,2)"}
+      - {name: tiktok-click_cnt, type: "decimal(18,2)"}
+      - {name: tiktok-convert_cnt, type: "decimal(18,2)"}
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/impact/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: impact-country, type: string}
+      - {name: impact-campaign_name, type: string}
+      - {name: currency, type: string}
+      - {name: impact-client_cost, type: "decimal(18,2)"}
+      - {name: impact-amount, type: "decimal(18,2)"}
+      - {name: impact-actions, type: "decimal(18,2)"}
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/klaviyo/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: klaviyo-campaign_name, type: string}
+      - {name: klaviyo-clicks2, type: "decimal(18,2)"}
+  - uri: s3://semstrait-e2e/example/exports/acme/eu/shopify/5f3a9c2e-8b41-4d6a-9e07-2c1b4a7d8e90/part-0.parquet
+    columns:
+      - {name: date, type: date}
+      - {name: currency, type: string}
+      - {name: shopify-order_action_type, type: string}
+      - {name: shopify-sale_action_type, type: string}
+      - {name: sale_line_type, type: string}
+      - {name: order_app_name, type: string}
+      - {name: shopify-orders, type: "decimal(18,2)"}
+      - {name: shopify-total_amount, type: "decimal(18,2)"}
+      - {name: shopify-total_tax_amount, type: "decimal(18,2)"}
+      - {name: shopify-shipping_country, type: string}

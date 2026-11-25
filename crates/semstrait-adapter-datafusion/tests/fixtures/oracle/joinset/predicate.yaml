@@ -1,0 +1,411 @@
+# A request predicate, a relationship filter, or a named filter places its copy above or below a join.
+
+copy_below_inner_join:
+  # A request predicate that both operands map is two copies, each applied below the Inner join.
+  model: models/marketing
+  request:
+    from: spend_bookings
+    select: [{dimension: date, granularity: month}, cost, revenue]
+    where: {gt_eq: [date, {lit: '2026-03-15'}]}
+  expect:
+    rows:
+      - [date, cost, revenue]
+      - [2026-03-01, 5, 50]
+  sql: >-
+    SELECT date_trunc('month', s.date) AS date, sum(s.cost) AS cost,
+    sum(b.revenue) AS revenue
+    FROM (SELECT * FROM warehouse.spend WHERE date >= DATE '2026-03-15') s
+    JOIN (SELECT * FROM warehouse.bookings WHERE date >= DATE '2026-03-15') b
+    ON s.campaign_id = b.campaign_id AND s.date = b.date GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: gte
+      #  2 @  2: sum
+      #  3 @  1: equal
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  4: date_trunc
+
+    === Plan
+    Root[date, cost, revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+          Project[$2, coalesce($0, $3):date?, $5]
+            Join[&Inner, and(equal($1, $4):boolean?, equal($0, $3):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+              + Opt:Trace[semantic_source='spend_bookings', source_role=&Joinset, cardinality=&OneToOne]
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Filter[gte($2, '2026-03-15':date):boolean? => $0, $1, $2]
+                  Project[$2, $1, $0]
+                    Read[warehouse.spend => date:date?, cost:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings.spend_j', source_role=&Dataset, originators=('spend_bookings',), physical_source='spend']
+              Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                Filter[gte($1, '2026-03-15':date):boolean? => $0, $1, $2]
+                  Project[$2, $0, $1]
+                    Read[warehouse.bookings => date:date?, revenue:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings.bookings_j', source_role=&Dataset, originators=('spend_bookings',), physical_source='bookings']
+
+two_copies_one_above_one_below:
+  # A request predicate over two names is two copies: one stays below its operand's join, the other rises above it.
+  model: models/marketing
+  request:
+    from: spend_bookings
+    select: [{dimension: date, granularity: month}, cost, revenue]
+    where:
+      or: [{gt_eq: [date, {lit: '2026-03-15'}]}, {eq: [channel, {lit: web}]}]
+  expect:
+    rows:
+      - [date, cost, revenue]
+      - [2026-03-01, 5, 50]
+  sql: >-
+    SELECT date_trunc('month', s.date) AS date, sum(s.cost) AS cost,
+    sum(b.revenue) AS revenue FROM warehouse.spend s
+    JOIN (SELECT * FROM warehouse.bookings
+    WHERE date >= DATE '2026-03-15' OR channel = 'web') b
+    ON s.campaign_id = b.campaign_id AND s.date = b.date
+    WHERE s.date >= DATE '2026-03-15' OR b.channel = 'web' GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: gte
+      #  3 @  2: equal
+      #  4 @  3: or
+      #  5 @  3: and
+      #  6 @  2: coalesce
+      #  7 @  4: date_trunc
+
+    === Plan
+    Root[date, cost, revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+          Project[$2, coalesce($0, $3):date?, $6]
+            Filter[or(gte($0, '2026-03-15':date):boolean?, equal($4, 'web'):boolean?):boolean? => $0, $1, $2, $3, $4, $5, $6]
+              Join[&Inner, and(equal($1, $5):boolean?, equal($0, $3):boolean?):boolean? => $0, $1, $2, $3, $4, $5, $6]
+                + Opt:Trace[semantic_source='spend_bookings', source_role=&Joinset, cardinality=&OneToOne]
+                Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $1, $0]
+                    Read[warehouse.spend => date:date?, cost:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings.spend_j', source_role=&Dataset, originators=('spend_bookings',), physical_source='spend']
+                Aggregate[$2, $1, $0 => $2, $1, $0, sum($3, overflow⇒[ERROR]):i64?]
+                  Filter[or(gte($2, '2026-03-15':date):boolean?, equal($1, 'web'):boolean?):boolean? => $0, $1, $2, $3]
+                    Project[$3, $2, $0, $1]
+                      Read[warehouse.bookings => date:date?, revenue:i64?, channel:string?, campaign_id:string?]
+                        + Opt:Trace[semantic_source='spend_bookings.bookings_j', source_role=&Dataset, originators=('spend_bookings',), physical_source='bookings']
+
+relationship_filter_above_join:
+  # A relationship filter is the join's own post_join_filter, written above the JoinRel.
+  model: models/marketing
+  request:
+    from: spend_bookings_filter
+    select: [{dimension: date, granularity: month}, cost, revenue]
+  expect:
+    rows:
+      - [date, cost, revenue]
+      - [2026-03-01, 5, 50]
+  sql: >-
+    SELECT date_trunc('month', s.date) AS date, sum(s.cost) AS cost,
+    sum(b.revenue) AS revenue FROM warehouse.spend s JOIN warehouse.bookings b
+    ON s.campaign_id = b.campaign_id AND s.date = b.date
+    WHERE s.date >= DATE '2026-03-15' GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: and
+      #  4 @  2: gte
+      #  5 @  2: coalesce
+      #  6 @  4: date_trunc
+
+    === Plan
+    Root[date, cost, revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings_filter', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+          Project[$2, coalesce($0, $3):date?, $5]
+            Filter[gte($0, '2026-03-15':date):boolean? => $0, $1, $2, $3, $4, $5]
+              Join[&Inner, and(equal($1, $4):boolean?, equal($0, $3):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='spend_bookings_filter', source_role=&Joinset, cardinality=&OneToOne]
+                Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $1, $0]
+                    Read[warehouse.spend => date:date?, cost:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings_filter.spend_j', source_role=&Dataset, originators=('spend_bookings_filter',), physical_source='spend']
+                Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                  Project[$2, $0, $1]
+                    Read[warehouse.bookings => date:date?, revenue:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings_filter.bookings_j', source_role=&Dataset, originators=('spend_bookings_filter',), physical_source='bookings']
+
+named_filter_two_copies:
+  # An activated named filter that both operands map is two copies, each below its own operand.
+  model: models/marketing
+  request:
+    from: spend_bookings_late
+    select: [{dimension: date, granularity: month}, cost, revenue]
+    filters: [late]
+  expect:
+    rows:
+      - [date, cost, revenue]
+      - [2026-03-01, 5, 50]
+  sql: >-
+    SELECT date_trunc('month', s.date) AS date, sum(s.cost) AS cost,
+    sum(b.revenue) AS revenue
+    FROM (SELECT * FROM warehouse.spend WHERE date >= DATE '2026-03-15') s
+    JOIN (SELECT * FROM warehouse.bookings WHERE date >= DATE '2026-03-15') b
+    ON s.campaign_id = b.campaign_id AND s.date = b.date GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: gte
+      #  2 @  2: sum
+      #  3 @  1: equal
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  4: date_trunc
+
+    === Plan
+    Root[date, cost, revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings_late', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+          Project[$2, coalesce($0, $3):date?, $5]
+            Join[&Inner, and(equal($1, $4):boolean?, equal($0, $3):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+              + Opt:Trace[semantic_source='spend_bookings_late', source_role=&Joinset, cardinality=&OneToOne]
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Filter[gte($2, '2026-03-15':date):boolean? => $0, $1, $2]
+                  Project[$2, $1, $0]
+                    Read[warehouse.spend => date:date?, cost:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings_late.spend_j', source_role=&Dataset, originators=('spend_bookings_late',), physical_source='spend']
+              Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                Filter[gte($1, '2026-03-15':date):boolean? => $0, $1, $2]
+                  Project[$2, $0, $1]
+                    Read[warehouse.bookings => date:date?, revenue:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings_late.bookings_j', source_role=&Dataset, originators=('spend_bookings_late',), physical_source='bookings']
+
+copy_pruned_with_operand:
+  # A filtered measure read only from one operand is pruned along with the operand the filter's other copy needed.
+  model: models/marketing
+  request:
+    from: spend_bookings_late
+    select: [{dimension: date, granularity: month}, late_revenue]
+  expect:
+    rows:
+      - [date, late_revenue]
+      - [2026-03-01, 50]
+  sql: >-
+    SELECT date_trunc('month', date) AS date,
+    sum(revenue) FILTER (WHERE date >= DATE '2026-03-15') AS late_revenue
+    FROM warehouse.bookings GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: gte
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+
+    === Plan
+    Root[date, late_revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings_late', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='spend_bookings_late', source_role=&Joinset, pruned=('spend_bookings_late.spend_j',)]
+        Project[(date_trunc('month', $0):date?)::!date?, $1, $2]
+          Project[$0, $1, gte($0, '2026-03-15':date):boolean?]
+            Read[warehouse.bookings => date:date?, revenue:i64?]
+              + Opt:Trace[semantic_source='spend_bookings_late.bookings_j', source_role=&Dataset, originators=('spend_bookings_late',), physical_source='bookings']
+
+copy_stays_as_condition:
+  # Where both operands are read, a named filter's copy stays as its own aggregate's condition, dropping no row.
+  model: models/marketing
+  request:
+    from: spend_bookings_late
+    select: [{dimension: date, granularity: month}, cost, late_revenue]
+  expect:
+    rows:
+      - [date, cost, late_revenue]
+      - [2026-03-01, 15, 50]
+  sql: >-
+    SELECT date_trunc('month', s.date) AS date, sum(s.cost) AS cost,
+    sum(b.revenue) FILTER (WHERE s.date >= DATE '2026-03-15'
+    AND b.date >= DATE '2026-03-15') AS late_revenue
+    FROM warehouse.spend s JOIN warehouse.bookings b
+    ON s.campaign_id = b.campaign_id AND s.date = b.date GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: gte
+      #  3 @  2: equal
+      #  4 @  3: and
+      #  5 @  2: coalesce
+      #  6 @  4: date_trunc
+
+    === Plan
+    Root[date, cost, late_revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings_late', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2, $3]
+          Project[$2, coalesce($0, $3):date?, $5, and(gte($0, '2026-03-15':date):boolean?, gte($3, '2026-03-15':date):boolean?):boolean?]
+            Join[&Inner, and(equal($1, $4):boolean?, equal($0, $3):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+              + Opt:Trace[semantic_source='spend_bookings_late', source_role=&Joinset, cardinality=&OneToOne]
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$2, $1, $0]
+                  Read[warehouse.spend => date:date?, cost:i64?, campaign_id:string?]
+                    + Opt:Trace[semantic_source='spend_bookings_late.spend_j', source_role=&Dataset, originators=('spend_bookings_late',), physical_source='spend']
+              Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                Project[$2, $0, $1, gte($0, '2026-03-15':date):boolean?]
+                  Read[warehouse.bookings => date:date?, revenue:i64?, campaign_id:string?]
+                    + Opt:Trace[semantic_source='spend_bookings_late.bookings_j', source_role=&Dataset, originators=('spend_bookings_late',), physical_source='bookings']
+
+copy_below_left_join:
+  # A request predicate's copy goes into its own operand below the join, whatever the join type.
+  model: models/marketing
+  request:
+    from: spend_bookings_left
+    select: [{dimension: date, granularity: month}, cost, revenue]
+    where: {gt_eq: [date, {lit: '2026-03-15'}]}
+  expect:
+    rows:
+      - [date, cost, revenue]
+      - [2026-03-01, 5, 50]
+  sql: >-
+    SELECT date_trunc('month', s.date) AS date, sum(s.cost) AS cost,
+    sum(b.revenue) AS revenue
+    FROM (SELECT * FROM warehouse.spend WHERE date >= DATE '2026-03-15') s
+    LEFT JOIN (SELECT * FROM warehouse.bookings WHERE date >= DATE '2026-03-15') b
+    ON s.campaign_id = b.campaign_id AND s.date = b.date GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: gte
+      #  2 @  2: sum
+      #  3 @  1: equal
+      #  4 @  3: and
+      #  5 @  1: coalesce
+      #  6 @  4: date_trunc
+
+    === Plan
+    Root[date, cost, revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend_bookings_left', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+          Project[$2, coalesce($0, $3):date?, $5]
+            Join[&Left, and(equal($1, $4):boolean?, equal($0, $3):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+              + Opt:Trace[semantic_source='spend_bookings_left', source_role=&Joinset, cardinality=&OneToOne]
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Filter[gte($2, '2026-03-15':date):boolean? => $0, $1, $2]
+                  Project[$2, $1, $0]
+                    Read[warehouse.spend => date:date?, cost:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings_left.spend_j', source_role=&Dataset, originators=('spend_bookings_left',), physical_source='spend']
+              Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):i64?]
+                Filter[gte($1, '2026-03-15':date):boolean? => $0, $1, $2]
+                  Project[$2, $0, $1]
+                    Read[warehouse.bookings => date:date?, revenue:i64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='spend_bookings_left.bookings_j', source_role=&Dataset, originators=('spend_bookings_left',), physical_source='bookings']
+
+predicate_above_null_filled_join:
+  # A predicate that reads a null-filled side's column is a FilterNode above that Left join.
+  model: models/commerce_own_types
+  request:
+    from: sales
+    select: [region_name, segment, revenue]
+    where: {eq: [segment, {lit: 'SMB'}]}
+  input_data:
+    warehouse.orders:
+      - [null, 100, 1, EU]
+      - [null, 50, 1, EU]
+      - [null, 70, 2, EU]
+      - [null, 30, 3, US]
+      - [null, 20, 9, US]
+      - [null, 40, 2, null]
+      - [null, 10, null, APAC]
+      - [null, 25, 4, US]
+  expect:
+    rows:
+      - [region_name, segment, revenue]
+      - [Europe, SMB, 220]
+      - [United States, SMB, 25]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+
+    === Plan
+    Root[region_name, segment, revenue]
+      Aggregate[$0, $2 => $0, $2, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=2, granularity_fit=&NotSelected]
+        Project[$3, $2, $0]
+          Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+            + Opt:Trace[semantic_source='sales', source_role=&Joinset, cardinality=&ManyToOne]
+            Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+              Filter[equal($2, 'SMB'):boolean? => $0, $1, $2]
+                Project[$1, $2, $3]
+                  Join[&Left, equal($0, $4):boolean? => $0, $1, $2, $3, $4]
+                    + Opt:Trace[semantic_source='sales.r1', source_role=&Joinset, originators=('sales',), cardinality=&ManyToOne]
+                    Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+                      Project[$1, $2, $0]
+                        Read[warehouse.orders => amount:i64?, cust_key:i64?, region_code:string?]
+                          + Opt:Trace[semantic_source='sales.orders', source_role=&Dataset, originators=('sales',), physical_source='orders']
+                    Aggregate[$1, $0 => $1, $0]
+                      Project[$1, $0]
+                        Read[warehouse.customers => segment:string?, customer_id:i64?]
+                          + Opt:Trace[semantic_source='sales.customers', source_role=&Dataset, originators=('sales',), physical_source='customers']
+            Aggregate[$1, $0 => $1, $0]
+              Project[$1, $0]
+                Read[warehouse.regions => region_name:string?, reg:string?]
+                  + Opt:Trace[semantic_source='sales.regions', source_role=&Dataset, originators=('sales',), physical_source='regions']

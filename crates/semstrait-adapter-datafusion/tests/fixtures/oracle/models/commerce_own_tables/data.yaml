@@ -1,0 +1,63 @@
+tables:
+  - namespace: warehouse
+    name: web_sales
+    columns:
+      - {name: sale_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [w1, 10.0]
+      - [w2, 30.0]
+  - namespace: warehouse
+    name: store_orders
+    columns:
+      - {name: sale_id, type: string}
+      - {name: store_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [o1, st1, 20.0]
+  - namespace: warehouse
+    name: stores
+    columns:
+      - {name: store_id, type: string}
+      - {name: store_name, type: string}
+    rows:
+      - [st1, Oslo]
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: order_id, type: bigint}
+      - {name: customer_id, type: bigint}
+      - {name: amount, type: bigint}
+    rows:
+      - [1, 1, null]
+      - [2, 1, null]
+      - [3, 2, null]
+  - namespace: warehouse
+    name: customers
+    columns:
+      - {name: customer_id, type: bigint}
+      - {name: segment, type: string}
+    rows:
+      - [1, SMB]
+      - [2, ENT]
+  - namespace: warehouse
+    name: tiers
+    columns:
+      - {name: tier, type: string}
+      - {name: floor, type: bigint}
+    rows:
+      - [silver, 50]
+      - [gold, 100]
+objects:
+  - uri: s3://semstrait-e2e/orders/year=2026/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [20.0]
+      - [5.5]
+  - uri: s3://semstrait-e2e/orders/year=__HIVE_DEFAULT_PARTITION__/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [7.0]
+      - [1.25]

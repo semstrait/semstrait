@@ -1,0 +1,1 @@
+error: physical source 7f6e511f-f231-5709-9b5f-0add3f78ea5b: column `revenue` is read by an expression but absent from the observed schema

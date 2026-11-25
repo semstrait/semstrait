@@ -1,0 +1,440 @@
+# A Grainset of spend keyed by date, campaign and channel: clicks and users in a Day child, budget in a Month child, with a web filter and Metrics over both children; spend_days holds clicks and budget in two Day children; spend_plan is a Grainset over a target Dataset and a Joinset over that spend Grainset; spend_targets has a target child that lacks channel; regional_spend_plan is a Grainset over a regional target Dataset and a Joinset over a spend Grainset whose clicks children hold channel or region, never both, beside a regional target child; days_by_channel is a Unionset of a copy of spend_days whose children map channel as web and a store Dataset over the flat table, days_j holds a copy of it as a Joinset operand, and days_over_union holds a copy of it as a Grainset child beside a users child.
+semantic_model:
+  name: spend_named_filter
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign, data_type: string, type: categorical}
+    - {name: channel, data_type: string, type: categorical}
+    - {name: region, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: budget, data_type: bigint, agg: sum}
+    - {name: users, data_type: bigint, agg: count_distinct}
+    - {name: target, data_type: bigint, agg: sum}
+  metrics:
+    - {name: web_budget, data_type: bigint, expr: budget, filter: {eq: [channel, {lit: web}]}}
+    - {name: web_cpc2, data_type: double, expr: {divide: [{cast: {input: web_budget, target: double}}, clicks]}}
+    - name: web_cpc_of_a
+      data_type: double
+      expr: {divide: [{cast: {input: web_budget, target: double}}, clicks]}
+      filter: {eq: [campaign, {lit: A}]}
+    - name: web_cpc
+      data_type: double
+      expr: {divide: [{cast: {input: budget, target: double}}, clicks]}
+      filter: {eq: [channel, {lit: web}]}
+    - name: users_per_budget
+      data_type: double
+      expr: {divide: [{cast: {input: users, target: double}}, budget]}
+      filter: {in: {value: channel, list: [{lit: web}, {lit: app}]}}
+    - name: web_only_cpc
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+          else: {lit: 0.5}
+    - name: channel_mix_cpc
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {and: [{eq: [channel, {lit: web}]}, {eq: [campaign, {lit: A}]}]}
+              then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+            - when: {or: [{eq: [channel, {lit: app}]}, {eq: [campaign, {lit: B}]}]}
+              then: {multiply: [{divide: [{cast: {input: budget, target: double}}, clicks]}, {lit: 2.0}]}
+            - when: {and: [{eq: [channel, {lit: store}]}, {eq: [campaign, {lit: A}]}]}
+              then: {lit: 0.25}
+          else: {lit: 0.5}
+    - name: nested_cpc
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel_label, {lit: WEB}]}
+              then:
+                case:
+                  whens:
+                    - when: {eq: [campaign, {lit: A}]}
+                      then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+                  else: {multiply: [{divide: [{cast: {input: budget, target: double}}, clicks]}, {lit: 3.0}]}
+          else:
+            case:
+              whens:
+                - when: {eq: [campaign, {lit: B}]}
+                  then: {lit: 0.5}
+              else: {lit: 0.25}
+    - name: web_cpc_or_users
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+          else: {cast: {input: users, target: double}}
+    - name: web_avg_cpc_or_zero
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: avg_cpc
+          else: {lit: 0.0}
+    - name: early_cpc
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {lt: [date, {lit: {date: 2026-03-03}}]}
+              then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+          else: {lit: 0.5}
+    - name: channel_label
+      data_type: string
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: {lit: WEB}
+          else: {lit: OTHER}
+    - {name: avg_cpc, data_type: double, agg: avg, expr: {divide: [{cast: {input: budget, target: double}}, clicks]}}
+    - name: web_cpc_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+          else: {lit: 0.0}
+    - name: web_max_cpc
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: avg_cpc
+          else: {lit: 0.0}
+    - name: web_max_cpc_of_a
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: avg_cpc
+          else: {lit: 0.0}
+      filter: {eq: [campaign, {lit: A}]}
+    - name: web_cpc2_per_target
+      data_type: double
+      expr: {divide: [web_cpc2, {cast: {input: target, target: double}}]}
+    - name: web_cpc2_per_target_of_a
+      data_type: double
+      expr: {divide: [web_cpc2, {cast: {input: target, target: double}}]}
+      filter: {eq: [campaign, {lit: A}]}
+    - name: web_label_max_cpc
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel_label, {lit: WEB}]}
+              then: avg_cpc
+          else: {lit: 0.0}
+    - name: web_only_cpc_per_target_in_eu
+      data_type: double
+      expr: {divide: [web_only_cpc, {cast: {input: target, target: double}}]}
+      filter: {eq: [region, {lit: eu}]}
+    - name: web_label_max_cpc_of_a
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel_label, {lit: WEB}]}
+              then: avg_cpc
+          else: {lit: 0.0}
+      filter: {eq: [campaign, {lit: A}]}
+    - name: day_cpc_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {lt: [date, {lit: {date: 2026-03-03}}]}
+              then: {divide: [{cast: {input: budget, target: double}}, clicks]}
+          else: {multiply: [{divide: [{cast: {input: budget, target: double}}, clicks]}, {lit: 2.0}]}
+  datasets:
+    - name: spend_flat
+      extras:
+        storage: {tables: [warehouse.spend_flat]}
+        semantic_mapping: {date: day, campaign: campaign, channel: channel, clicks: clicks, budget: budget, users: user_id}
+        temporal: {timeseries: {occurred_at: date}, granularity: day}
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+        - {ref: channel, is_key: true}
+      measures: [{ref: clicks}, {ref: budget}, {ref: users}]
+      metrics: [{ref: web_only_cpc}, {ref: channel_mix_cpc}, {ref: nested_cpc}, {ref: web_cpc_or_users}, {ref: web_avg_cpc_or_zero}, {ref: early_cpc}, {ref: channel_label}, {ref: avg_cpc}, {ref: web_max_cpc}, {ref: web_max_cpc_of_a}, {ref: web_label_max_cpc}, {ref: web_label_max_cpc_of_a}]
+  grainsets:
+    - name: spend
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+        - {ref: channel, is_key: true}
+      measures: [{ref: clicks}, {ref: budget}, {ref: users}]
+      metrics: [{ref: web_budget}, {ref: web_cpc2}, {ref: web_cpc_of_a}, {ref: web_cpc}, {ref: users_per_budget}, {ref: web_only_cpc}, {ref: channel_mix_cpc}, {ref: nested_cpc}, {ref: web_cpc_or_users}, {ref: web_avg_cpc_or_zero}, {ref: channel_label}, {ref: avg_cpc}, {ref: web_max_cpc}, {ref: web_max_cpc_of_a}, {ref: web_label_max_cpc}, {ref: web_label_max_cpc_of_a}]
+      filters:
+        - {name: web, expr: {eq: [channel, {lit: web}]}}
+      datasets:
+        - name: spend_daily
+          extras:
+            storage: {tables: [warehouse.spend_daily]}
+            semantic_mapping: {date: day, campaign: campaign, channel: channel, clicks: clicks, users: user_id}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: spend_monthly
+          extras:
+            storage: {tables: [warehouse.spend_monthly]}
+            semantic_mapping: {date: month_start, campaign: campaign, channel: channel, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+    - name: spend_days
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+        - {ref: channel, is_key: true}
+      measures: [{ref: clicks}, {ref: budget}]
+      metrics: [{ref: early_cpc}]
+      datasets:
+        - name: days_clicks
+          extras:
+            storage: {tables: [warehouse.spend_daily]}
+            semantic_mapping: {date: day, campaign: campaign, channel: channel, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: days_budget
+          extras:
+            storage: {tables: [warehouse.spend_flat]}
+            semantic_mapping: {date: day, campaign: campaign, channel: channel, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: spend_plan
+      dimensions: [{ref: campaign, is_key: true}, {ref: date}, {ref: channel}]
+      measures: [{ref: clicks}, {ref: budget}, {ref: target}]
+      metrics: [{ref: web_budget}, {ref: web_cpc2}, {ref: web_cpc2_per_target}, {ref: web_cpc2_per_target_of_a}]
+      datasets:
+        - name: targets
+          extras:
+            storage: {tables: [warehouse.targets]}
+            semantic_mapping: {campaign: campaign, target: target}
+      joinsets:
+        - name: jp
+          datasets:
+            - name: campaigns
+              extras:
+                storage: {tables: [warehouse.campaigns]}
+                semantic_mapping: {campaign: campaign}
+          grainsets:
+            - name: spend
+              dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel, is_key: true}]
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+              datasets:
+                - name: spend_daily
+                  extras:
+                    storage: {tables: [warehouse.spend_daily]}
+                    semantic_mapping: {date: day, campaign: campaign, channel: channel, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: spend_monthly
+                  extras:
+                    storage: {tables: [warehouse.spend_monthly]}
+                    semantic_mapping: {date: month_start, campaign: campaign, channel: channel, budget: budget}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}
+          relationships:
+            - {name: spend_to_campaigns, from: spend, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: spend_targets
+      dimensions: [{ref: campaign, is_key: true}, {ref: channel}]
+      measures: [{ref: clicks}, {ref: budget}, {ref: target}]
+      metrics: [{ref: web_cpc_avg}]
+      datasets:
+        - name: target_clicks
+          extras:
+            storage: {tables: [warehouse.spend_daily]}
+            semantic_mapping: {campaign: campaign, channel: channel, clicks: clicks}
+        - name: target_budget
+          extras:
+            storage: {tables: [warehouse.spend_monthly]}
+            semantic_mapping: {campaign: campaign, channel: channel, budget: budget}
+        - name: targets
+          extras:
+            storage: {tables: [warehouse.targets]}
+            semantic_mapping: {campaign: campaign, target: target}
+    - name: regional_spend_plan
+      dimensions: [{ref: campaign, is_key: true}, {ref: date}, {ref: channel}, {ref: region}]
+      measures: [{ref: clicks}, {ref: budget}, {ref: target}]
+      metrics: [{ref: web_only_cpc}, {ref: web_only_cpc_per_target_in_eu}]
+      datasets:
+        - name: targets
+          extras:
+            storage: {tables: [warehouse.regional_targets]}
+            semantic_mapping: {campaign: campaign, target: target, region: region}
+      joinsets:
+        - name: jp
+          datasets:
+            - name: campaigns
+              extras:
+                storage: {tables: [warehouse.campaigns]}
+                semantic_mapping: {campaign: campaign}
+          grainsets:
+            - name: spend
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+              datasets:
+                - name: spend_daily
+                  extras:
+                    storage: {tables: [warehouse.spend_daily]}
+                    semantic_mapping: {date: day, campaign: campaign, clicks: clicks, channel: channel}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: spend_clicks
+                  extras:
+                    storage: {tables: [warehouse.spend_clicks]}
+                    semantic_mapping: {date: month_start, campaign: campaign, clicks: clicks, region: region}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}
+                - name: spend_monthly
+                  extras:
+                    storage: {tables: [warehouse.spend_regional]}
+                    semantic_mapping: {date: month_start, campaign: campaign, budget: budget, channel: channel, region: region}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}
+                - name: spend_targets
+                  extras:
+                    storage: {tables: [warehouse.regional_targets]}
+                    semantic_mapping: {date: month_start, campaign: campaign, target: target, region: region}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}
+          relationships:
+            - {name: spend_to_campaigns, from: spend, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: days_over_union
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel, is_key: true}]
+      measures: [{ref: clicks}, {ref: budget}, {ref: users}]
+      metrics: [{ref: day_cpc_avg}]
+      datasets:
+        - name: days_users
+          extras:
+            storage: {tables: [warehouse.spend_daily]}
+            semantic_mapping: {date: day, campaign: campaign, channel: channel, users: user_id}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+      unionsets:
+        - name: days_union
+          mode: all
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel, is_key: true}]
+          measures: [{ref: clicks}, {ref: budget}]
+          metrics: [{ref: day_cpc_avg}]
+          grainsets:
+            - name: spend_days
+              dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel}]
+              datasets:
+                - name: days_clicks
+                  extras:
+                    storage: {tables: [warehouse.spend_daily]}
+                    semantic_mapping: {date: day, campaign: campaign, channel: {lit: web}, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: days_budget
+                  extras:
+                    storage: {tables: [warehouse.spend_flat]}
+                    semantic_mapping: {date: day, campaign: campaign, channel: {lit: web}, budget: budget}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+          datasets:
+            - name: store_flat
+              extras:
+                storage: {tables: [warehouse.spend_flat]}
+                semantic_mapping: {date: day, campaign: campaign, channel: {lit: store}, clicks: clicks, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+  joinsets:
+    - name: j
+      dimensions: [{ref: campaign, is_key: true}, {ref: region}, {ref: date}, {ref: channel}]
+      measures: [{ref: clicks}, {ref: budget}]
+      metrics: [{ref: web_budget}, {ref: web_cpc2}, {ref: web_only_cpc}, {ref: channel_label}, {ref: avg_cpc}, {ref: web_label_max_cpc_of_a}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      grainsets:
+        - name: spend
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel, is_key: true}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: spend_daily
+              extras:
+                storage: {tables: [warehouse.spend_daily]}
+                semantic_mapping: {date: day, campaign: campaign, channel: channel, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: spend_monthly
+              extras:
+                storage: {tables: [warehouse.spend_monthly]}
+                semantic_mapping: {date: month_start, campaign: campaign, channel: channel, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      relationships:
+        - {name: spend_to_campaigns, from: spend, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: days_j
+      dimensions: [{ref: campaign, is_key: true}, {ref: region}, {ref: date}, {ref: channel}]
+      measures: [{ref: clicks}, {ref: budget}]
+      metrics: [{ref: day_cpc_avg}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      unionsets:
+        - name: days_by_channel
+          mode: all
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel, is_key: true}]
+          grainsets:
+            - name: spend_days
+              dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel}]
+              datasets:
+                - name: days_clicks
+                  extras:
+                    storage: {tables: [warehouse.spend_daily]}
+                    semantic_mapping: {date: day, campaign: campaign, channel: {lit: web}, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: days_budget
+                  extras:
+                    storage: {tables: [warehouse.spend_flat]}
+                    semantic_mapping: {date: day, campaign: campaign, channel: {lit: web}, budget: budget}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+          datasets:
+            - name: store_flat
+              extras:
+                storage: {tables: [warehouse.spend_flat]}
+                semantic_mapping: {date: day, campaign: campaign, channel: {lit: store}, clicks: clicks, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+      relationships:
+        - {name: days_to_campaigns, from: days_by_channel, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+  unionsets:
+    - name: days_by_channel
+      mode: all
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel, is_key: true}]
+      measures: [{ref: clicks}, {ref: budget}]
+      metrics: [{ref: web_budget}, {ref: web_cpc2}, {ref: day_cpc_avg}]
+      grainsets:
+        - name: spend_days
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: channel}]
+          datasets:
+            - name: days_clicks
+              extras:
+                storage: {tables: [warehouse.spend_daily]}
+                semantic_mapping: {date: day, campaign: campaign, channel: {lit: web}, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: days_budget
+              extras:
+                storage: {tables: [warehouse.spend_flat]}
+                semantic_mapping: {date: day, campaign: campaign, channel: {lit: web}, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+      datasets:
+        - name: store_flat
+          extras:
+            storage: {tables: [warehouse.spend_flat]}
+            semantic_mapping: {date: day, campaign: campaign, channel: {lit: store}, clicks: clicks, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

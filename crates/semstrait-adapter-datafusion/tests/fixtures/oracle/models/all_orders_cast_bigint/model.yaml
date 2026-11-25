@@ -1,0 +1,37 @@
+# A Unionset over a Dataset and a Joinset that null-fills one side, with a count that stays bigint.
+semantic_model:
+  name: all_orders_cast
+  dimensions:
+    - {name: channel, data_type: string, type: categorical}
+    - {name: customer_id, data_type: string, type: categorical}
+  measures:
+    - {name: customer_rows, data_type: bigint, agg: count}
+    - {name: quantity, data_type: integer, agg: sum}
+    - {name: cost, data_type: 'decimal(18,2)', agg: sum}
+  metrics:
+    - {name: doubled_rows, data_type: bigint, expr: {multiply: [customer_rows, {lit: 2}]}}
+    - {name: rows_c1, data_type: bigint, expr: customer_rows}
+  unionsets:
+    - name: all_orders
+      mode: all
+      dimensions: [{ref: channel}, {ref: customer_id}]
+      measures: [{ref: customer_rows}, {ref: quantity}, {ref: cost}]
+      metrics: [{ref: doubled_rows}, {ref: rows_c1, filter: {eq: [customer_id, {lit: c1}]}}]
+      datasets:
+        - name: orders_store
+          extras:
+            storage: {tables: [warehouse.orders_store]}
+            semantic_mapping: {channel: {lit: store}, customer_id: customer_id, customer_rows: order_id, quantity: qty, cost: cost}
+      joinsets:
+        - name: jw
+          datasets:
+            - name: orders_web
+              extras:
+                storage: {tables: [warehouse.orders_web]}
+                semantic_mapping: {channel: {lit: web}, customer_id: customer_id, quantity: qty, cost: cost}
+            - name: customers
+              extras:
+                storage: {tables: [warehouse.customers]}
+                semantic_mapping: {customer_id: customer_id, customer_rows: customer_id}
+          relationships:
+            - {name: web_to_customers, from: orders_web, to: customers, on: [customer_id], cardinality: many_to_one, optional: right, integrity: none}

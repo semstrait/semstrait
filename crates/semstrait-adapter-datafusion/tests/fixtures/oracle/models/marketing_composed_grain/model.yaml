@@ -1,0 +1,211 @@
+# A marketing variant of constituent compositions over spend and campaigns, each adding its own columns.
+semantic_model:
+  name: marketing_composed_grain
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month, year]
+    - {name: campaign_id, data_type: string, type: categorical}
+    - {name: campaign_name, data_type: string, type: categorical}
+    - {name: fiscal_month, data_type: string, type: categorical}
+  measures:
+    - {name: cost, data_type: bigint, agg: sum}
+    - {name: target, data_type: bigint, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: impressions, data_type: bigint, agg: sum}
+    - {name: budget, data_type: bigint, agg: sum}
+    - {name: avg_budget, data_type: double, agg: avg}
+    - name: bal
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi: {axes: [], by: date, strategy: latest}
+    - {name: views, data_type: bigint, agg: sum}
+    - {name: target_clicks, data_type: bigint, agg: sum}
+  joinsets:
+    - name: j4m
+      dimensions: [{ref: date}, {ref: campaign_id}]
+      measures: [{ref: cost}, {ref: target}]
+      unionsets:
+        - name: u
+          mode: all
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: spend_web
+              extras:
+                storage: {tables: [warehouse.spend_web]}
+                semantic_mapping: {campaign_id: campaign_id, date: day, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: spend_store_m
+              extras:
+                storage: {tables: [warehouse.spend_store_m]}
+                semantic_mapping: {campaign_id: campaign_id, date: month_start, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      datasets:
+        - name: targets
+          extras:
+            storage: {tables: [warehouse.targets]}
+            semantic_mapping: {campaign_id: campaign_id, target: target}
+      relationships:
+        - {name: u_to_targets, from: u, to: targets, on: [campaign_id], cardinality: many_to_one, optional: left, integrity: assumed}
+    - name: jg
+      dimensions: [{ref: date}, {ref: campaign_id}, {ref: campaign_name}]
+      measures: [{ref: clicks}, {ref: impressions}, {ref: budget}, {ref: avg_budget}, {ref: target}, {ref: bal}]
+      grainsets:
+        - name: g
+          dimensions: [{ref: date, is_key: true}, {ref: campaign_id, is_key: true}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: g_day
+              extras:
+                storage: {tables: [warehouse.g_day]}
+                semantic_mapping: {date: day, campaign_id: campaign_id, clicks: clicks, impressions: impressions, bal: bal}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: g_month
+              extras:
+                storage: {tables: [warehouse.g_month]}
+                semantic_mapping: {date: month_start, campaign_id: campaign_id, clicks: clicks, budget: budget, avg_budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign_id: campaign_id, campaign_name: campaign_name, target: target}
+      relationships:
+        - {name: g_to_campaigns, from: g, to: campaigns, on: [campaign_id], cardinality: many_to_one, optional: left, integrity: assumed}
+  unionsets:
+    - name: w4
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign_id}]
+      measures: [{ref: impressions}, {ref: budget}, {ref: target}]
+      datasets:
+        - name: store
+          extras:
+            storage: {tables: [warehouse.store]}
+            semantic_mapping: {date: month_start, campaign_id: campaign_id, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+      joinsets:
+        - name: jg
+          grainsets:
+            - name: g
+              dimensions: [{ref: date, is_key: true}, {ref: campaign_id, is_key: true}]
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+              datasets:
+                - name: g_day
+                  extras:
+                    storage: {tables: [warehouse.g_day]}
+                    semantic_mapping: {date: day, campaign_id: campaign_id, impressions: impressions}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: g_month
+                  extras:
+                    storage: {tables: [warehouse.g_month]}
+                    semantic_mapping: {date: month_start, campaign_id: campaign_id, budget: budget}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: campaigns
+              extras:
+                storage: {tables: [warehouse.campaigns]}
+                semantic_mapping: {campaign_id: campaign_id, target: target}
+          relationships:
+            - {name: g_to_campaigns, from: g, to: campaigns, on: [campaign_id], cardinality: many_to_one, optional: left, integrity: assumed}
+    - name: w7
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign_id}, {ref: fiscal_month}]
+      measures: [{ref: clicks}, {ref: impressions}, {ref: target}]
+      datasets:
+        - name: store
+          extras:
+            storage: {tables: [warehouse.store]}
+            semantic_mapping: {date: month_start, campaign_id: campaign_id, impressions: impressions}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+      joinsets:
+        - name: jc
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: ad_clicks
+              extras:
+                storage: {tables: [warehouse.ad_clicks]}
+                semantic_mapping: {date: month_start, campaign_id: campaign_id, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+            - name: ad_views
+              extras:
+                storage: {tables: [warehouse.ad_views]}
+                semantic_mapping: {date: month_start, campaign_id: campaign_id, impressions: impressions}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+            - name: calendar
+              extras:
+                storage: {tables: [warehouse.calendar]}
+                semantic_mapping: {date: month_start, fiscal_month: fiscal_month}
+            - name: targets
+              extras:
+                storage: {tables: [warehouse.targets]}
+                semantic_mapping: {campaign_id: campaign_id, target: target}
+          relationships:
+            - {name: clicks_to_views, from: ad_clicks, to: ad_views, on: [date, campaign_id], cardinality: one_to_one, optional: none, integrity: assumed, cross_filter: both}
+            - {name: views_to_calendar, from: ad_views, to: calendar, on: [date], cardinality: many_to_one, optional: left, integrity: assumed}
+            - {name: clicks_to_targets, from: ad_clicks, to: targets, on: [campaign_id], cardinality: many_to_one, optional: left, integrity: assumed}
+    - name: w6
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign_id}]
+      measures: [{ref: clicks}, {ref: views}, {ref: budget}, {ref: target}]
+      datasets:
+        - name: store
+          extras:
+            storage: {tables: [warehouse.store]}
+            semantic_mapping: {date: month_start, campaign_id: campaign_id, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+      joinsets:
+        - name: jp
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: month_spend
+              extras:
+                storage: {tables: [warehouse.month_spend]}
+                semantic_mapping: {date: month_start, campaign_id: campaign_id, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+            - name: day_views
+              extras:
+                storage: {tables: [warehouse.day_views]}
+                semantic_mapping: {date: day, campaign_id: campaign_id, views: views}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: targets
+              extras:
+                storage: {tables: [warehouse.targets]}
+                semantic_mapping: {campaign_id: campaign_id, target: target}
+          relationships:
+            - {name: spend_to_views, from: month_spend, to: day_views, on: [campaign_id], cardinality: one_to_many, optional: left, integrity: assumed}
+            - {name: spend_to_targets, from: month_spend, to: targets, on: [campaign_id], cardinality: many_to_one, optional: left, integrity: assumed}
+  grainsets:
+    - name: spend_g
+      dimensions: [{ref: date, is_key: true}, {ref: campaign_id, is_key: true}]
+      measures: [{ref: clicks}, {ref: target_clicks}]
+      datasets:
+        - name: spend_year
+          extras:
+            storage: {tables: [warehouse.spend_year]}
+            semantic_mapping: {date: year_start, campaign_id: campaign_id, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: year}
+      joinsets:
+        - name: spend_targets
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: spend
+              extras:
+                storage: {tables: [warehouse.spend]}
+                semantic_mapping: {date: day, campaign_id: campaign_id, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: targets
+              extras:
+                storage: {tables: [warehouse.targets]}
+                semantic_mapping: {date: month_start, campaign_id: campaign_id, target_clicks: target}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+          relationships:
+            - {name: spend_to_targets, from: spend, to: targets, on: [campaign_id], cardinality: many_to_one, optional: left, integrity: assumed}

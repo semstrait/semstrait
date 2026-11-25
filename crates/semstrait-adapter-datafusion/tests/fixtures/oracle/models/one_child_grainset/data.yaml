@@ -1,0 +1,7 @@
+tables:
+  - namespace: warehouse
+    name: daily
+    columns:
+      - {name: date, type: date}
+      - {name: reach, type: bigint}
+    rows: [[2024-01-01, 1], [2024-01-02, 2]]

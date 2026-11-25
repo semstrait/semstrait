@@ -1,0 +1,24 @@
+# A path-token Unionset over a Dataset and an Implicit Unionset, with a count that stays bigint.
+semantic_model:
+  name: u1_counts
+  dimensions:
+    - {name: channel, data_type: string, type: {metadata: {source: {path: {token: 1}}}}}
+  measures:
+    - {name: order_count, data_type: bigint, agg: count}
+  metrics:
+    - {name: c_orders, data_type: bigint, expr: order_count}
+  unionsets:
+    - name: u1
+      mode: all
+      dimensions: [{ref: channel}]
+      measures: [{ref: order_count}]
+      metrics: [{ref: c_orders, filter: {eq: [channel, {lit: c}]}}]
+      datasets:
+        - name: d9
+          extras:
+            storage: {format: parquet, paths: ['s3://semstrait-e2e/c/returns/']}
+            semantic_mapping: {order_count: amount}
+        - name: u2
+          extras:
+            storage: {format: parquet, paths: ['s3://semstrait-e2e/a/orders/', 's3://semstrait-e2e/c/orders/']}
+            semantic_mapping: {order_count: amount}

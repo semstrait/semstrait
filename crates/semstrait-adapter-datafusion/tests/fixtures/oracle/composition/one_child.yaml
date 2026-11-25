@@ -1,0 +1,441 @@
+# A Grainset with one child and a Unionset of mode all with one branch are Sugar: compile stores the child under the composition's name.
+
+grainset_answers_as_a_dataset:
+  # A one-child Grainset answers as its only child, which the trace names by the Grainset's name.
+  model: models/one_child_grainset
+  request:
+    from: ads
+    select: [reach]
+  expect:
+    rows:
+      - [reach]
+      - [3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[reach]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=0, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Read[warehouse.daily => reach:i64?]
+            + Opt:Trace[semantic_source='ads', source_role=&Dataset, physical_source='daily']
+
+grainset_keeps_its_child_granularity:
+  # A one-child Grainset that states a time axis and no granularity keeps the child's Day.
+  model: models/one_child_grainset
+  request:
+    from: ads_stated
+    select: [{dimension: date, granularity: day}, reach]
+  expect:
+    rows:
+      - [date, reach]
+      - [2024-01-01, 1]
+      - [2024-01-02, 2]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, reach]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads_stated', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[(date_trunc('day', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Read[warehouse.daily => date:date?, reach:i64?]
+              + Opt:Trace[semantic_source='ads_stated', source_role=&Dataset, physical_source='daily']
+
+grainset_nested_in_a_unionset:
+  # A one-child Grainset inside a Unionset is one of its branches, named under the Unionset.
+  model: models/one_child_nested
+  request:
+    from: ads
+    select: [campaign, clicks]
+  expect:
+    rows:
+      - [campaign, clicks]
+      - [spring, 12]
+      - [search, 6]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[campaign, clicks]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, $1]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$0, $2, $1]
+                Project[$0, true, $1]
+                  Read[warehouse.google_by_campaign => campaign:string?, clicks:i64?]
+                    + Opt:Trace[semantic_source='ads.google', source_role=&Dataset, originators=('ads',), physical_source='google_by_campaign']
+            Project[$0, $1]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $2, $1]
+                  Project[$0, true, $1]
+                    Read[warehouse.other => campaign:string?, clicks:i64?]
+                      + Opt:Trace[semantic_source='ads.other', source_role=&Dataset, originators=('ads',), physical_source='other']
+
+unionset_over_one_source_cost_and_clicks:
+  # A root Unionset of mode all with one Source as its branch gives that Source's row.
+  model: models/one_child_sibling
+  request:
+    from: adwords_sources
+    select: [campaign, cost, clicks]
+  expect:
+    rows:
+      - [campaign, cost, clicks]
+      - [1, 100, 1500]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[campaign, cost, clicks]
+      Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='adwords_sources', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $2, $1]
+          Read[warehouse.adwords_rt1_source_a => campaign:i64?, cost:i64?, clicks:i64?]
+            + Opt:Trace[semantic_source='adwords_sources', source_role=&Dataset, physical_source='adwords_rt1_source_a']
+
+unionset_over_one_source_with_a_metric:
+  # A Metric that a root Unionset with one Source as its branch declares is on the stored Source.
+  model: models/one_child_sibling
+  request:
+    from: facebookads_sources
+    select: [campaign, impressions_combined]
+  expect:
+    rows:
+      - [campaign, impressions_combined]
+      - [1, 1000]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[campaign, impressions_combined]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='facebookads_sources', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Read[warehouse.facebookads_rt_ad_source_a => campaign:i64?, impressions:i64?]
+            + Opt:Trace[semantic_source='facebookads_sources', source_role=&Dataset, physical_source='facebookads_rt_ad_source_a']
+
+unionset_over_a_one_child_grainset_cost_and_clicks:
+  # A root Unionset of mode all whose one branch is a one-child Grainset over one Source gives that Source's row.
+  model: models/one_child_sibling
+  request:
+    from: adwords_chain
+    select: [campaign, cost, clicks]
+  expect:
+    rows:
+      - [campaign, cost, clicks]
+      - [1, 100, 1500]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[campaign, cost, clicks]
+      Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='adwords_chain', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $2, $1]
+          Read[warehouse.adwords_rt1_source_a => campaign:i64?, cost:i64?, clicks:i64?]
+            + Opt:Trace[semantic_source='adwords_chain', source_role=&Dataset, physical_source='adwords_rt1_source_a']
+
+unionset_stating_month_over_a_day_child_keeps_the_day_child:
+  # A one-branch Unionset that states month over its daily Dataset is stored as the daily Dataset, so a month request rolls its days up.
+  model: models/one_child_month_over_day
+  request:
+    from: one
+    select: [{dimension: date, granularity: month}, bal]
+  expect:
+    rows:
+      - [date, bal]
+      - [2024-01-01, 150]
+      - [2024-02-01, 40]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, bal]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='one', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='one', source_role=&Grainset, answered_by='one.inner']
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Read[warehouse.daily => date:date?, bal:i64?]
+                + Opt:Trace[semantic_source='one.inner', source_role=&Dataset, originators=('one',), physical_source='daily']
+
+unionset_stating_day_over_a_month_child_keeps_the_month_child:
+  # A one-branch Unionset that states day over its monthly Dataset is stored as the monthly Dataset: a month request reads it, a day request reads the sibling.
+  model: models/one_child_finer_stated
+  request:
+    from: all_ads
+    select: [{dimension: date, granularity: month}, revenue]
+  expect:
+    rows:
+      - [date, revenue]
+      - [2024-01-01, 30]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='all_ads', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='all_ads', source_role=&Grainset, answered_by='all_ads.inner']
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Read[warehouse.monthly => date:date?, revenue:i64?]
+              + Opt:Trace[semantic_source='all_ads.inner', source_role=&Dataset, originators=('all_ads',), physical_source='monthly']
+
+unionset_stating_day_over_a_month_child_answers_a_day_request_from_the_sibling:
+  # The monthly child cannot answer at day, so the daily sibling does.
+  model: models/one_child_finer_stated
+  request:
+    from: all_ads
+    select: [{dimension: date, granularity: day}, revenue]
+  expect:
+    rows:
+      - [date, revenue]
+      - [2024-01-05, 10]
+      - [2024-01-20, 20]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='all_ads', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='all_ads', source_role=&Grainset, answered_by='all_ads.other']
+        Project[(date_trunc('day', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Read[warehouse.other => date:date?, revenue:i64?]
+              + Opt:Trace[semantic_source='all_ads.other', source_role=&Dataset, originators=('all_ads',), physical_source='other']
+
+nested_member_whose_inner_grainset_cannot_serve_a_dimension_loses_to_a_dataset_member_campaign:
+  # A one-branch Unionset under a Grainset stays, because the Grainset cannot hold the Grainset below it.
+  model: models/one_child_nested
+  request:
+    from: ads_routing
+    select: [campaign, spend]
+  expect:
+    rows:
+      - [campaign, spend]
+      - [brand, 100]
+      - [generic, 200]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[campaign, spend]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads_routing', compositions=3, granularity_fit=&NotSelected, granularity=&Day]
+        + Opt:Trace[semantic_source='ads_routing', source_role=&Grainset, answered_by='ads_routing.ads_ds']
+        Project[$0, $1]
+          Read[warehouse.ads_ds => campaign:string?, spend:i64?]
+            + Opt:Trace[semantic_source='ads_routing.ads_ds', source_role=&Dataset, originators=('ads_routing',), physical_source='ads_ds']
+
+nested_member_whose_inner_grainset_cannot_serve_a_dimension_loses_to_a_dataset_member_platform:
+  # The kept Unionset and its Grainset answer a Dimension that the Dataset member does not map.
+  model: models/one_child_nested
+  request:
+    from: ads_routing
+    select: [platform, spend]
+  expect:
+    rows:
+      - [platform, spend]
+      - [facebook, 7]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[platform, spend]
+      Project[$0, ($1)::!i64?]
+        + Opt:Trace[scope_root='ads_routing', compositions=3, granularity_fit=&NotSelected, granularity=&Month]
+        + Opt:Trace[semantic_source='ads_routing', source_role=&Grainset, answered_by='ads_routing.ads_by_platform']
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              + Opt:Trace[semantic_source='ads_routing.ads_by_platform', source_role=&Unionset, originators=('ads_routing',), delivery=&PartialAggregates]
+              Project[$0, $2, $1]
+                Project[$0, true, $1]
+                  + Opt:Trace[semantic_source='ads_routing.ads_by_platform.facebook', source_role=&Grainset, originators=('ads_routing.ads_by_platform',), answered_by='ads_routing.ads_by_platform.facebook.facebook_totals']
+                  Read[warehouse.facebook_totals => platform:string?, spend:i64?]
+                    + Opt:Trace[semantic_source='ads_routing.ads_by_platform.facebook.facebook_totals', source_role=&Dataset, originators=('ads_routing.ads_by_platform.facebook',), physical_source='facebook_totals']
+
+case_5_total_clicks_rolls_up_without_the_overlap:
+  # A one-child Grainset over a Unionset stays under a Unionset, because the Unionset cannot hold the Unionset below it.
+  model: models/one_child_sibling
+  request:
+    from: sources
+    select: [clicks]
+  expect:
+    rows:
+      - [clicks]
+      - [10500]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[clicks]
+      Project[($0)::!i64?]
+        + Opt:Trace[scope_root='sources', compositions=4, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+          Project[$0]
+            Set[&UnionAll => $0]
+              + Opt:Trace[semantic_source='sources', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                Project[$1, $0]
+                  Project[true, $0]
+                    + Opt:Trace[semantic_source='sources.adwords', source_role=&Grainset, originators=('sources',), answered_by='sources.adwords.rt1']
+                    Read[warehouse.rt1 => clicks:i64?]
+                      + Opt:Trace[semantic_source='sources.adwords.rt1', source_role=&Dataset, originators=('sources.adwords',), physical_source='rt1']
+              Project[$0]
+                Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                  + Opt:Trace[semantic_source='sources.tiktok', source_role=&Grainset, originators=('sources',), answered_by='sources.tiktok.tiktok_disjoint_1']
+                  Project[$0]
+                    Set[&UnionAll => $0]
+                      + Opt:Trace[semantic_source='sources.tiktok.tiktok_disjoint_1', source_role=&Unionset, originators=('sources.tiktok',), delivery=&PartialAggregates]
+                      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$1, $0]
+                          Project[true, $0]
+                            Read[warehouse.rt3 => clicks:i64?]
+                              + Opt:Trace[semantic_source='sources.tiktok.tiktok_disjoint_1.rt3', source_role=&Dataset, originators=('sources.tiktok.tiktok_disjoint_1',), physical_source='rt3']
+                      Project[$0]
+                        Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                          Project[$1, $0]
+                            Project[true, $0]
+                              Read[warehouse.rt4 => clicks:i64?]
+                                + Opt:Trace[semantic_source='sources.tiktok.tiktok_disjoint_1.rt4', source_role=&Dataset, originators=('sources.tiktok.tiktok_disjoint_1',), physical_source='rt4']
+
+case_6_siblings_on_disjoint_campaigns_add_up:
+  # The Grainset with one Dataset collapses as before; the Grainset over a Unionset stays.
+  model: models/one_child_sibling
+  request:
+    from: sources_single
+    select: [clicks]
+  expect:
+    rows:
+      - [clicks]
+      - [10500]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sources_single', compositions=3, granularity_fit=&NotSelected]
+        Project[$0]
+          Set[&UnionAll => $0]
+            + Opt:Trace[semantic_source='sources_single', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+              Project[$1, $0]
+                Project[true, $0]
+                  Read[warehouse.rt1 => clicks:i64?]
+                    + Opt:Trace[semantic_source='sources_single.adwords', source_role=&Dataset, originators=('sources_single',), physical_source='rt1']
+            Project[$0]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                + Opt:Trace[semantic_source='sources_single.tiktok', source_role=&Grainset, originators=('sources_single',), answered_by='sources_single.tiktok.tiktok_disjoint_1']
+                Project[$0]
+                  Set[&UnionAll => $0]
+                    + Opt:Trace[semantic_source='sources_single.tiktok.tiktok_disjoint_1', source_role=&Unionset, originators=('sources_single.tiktok',), delivery=&PartialAggregates]
+                    Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                      Project[$1, $0]
+                        Project[true, $0]
+                          Read[warehouse.rt3 => clicks:i64?]
+                            + Opt:Trace[semantic_source='sources_single.tiktok.tiktok_disjoint_1.rt3', source_role=&Dataset, originators=('sources_single.tiktok.tiktok_disjoint_1',), physical_source='rt3']
+                    Project[$0]
+                      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                        Project[$1, $0]
+                          Project[true, $0]
+                            Read[warehouse.rt4 => clicks:i64?]
+                              + Opt:Trace[semantic_source='sources_single.tiktok.tiktok_disjoint_1.rt4', source_role=&Dataset, originators=('sources_single.tiktok.tiktok_disjoint_1',), physical_source='rt4']

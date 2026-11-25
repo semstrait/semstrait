@@ -1,0 +1,1 @@
+error: at `spend_weekly`: the semantic source `spend_weekly` at `week` cannot serve the requested granularity `month`

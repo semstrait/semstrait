@@ -1,0 +1,281 @@
+# An activated named filter on a Grainset goes unchanged to the child that answers alone, which reads its own signature for it.
+
+web_at_month:
+  # The Month child answers alone and reads its own web filter.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [{dimension: ordered_at, granularity: month}, revenue]
+    filters: [web]
+  expect:
+    rows:
+      - [ordered_at, revenue]
+      - [2026-09-01, 40]
+      - [2026-10-01, 150]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+
+    === Plan
+    Root[ordered_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Filter[$2 => $0, $1, $2]
+            Project[$0, $1, equal($2, 'web'):boolean?]
+              Read[warehouse.m => month_start:date?, amount:i64?, channel:string?]
+                + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']
+
+web_at_day:
+  # The Day child answers alone and reads its own web filter.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [{dimension: ordered_at, granularity: day}, revenue]
+    filters: [web]
+  expect:
+    rows:
+      - [ordered_at, revenue]
+      - [2026-09-12, 40]
+      - [2026-10-05, 100]
+      - [2026-10-20, 50]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+
+    === Plan
+    Root[ordered_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.d']
+        Project[(date_trunc('day', $0):date?)::!date?, $1]
+          Filter[$2 => $0, $1, $2]
+            Project[$0, $1, equal($2, 'web'):boolean?]
+              Read[warehouse.d => day:date?, amount:i64?, channel:string?]
+                + Opt:Trace[semantic_source='sales.d', source_role=&Dataset, originators=('sales',), physical_source='d']
+
+web_total:
+  # With no time axis selected, a child that serves the whole demand answers the filtered total.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [revenue]
+    filters: [web]
+  expect:
+    rows:
+      - [revenue]
+      - [190]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Filter[$1 => $0, $1]
+          Project[$0, equal($1, 'web'):boolean?]
+            Read[warehouse.m => amount:i64?, channel:string?]
+              + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']
+
+tv_total:
+  # A filter that matches no row gives the one NULL row of an ungrouped sum.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [revenue]
+    filters: [tv]
+  expect:
+    rows:
+      - [revenue]
+      - [null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&NotSelected, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Filter[$1 => $0, $1]
+          Project[$0, equal($1, 'tv'):boolean?]
+            Read[warehouse.m => amount:i64?, channel:string?]
+              + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']
+
+tv_at_month:
+  # A filter that matches no row gives no group at a grouped request.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [{dimension: ordered_at, granularity: month}, revenue]
+    filters: [tv]
+  expect:
+    rows:
+      - [ordered_at, revenue]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+
+    === Plan
+    Root[ordered_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Filter[$2 => $0, $1, $2]
+            Project[$0, $1, equal($2, 'tv'):boolean?]
+              Read[warehouse.m => month_start:date?, amount:i64?, channel:string?]
+                + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']
+
+web_and_not_app:
+  # Two activated named filters both go into the one child that answers.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [{dimension: ordered_at, granularity: month}, revenue]
+    filters: [web, not_app]
+  expect:
+    rows:
+      - [ordered_at, revenue]
+      - [2026-09-01, 40]
+      - [2026-10-01, 150]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:semstrait:datafusion
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: not
+      #  3 @  2: and
+      #  4 @  3: date_trunc
+      #  5 @  4: sum
+
+    === Plan
+    Root[ordered_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Project[(date_trunc('month', $1):date?)::!date?, $2]
+          Filter[and($3, $0):boolean? => $0, $1, $2, $3]
+            Project[not(equal($2, 'app'):boolean?):boolean?, $0, $1, equal($2, 'web'):boolean?]
+              Read[warehouse.m => month_start:date?, amount:i64?, channel:string?]
+                + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']
+
+known_at_month:
+  # A filter that links web and adds app keeps both channels and drops the NULL channel.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [{dimension: ordered_at, granularity: month}, revenue]
+    filters: [known]
+  expect:
+    rows:
+      - [ordered_at, revenue]
+      - [2026-09-01, 40]
+      - [2026-10-01, 350]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:semstrait:datafusion
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: or
+      #  3 @  3: date_trunc
+      #  4 @  4: sum
+
+    === Plan
+    Root[ordered_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Project[(date_trunc('month', $1):date?)::!date?, $2]
+          Filter[$0 => $0, $1, $2]
+            Project[or(equal($2, 'web'):boolean?, equal($2, 'app'):boolean?):boolean?, $0, $1]
+              Read[warehouse.m => month_start:date?, amount:i64?, channel:string?]
+                + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']
+
+no_filter_at_month:
+  # With no filter, the Month child answers every row, the NULL channel included.
+  model: models/sales_named_filter
+  request:
+    from: sales
+    select: [{dimension: ordered_at, granularity: month}, revenue]
+  expect:
+    rows:
+      - [ordered_at, revenue]
+      - [2026-09-01, 40]
+      - [2026-10-01, 360]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[ordered_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&Requested, granularity=&Month]
+        + Opt:Trace[semantic_source='sales', source_role=&Grainset, answered_by='sales.m']
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[$0, $1]
+            Read[warehouse.m => month_start:date?, amount:i64?]
+              + Opt:Trace[semantic_source='sales.m', source_role=&Dataset, originators=('sales',), physical_source='m']

@@ -1,0 +1,23 @@
+# A model whose explicit mapping names a column its table lacks.
+semantic_model:
+  name: missing_column
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue

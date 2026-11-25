@@ -1,0 +1,536 @@
+# A fan-out marker reads one row per preserved row identity, by a named by, a keyset, or every exposed Dimension.
+
+case_condition_marker_parts:
+  # A CASE nested inside another's condition still splits a fanned row into two marker-summed parts.
+  model: models/commerce_own_types
+  request:
+    from: ad_orders
+    select: [ad_type, inner_bonus]
+  expect:
+    rows:
+      - [ad_type, inner_bonus]
+      - [search, 370.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: coalesce
+      #  3 @  2: row_number
+      #  4 @  2: avg
+      #  5 @  2: add
+      #  6 @  2: sum
+
+    === Plan
+    Root[ad_type, inner_bonus]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='ad_orders', compositions=2, granularity_fit=&NotSelected]
+        Project[$0, add(if_then(equal($1, 1):boolean -> 100, _ -> 0), $3):fp64?]
+          Aggregate[$0, $2, $3 => $0, $2, $3, avg($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1, $2, $3, !{RexType}, $4]
+              Project[$4, $2, if_then(equal(if_then(equal(coalesce($1, $5):string?, 'ad1'):boolean? -> 1, equal($4, 'search'):boolean? -> 1, _ -> 0), 1):boolean -> 1, _ -> 2), if_then(equal(coalesce($1, $5):string?, 'ad1'):boolean? -> 1, equal($4, 'search'):boolean? -> 2, _ -> 3), $3]
+                Join[&Inner, equal($0, $5):boolean? => $0, $1, $2, $3, $4, $5]
+                  + Opt:Trace[semantic_source='ad_orders', source_role=&Joinset, cardinality=&ManyToOne]
+                  Project[$2, $2, $0, $1]
+                    Join[&Left, equal($1, $3):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='ad_orders.lines', source_role=&Joinset, originators=('ad_orders',), cardinality=&OneToMany]
+                      Project[($0)::!fp64?, $1]
+                        Read[warehouse.orders => amount:i64?, order_id:string?]
+                          + Opt:Trace[semantic_source='ad_orders.orders', source_role=&Dataset, originators=('ad_orders',), physical_source='orders']
+                      Project[$0, $1]
+                        Read[warehouse.order_lines => ad_id:string?, order_id:string?]
+                          + Opt:Trace[semantic_source='ad_orders.order_lines', source_role=&Dataset, originators=('ad_orders',), physical_source='order_lines']
+                  Aggregate[$1, $0 => $1, $0]
+                    Project[$1, $0]
+                      Read[warehouse.placements => ad_type:string?, ad_id:string?]
+                        + Opt:Trace[semantic_source='ad_orders.placements', source_role=&Dataset, originators=('ad_orders',), physical_source='placements']
+
+case_result_marker_parts:
+  # A CASE's two results split a fanned order's lines into two parts, counted once each under the marker.
+  model: models/commerce_own_types
+  request:
+    from: ad_orders
+    select: [ad_type, bonus]
+  expect:
+    rows:
+      - [ad_type, bonus]
+      - [search, 370.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: coalesce
+      #  3 @  2: row_number
+      #  4 @  2: avg
+      #  5 @  2: add
+      #  6 @  2: sum
+
+    === Plan
+    Root[ad_type, bonus]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='ad_orders', compositions=2, granularity_fit=&NotSelected]
+        Project[$0, add(if_then(equal($1, 1):boolean -> 100, equal($1, 2):boolean -> 100, _ -> 0), $2):fp64?]
+          Aggregate[$0, $2 => $0, $2, avg($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1, $2, !{RexType}, $3]
+              Project[$4, $2, if_then(equal(coalesce($1, $5):string?, 'ad1'):boolean? -> 1, equal($4, 'search'):boolean? -> 2, _ -> 3), $3]
+                Join[&Inner, equal($0, $5):boolean? => $0, $1, $2, $3, $4, $5]
+                  + Opt:Trace[semantic_source='ad_orders', source_role=&Joinset, cardinality=&ManyToOne]
+                  Project[$2, $2, $0, $1]
+                    Join[&Left, equal($1, $3):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='ad_orders.lines', source_role=&Joinset, originators=('ad_orders',), cardinality=&OneToMany]
+                      Project[($0)::!fp64?, $1]
+                        Read[warehouse.orders => amount:i64?, order_id:string?]
+                          + Opt:Trace[semantic_source='ad_orders.orders', source_role=&Dataset, originators=('ad_orders',), physical_source='orders']
+                      Project[$0, $1]
+                        Read[warehouse.order_lines => ad_id:string?, order_id:string?]
+                          + Opt:Trace[semantic_source='ad_orders.order_lines', source_role=&Dataset, originators=('ad_orders',), physical_source='order_lines']
+                  Aggregate[$1, $0 => $1, $0]
+                    Project[$1, $0]
+                      Read[warehouse.placements => ad_type:string?, ad_id:string?]
+                        + Opt:Trace[semantic_source='ad_orders.placements', source_role=&Dataset, originators=('ad_orders',), physical_source='placements']
+
+grain_holds_fanned_key:
+  # Grouping by the fanned side's own key keeps each of its rows from merging into another.
+  model: models/commerce_own_types
+  request:
+    from: ad_orders
+    select: [ad_id, total]
+  expect:
+    rows:
+      - [ad_id, total]
+      - [ad1, 100]
+      - [ad2, 140]
+  sql: >-
+    SELECT l.ad_id, sum(o.amount) AS total
+    FROM warehouse.orders o
+    LEFT JOIN warehouse.order_lines l ON o.order_id = l.order_id GROUP BY l.ad_id
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+
+    === Plan
+    Root[ad_id, total]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ad_orders', compositions=2, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='ad_orders', source_role=&Joinset, answered_by='ad_orders.lines']
+        Project[$2, $1]
+          Join[&Left, equal($0, $3):boolean? => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='ad_orders.lines', source_role=&Joinset, originators=('ad_orders',), cardinality=&OneToMany]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$1, $0]
+                Read[warehouse.orders => amount:i64?, order_id:string?]
+                  + Opt:Trace[semantic_source='ad_orders.orders', source_role=&Dataset, originators=('ad_orders',), physical_source='orders']
+            Aggregate[$0, $1 => $0, $1]
+              Project[$0, $1]
+                Read[warehouse.order_lines => ad_id:string?, order_id:string?]
+                  + Opt:Trace[semantic_source='ad_orders.order_lines', source_role=&Dataset, originators=('ad_orders',), physical_source='order_lines']
+
+avg_reads_row_identity:
+  # With no partial aggregates, an avg reads one row per preserved row identity under the marker.
+  model: models/commerce_own_types
+  request:
+    from: ad_orders
+    select: [ad_type, avg_amount]
+  expect:
+    rows:
+      - [ad_type, avg_amount]
+      - [search, 70.0]
+  sql: >-
+    SELECT ad_type, avg(amount) FILTER (WHERE marker = 1) AS avg_amount
+    FROM (SELECT p.ad_type, o.amount, row_number() OVER
+    (PARTITION BY p.ad_type, o.order_id, o.amount) AS marker
+    FROM warehouse.orders o
+    LEFT JOIN warehouse.order_lines l ON o.order_id = l.order_id
+    JOIN warehouse.placements p ON l.ad_id = p.ad_id)
+    GROUP BY ad_type
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: row_number
+      #  3 @  2: avg
+
+    === Plan
+    Root[ad_type, avg_amount]
+      Aggregate[$0 => $0, avg($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='ad_orders', compositions=2, granularity_fit=&NotSelected]
+        Project[$0, $1, !{RexType}, $2]
+          Project[$3, $1, $2]
+            Join[&Inner, equal($0, $4):boolean? => $0, $1, $2, $3, $4]
+              + Opt:Trace[semantic_source='ad_orders', source_role=&Joinset, cardinality=&ManyToOne]
+              Project[$2, $0, $1]
+                Join[&Left, equal($1, $3):boolean? => $0, $1, $2, $3]
+                  + Opt:Trace[semantic_source='ad_orders.lines', source_role=&Joinset, originators=('ad_orders',), cardinality=&OneToMany]
+                  Project[($0)::!fp64?, $1]
+                    Read[warehouse.orders => amount:i64?, order_id:string?]
+                      + Opt:Trace[semantic_source='ad_orders.orders', source_role=&Dataset, originators=('ad_orders',), physical_source='orders']
+                  Project[$1, $0]
+                    Read[warehouse.order_lines => order_id:string?, ad_id:string?]
+                      + Opt:Trace[semantic_source='ad_orders.order_lines', source_role=&Dataset, originators=('ad_orders',), physical_source='order_lines']
+              Aggregate[$1, $0 => $1, $0]
+                Project[$1, $0]
+                  Read[warehouse.placements => ad_type:string?, ad_id:string?]
+                    + Opt:Trace[semantic_source='ad_orders.placements', source_role=&Dataset, originators=('ad_orders',), physical_source='placements']
+
+keyset_gives_row_identity:
+  # A Joinset's keyset gives the row identity that a fan-out average reads once per row.
+  model: models/commerce
+  request:
+    from: customer_orders
+    select: [segment, avg_credit, avg_amount]
+  input_data:
+    warehouse.customers:
+      - [c1, smb, gold, 100.0, null]
+      - [c2, smb, silver, 40.0, null]
+      - [c3, smb, bronze, 70.0, null]
+      - [c4, ent, gold, 200.0, null]
+      - [c5, ent, silver, 50.0, null]
+    warehouse.orders:
+      - [o1, c1, null, null, 10.0, null, null, null, null]
+      - [o2, c1, null, null, 20.0, null, null, null, null]
+      - [o3, c1, null, null, 30.0, null, null, null, null]
+      - [o4, c2, null, null, 60.0, null, null, null, null]
+      - [o5, c4, null, null, 100.0, null, null, null, null]
+      - [o6, c4, null, null, 300.0, null, null, null, null]
+      - [o7, c5, null, null, 80.0, null, null, null, null]
+  expect:
+    rows:
+      - [segment, avg_credit, avg_amount]
+      - [smb, 70.0, 30.0]
+      - [ent, 125.0, 160.0]
+  sql: >-
+    SELECT segment, avg(credit) FILTER (WHERE marker = 1) AS avg_credit,
+    avg(amount) AS avg_amount
+    FROM (SELECT c.segment, c.credit, o.amount, row_number() OVER
+    (PARTITION BY c.segment, c.customer_id, c.credit) AS marker
+    FROM warehouse.customers c LEFT JOIN warehouse.orders o
+    ON c.customer_id = o.customer_id)
+    GROUP BY segment
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: row_number
+      #  3 @  2: avg
+
+    === Plan
+    Root[segment, avg_credit, avg_amount]
+      Aggregate[$4 => $4, avg($1, overflow⇒[ERROR]):fp64?, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='customer_orders', compositions=1, granularity_fit=&NotSelected]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$3, $0, $1, $2]
+            Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+              + Opt:Trace[semantic_source='customer_orders', source_role=&Joinset, cardinality=&OneToMany]
+              Project[$1, $2, $0]
+                Read[warehouse.customers => segment:string?, credit:fp64?, customer_id:string?]
+                  + Opt:Trace[semantic_source='customer_orders.customers', source_role=&Dataset, originators=('customer_orders',), physical_source='customers']
+              Project[$0, $1]
+                Read[warehouse.orders => amount:fp64?, customer_id:string?]
+                  + Opt:Trace[semantic_source='customer_orders.orders', source_role=&Dataset, originators=('customer_orders',), physical_source='orders']
+
+no_keyset_every_dimension:
+  # With no keyset, the row identity is every Dimension the fanned side exposes.
+  model: models/commerce
+  request:
+    from: customer_orders_no_keyset
+    select: [segment, avg_credit, avg_amount]
+  input_data:
+    warehouse.customers:
+      - [c1, smb, gold, 100.0, null]
+      - [c2, smb, silver, 40.0, null]
+      - [c3, smb, bronze, 70.0, null]
+      - [c4, ent, gold, 200.0, null]
+      - [c5, ent, silver, 50.0, null]
+    warehouse.orders:
+      - [o1, c1, null, null, 10.0, null, null, null, null]
+      - [o2, c1, null, null, 20.0, null, null, null, null]
+      - [o3, c1, null, null, 30.0, null, null, null, null]
+      - [o4, c2, null, null, 60.0, null, null, null, null]
+      - [o5, c4, null, null, 100.0, null, null, null, null]
+      - [o6, c4, null, null, 300.0, null, null, null, null]
+      - [o7, c5, null, null, 80.0, null, null, null, null]
+  expect:
+    rows:
+      - [segment, avg_credit, avg_amount]
+      - [smb, 70.0, 30.0]
+      - [ent, 125.0, 160.0]
+  sql: >-
+    SELECT segment, avg(credit) FILTER (WHERE marker = 1) AS avg_credit,
+    avg(amount) AS avg_amount
+    FROM (SELECT c.segment, c.credit, o.amount, row_number() OVER
+    (PARTITION BY c.segment, c.customer_id, c.tier, c.credit) AS marker
+    FROM warehouse.customers c LEFT JOIN warehouse.orders o
+    ON c.customer_id = o.customer_id)
+    GROUP BY segment
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: row_number
+      #  3 @  2: avg
+
+    === Plan
+    Root[segment, avg_credit, avg_amount]
+      Aggregate[$4 => $4, avg($1, overflow⇒[ERROR]):fp64?, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='customer_orders_no_keyset', compositions=1, granularity_fit=&NotSelected]
+        Project[$0, $1, !{RexType}, $2, $3, $4, $5]
+          Project[$4, $0, $1, $2, $2, $3]
+            Join[&Left, equal($1, $5):boolean? => $0, $1, $2, $3, $4, $5]
+              + Opt:Trace[semantic_source='customer_orders_no_keyset', source_role=&Joinset, cardinality=&OneToMany]
+              Project[$1, $2, $0, $3]
+                Read[warehouse.customers => segment:string?, credit:fp64?, customer_id:string?, tier:string?]
+                  + Opt:Trace[semantic_source='customer_orders_no_keyset.customers', source_role=&Dataset, originators=('customer_orders_no_keyset',), physical_source='customers']
+              Project[$0, $1]
+                Read[warehouse.orders => amount:fp64?, customer_id:string?]
+                  + Opt:Trace[semantic_source='customer_orders_no_keyset.orders', source_role=&Dataset, originators=('customer_orders_no_keyset',), physical_source='orders']
+
+marker_by_dataset_axis:
+  # With no by named, the marker orders by the read Dataset's own time axis, never the Joinset's derived one.
+  model: models/finance_day_shape
+  request:
+    from: holdings
+    select: [{dimension: date, granularity: month}, balance_default_by]
+  expect:
+    rows:
+      - [date, balance_default_by]
+      - [2026-09-01, 300]
+      - [2026-10-01, 380]
+  sql: >-
+    SELECT month, sum(balance) FILTER (WHERE marker = 1) AS balance_default_by
+    FROM (SELECT date_trunc('month', coalesce(o.booked_on, b.snap_date)) AS month,
+    b.balance, rank() OVER (PARTITION BY date_trunc('month',
+    coalesce(o.booked_on, b.snap_date)) ORDER BY b.snap_date DESC NULLS LAST) AS marker
+    FROM warehouse.orders o LEFT JOIN warehouse.balances b
+    ON o.account = b.account AND o.booked_on = b.snap_date)
+    GROUP BY month
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  4: date_trunc
+      #  6 @  1: rank
+
+    === Plan
+    Root[date, balance_default_by]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='holdings', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+            Project[$4, $2, coalesce($0, $2):date?]
+              Join[&Left, and(equal($1, $3):boolean?, equal($0, $2):boolean?):boolean? => $0, $1, $2, $3, $4]
+                + Opt:Trace[semantic_source='holdings', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.orders => booked_on:date?, account:string?]
+                      + Opt:Trace[semantic_source='holdings.orders', source_role=&Dataset, originators=('holdings',), physical_source='orders']
+                Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $1, $0]
+                    Read[warehouse.balances => snap_date:date?, balance:i64?, account:string?]
+                      + Opt:Trace[semantic_source='holdings.balances', source_role=&Dataset, originators=('holdings',), physical_source='balances']
+
+marker_ignores_coalesced_date:
+  # The marker orders by one operand's own date, never the Coalesce of both operands' dates.
+  model: models/finance_day_shape
+  request:
+    from: holdings
+    select: [{dimension: date, granularity: month}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-09-01, 300]
+      - [2026-10-01, 380]
+  sql: >-
+    SELECT month, sum(balance) FILTER (WHERE marker = 1) AS balance
+    FROM (SELECT date_trunc('month', coalesce(o.booked_on, b.snap_date)) AS month,
+    b.balance, rank() OVER (PARTITION BY date_trunc('month',
+    coalesce(o.booked_on, b.snap_date)) ORDER BY b.snap_date DESC NULLS LAST) AS marker
+    FROM warehouse.orders o LEFT JOIN warehouse.balances b
+    ON o.account = b.account AND o.booked_on = b.snap_date)
+    GROUP BY month
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  4: date_trunc
+      #  6 @  1: rank
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='holdings', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $2):date?)::!date?]
+            Project[$4, $2, coalesce($0, $2):date?]
+              Join[&Left, and(equal($1, $3):boolean?, equal($0, $2):boolean?):boolean? => $0, $1, $2, $3, $4]
+                + Opt:Trace[semantic_source='holdings', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.orders => booked_on:date?, account:string?]
+                      + Opt:Trace[semantic_source='holdings.orders', source_role=&Dataset, originators=('holdings',), physical_source='orders']
+                Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $1, $0]
+                    Read[warehouse.balances => snap_date:date?, balance:i64?, account:string?]
+                      + Opt:Trace[semantic_source='holdings.balances', source_role=&Dataset, originators=('holdings',), physical_source='balances']
+
+repeated_snapshot_row_identity:
+  # Repeated snapshot rows across fanned orders are read once per row identity under the marker.
+  model: models/finance_order_balances
+  request:
+    from: order_balances
+    select: [{dimension: order_date, granularity: month}, avg_balance]
+  expect:
+    rows:
+      - [order_date, avg_balance]
+      - [2026-10-01, 177.5]
+  sql: >-
+    SELECT date_trunc('month', order_date) AS order_date,
+    avg(balance) FILTER (WHERE marker = 1) AS avg_balance
+    FROM (SELECT o.order_date, b.balance, row_number() OVER
+    (PARTITION BY date_trunc('month', o.order_date), b.account, b.snap_date, b.balance)
+    AS marker
+    FROM warehouse.orders o LEFT JOIN warehouse.balances b
+    ON o.account = b.account AND o.booked_on = b.snap_date)
+    GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:semstrait:datafusion
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: date_trunc
+      #  4 @  4: row_number
+      #  5 @  4: avg
+
+    === Plan
+    Root[order_date, avg_balance]
+      Aggregate[$4 => $4, avg($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='order_balances', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $3):date?)::!date?]
+            Project[$3, $4, $5, $0]
+              Join[&Left, and(equal($1, $3):boolean?, equal($2, $5):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+                + Opt:Trace[semantic_source='order_balances', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$2, $0, $1 => $2, $0, $1]
+                  Project[$1, $2, $0]
+                    Read[warehouse.orders => order_date:date?, account:string?, booked_on:date?]
+                      + Opt:Trace[semantic_source='order_balances.orders', source_role=&Dataset, originators=('order_balances',), physical_source='orders']
+                Project[$1, ($0)::!fp64?, $2]
+                  Read[warehouse.balances => balance:i64?, account:string?, snap_date:date?]
+                    + Opt:Trace[semantic_source='order_balances.balances', source_role=&Dataset, originators=('order_balances',), physical_source='balances']
+
+marker_per_order_not_line:
+  # A fan-out average reads one row per order under the marker, while the other side reads every line.
+  model: models/commerce
+  request:
+    from: shipping
+    select: [region, avg_shipping, avg_price]
+  input_data:
+    warehouse.order_lines:
+      - [l1, o1, null, 2.0]
+      - [l2, o1, null, 2.0]
+      - [l3, o1, null, 2.0]
+      - [l4, o2, null, 4.0]
+      - [l5, o3, null, 5.0]
+      - [l6, o3, null, 5.0]
+      - [l7, o4, null, 8.0]
+    warehouse.orders:
+      - [o1, null, eu, null, null, null, null, 10.0, null]
+      - [o2, null, eu, null, null, null, null, 20.0, null]
+      - [o3, null, us, null, null, null, null, 5.0, null]
+      - [o4, null, us, null, null, null, null, 7.0, null]
+  expect:
+    rows:
+      - [region, avg_shipping, avg_price]
+      - [eu, 15.0, 2.5]
+      - [us, 6.0, 6.0]
+  sql: >-
+    SELECT region, avg(shipping_cost) FILTER (WHERE marker = 1) AS avg_shipping,
+    avg(price) AS avg_price
+    FROM (SELECT o.region, o.shipping_cost, l.price, row_number() OVER
+    (PARTITION BY o.region, o.order_id, o.shipping_cost) AS marker
+    FROM warehouse.orders o LEFT JOIN warehouse.order_lines l
+    ON o.order_id = l.order_id)
+    GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: row_number
+      #  3 @  2: avg
+
+    === Plan
+    Root[region, avg_shipping, avg_price]
+      Aggregate[$4 => $4, avg($1, overflow⇒[ERROR]):fp64?, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='shipping', compositions=1, granularity_fit=&NotSelected]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$3, $0, $1, $2]
+            Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+              + Opt:Trace[semantic_source='shipping', source_role=&Joinset, cardinality=&OneToMany]
+              Project[$1, $2, $0]
+                Read[warehouse.orders => region:string?, shipping_cost:fp64?, order_id:string?]
+                  + Opt:Trace[semantic_source='shipping.orders', source_role=&Dataset, originators=('shipping',), physical_source='orders']
+              Project[$0, $1]
+                Read[warehouse.order_lines => price:fp64?, order_id:string?]
+                  + Opt:Trace[semantic_source='shipping.order_lines', source_role=&Dataset, originators=('shipping',), physical_source='order_lines']

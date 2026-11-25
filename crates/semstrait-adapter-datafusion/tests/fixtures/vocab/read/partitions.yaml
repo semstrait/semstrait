@@ -1,0 +1,28 @@
+# A Hive-style default-partition folder reads its key as NULL.
+
+default_partition_null:
+  # A Hive-style default-partition folder reads its key as NULL.
+  model: models/reads
+  request:
+    select: [year, region, total]
+  types: [integer, string, bigint]
+  expect:
+    rows:
+      - [year, region, total]
+      - [2026, eu, 3]
+      - [2026, us, 3]
+      - [2026, null, 4]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[year, region, total]
+      Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):i64?]
+        Project[$0, $1, $2]
+          Read[!{ReadRel} => year:i32?, region:string?, amount:i64?]

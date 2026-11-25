@@ -1,0 +1,555 @@
+version: 3.1
+semantic_model:
+  name: acme-eu-ad-platforms
+  namespace: example_warehouse # maps to Polaris catalog name
+  description: Cross-platform paid media metrics (independent variables for MMM)
+  ai_context:
+    description: >
+      Paid media metrics across Google Ads, Facebook, Bing, TikTok, Impact, Klaviyo
+      for Acme EU (DE, ES, FR, GB, IT). Independent variables (X) for MMM.
+  labels: [mmm, acme, eu, paid-media, independent-variables]
+  # ─── Shared dimensions ───────────────────────────────────────────────────
+  dimensions:
+    - name: dataset_name
+      data_type: string
+      description: "Namespace extraction, platform name or source of data in current model version"
+      type:
+        metadata:
+          path:
+            token: 5
+
+    - name: export_account_id
+      description: "Export account UUID extracted from resolved S3 location path"
+      data_type: string
+      type:
+        metadata:
+          path:
+            token: 6
+
+    - name: date
+      description: "Reporting date"
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+
+    - name: campaign
+      description: "Campaign name"
+      data_type: string
+      ai_context:
+        synonyms: [campaign, ad campaign]
+
+    - name: country
+      description: "Country where the ad was served or the audience is located"
+      data_type: string
+
+    - name: market
+      description: "Country or geographic market code (DE, ES, FR, GB, IT)"
+      data_type: string
+      ai_context:
+        synonyms: [geo, market, country code]
+
+    - name: measurement_channel
+      description: "Marketing channel classification (Paid Search, Paid Social, Video, Affiliates, Email)"
+      data_type: string
+      ai_context:
+        synonyms: [channel, ad channel, marketing channel]
+
+    - name: traffic_source
+      description: "Traffic source platform name (Google, Bing, Facebook, Tiktok, Impact, Klaviyo)"
+      data_type: string
+      ai_context:
+        synonyms: [traffic source, platform]
+
+    - name: measurement_source
+      description: "Measurement source identifier"
+      data_type: string
+      expr:
+        concat:
+          - measurement_channel
+          - lit: " - "
+          - traffic_source
+
+    - name: currency
+      description: "Currency of the reported monetary values"
+      data_type: string
+
+  # ─── Shared measures ─────────────────────────────────────────────────────
+  measures:
+    - name: cost
+      description: "Total ad spend in account currency"
+      data_type: decimal
+      agg: sum
+      ai_context:
+        synonyms: [ad cost, ad spend, spend]
+
+    - name: clicks
+      description: "Number of clicks on the ad"
+      data_type: decimal
+      agg: sum
+
+    - name: impressions
+      description: "Number of times the ad was displayed on screen"
+      data_type: decimal
+      agg: sum
+
+    - name: platform_conversions
+      description: "Total tracked conversions attributed to ads"
+      data_type: decimal
+      agg: sum
+      ai_context:
+        synonyms: [conv, total conversions]
+
+    - name: platform_revenue
+      description: "Revenue attributed to ad platform"
+      data_type: decimal
+      agg: sum
+
+    - name: actions
+      description: "Actions performed in a campaign"
+      data_type: decimal
+      agg: sum
+
+  # ─── Shared metrics ────────────────────────────────────────────────────
+  metrics:
+    - name: cpc
+      description: "Cost per click"
+      data_type: decimal
+      expr: "cost / clicks"
+
+    - name: cpm
+      description: "Cost per thousand impressions"
+      data_type: decimal
+      expr: "(cost / impressions) * 1000"
+
+    - name: ctr
+      description: "Click-through rate"
+      data_type: decimal
+      expr: "clicks / impressions"
+
+    - name: cpa
+      description: "Cost per conversion"
+      data_type: decimal
+      expr: "cost / platform_conversions"
+
+    - name: roas
+      description: "Return on ad spend"
+      data_type: decimal
+      expr: "platform_revenue / cost"
+
+    - name: conversion_rate
+      description: "Share of clicks resulting in a conversion"
+      data_type: decimal
+      expr: "platform_conversions / clicks"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Kind: Paid Media Campaign Performance
+  # ═══════════════════════════════════════════════════════════════════════════
+  unionsets:
+    - name: paid_media_campaign_performance
+      description: "Cross-platform paid media performance unified across Google Ads, Bing Ads, Facebook/Meta, and TikTok"
+      ai_context:
+        description: "Use for cross-channel paid media analysis. Filter by platform or campaign_category (search/social). Hierarchy: campaign > adgroup > ad. Facebook 'adset' = TikTok 'adgroup'."
+      dimensions:
+        # ── 1. Metadata & classification ─────────────────────────────────
+        # Keyness is per-site (ADR 0039): `date` sits in both keysets, and
+        # each of the other two members names just one. Matches the v3 twin.
+        - ref: date
+          is_key: true
+          keysets: [platform, natural]
+        - ref: dataset_name
+        - ref: campaign
+          is_key: true
+          keyset: natural
+        - ref: country
+        - ref: traffic_source
+        - ref: measurement_source
+        - ref: measurement_channel
+        - ref: currency
+        - ref: export_account_id
+          is_key: true
+          keyset: platform
+        # Computed dimension: derives market code from campaign name and dataset_name.
+        # Uses inline `name:` (not `ref:`) because RefEntry silently drops `expr:`.
+        - name: market
+          description: "Derived market code from campaign naming conventions"
+          data_type: string
+          expr:
+            case:
+              when:
+                - condition:
+                    in:
+                      col: dataset_name
+                      list:
+                        - lit: "adwords"
+                        - lit: "facebookads"
+                        - lit: "bing"
+                        - lit: "tiktok"
+                        - lit: "klaviyo"
+                  then:
+                    case:
+                      when:
+                        - condition:
+                            regexp_like:
+                              - col: campaign
+                              - lit: "^UK_"
+                          then:
+                            lit: "GB"
+                        - condition:
+                            eq:
+                              - dataset_name
+                              - lit: "facebookads"
+                          then:
+                            case:
+                              when:
+                                - condition:
+                                    regexp_like:
+                                      - col: campaign
+                                      - lit: "^EU_"
+                                  then:
+                                    upper: country
+                              else:
+                                upper:
+                                  regexp_extract:
+                                    col: campaign
+                                    pattern:
+                                      lit: "^([A-Z]{2})_"
+                                    group: 1
+                      else:
+                        upper:
+                          regexp_extract:
+                            col: campaign
+                            pattern:
+                              lit: "^([A-Z]{2})_"
+                            group: 1
+                - condition:
+                    eq:
+                      - dataset_name
+                      - lit: "impact"
+                  then:
+                    case:
+                      when:
+                        - condition:
+                            regexp_like:
+                              - col: campaign
+                              - lit: "^Acme UK"
+                          then:
+                            lit: "GB"
+                      else:
+                        regexp_extract:
+                          col: campaign
+                          pattern:
+                            lit: "^Acme ([A-Z]{2})"
+                          group: 1
+              else:
+                lit: ""
+
+      # ── Measures ──────────────────────────────────────────────────────────
+      measures:
+        # ── Core performance (all platforms) ──
+        - ref: cost
+        - ref: clicks
+        - ref: impressions
+        - ref: platform_conversions
+        - ref: platform_revenue
+        - ref: actions
+
+      # ── Metrics ───────────────────────────────────────────────────────────
+      metrics:
+        - ref: cpc
+        - ref: cpm
+        - ref: ctr
+        - ref: cpa
+        - ref: roas
+        - ref: conversion_rate
+
+      extras:
+        temporal:
+          granularity: day
+          type:
+            events:
+              occurred_at: date
+
+      # ── Datasets ──────────────────────────────────────────────────────────
+      datasets:
+        # ── Google Ads ───────────────────────────────────────────────────
+        # 6 accounts under adwords namespace (shared prefix with keyword_clicks —
+        # glob selects all; filter specific tables if needed in production)
+        - name: adwords_campaign_data
+          description: "Google Ads campaign performance + conversion breakdown"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "adwords.*"
+            column_mapping:
+              # metadata & classification
+              measurement_channel:
+                lit: "Paid Search"
+              traffic_source:
+                lit: "Google"
+              # time & geography
+              date: date
+              country: adwords-country
+              campaign: adwords-campaign
+              currency: currency
+              # measures
+              cost: adwords-cost
+              clicks: adwords-clicks
+              impressions: adwords-impressions
+              platform_conversions: adwords_conversions
+              platform_revenue: adwords_allConvValue
+              actions:
+                lit: 0
+
+        # ── Bing Ads ─────────────────────────────────────────────────────
+        # 6 accounts, glob safe (all bing tables are campaign perf)
+        - name: bing_campaign_data
+          description: "Bing/Microsoft Ads campaign performance (CampaignPerformanceReport)"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "bing.*"
+            column_mapping:
+              # metadata & classification
+              measurement_channel:
+                lit: "Paid Search"
+              traffic_source:
+                lit: "Bing"
+              # time & geography
+              date: date
+              campaign: bing-CampaignName
+              currency: currency
+              # measures
+              impressions: bing-impressions
+              clicks: bing-clicks
+              cost: bing-cost
+              platform_conversions: bing-Conversions
+              platform_revenue: bing-Revenue
+              actions:
+                lit: 0
+
+        # ── Facebook / Meta ──────────────────────────────────────────────
+        # 1 account, glob (future-proof for additional accounts)
+        - name: facebook_adset_data
+          description: "Meta Ads adset-level Insights with action breakdowns"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "facebookads.*"
+            column_mapping:
+              # metadata & classification
+              measurement_channel:
+                lit: "Paid Social"
+              traffic_source:
+                lit: "Facebook"
+              # time & geography
+              date: date
+              country: facebookads-country
+              campaign: facebookads-campaign_name
+              currency: currency
+              # measures — core
+              cost: facebookads-spend
+              impressions: facebookads-impressions
+              clicks: facebookads-clicks
+              platform_conversions:
+                lit: 0
+              platform_revenue:
+                lit: 0
+              actions:
+                lit: 0
+
+        # ── TikTok ───────────────────────────────────────────────────────
+        # 1 account, glob (future-proof for additional accounts)
+        - name: tiktok_ad_data
+          description: "TikTok Ads performance with video engagement metrics"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "tiktok.*"
+            column_mapping:
+              # metadata & classification
+              measurement_channel:
+                lit: "Video"
+              traffic_source:
+                lit: "Tiktok"
+              # time & geography
+              date: date
+              country: tiktok-country
+              campaign: tiktok-campaign_name
+              currency: currency
+              # measures — core
+              cost: tiktok-stat_cost
+              impressions: tiktok-show_cnt
+              clicks: tiktok-click_cnt
+              platform_conversions: tiktok-convert_cnt
+              platform_revenue:
+                lit: 0
+              actions:
+                lit: 0
+
+        # ── Impact ───────────────────────────────────────────────────────
+        - name: impact_adset_data
+          description: "Impact affiliate performance with action breakdowns"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "impact.*"
+            column_mapping:
+              # metadata & classification
+              measurement_channel:
+                lit: "Affiliates"
+              traffic_source:
+                lit: "Impact"
+              # time & geography
+              date: date
+              country: impact-country
+              campaign: impact-campaign_name
+              currency: currency
+              # measures
+              cost: impact-client_cost
+              impressions:
+                lit: 0
+              clicks:
+                lit: 0
+              platform_conversions:
+                lit: 0
+              platform_revenue: impact-amount
+              # mapping its here - temporary, for others platform actions can be tread as sum of fields
+              actions: impact-actions
+
+        # ── Klaviyo ──────────────────────────────────────────────────────
+        - name: klaviyo_adset_data
+          description: "Klaviyo email campaign performance metrics"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "klaviyo.*"
+            column_mapping:
+              # metadata & classification
+              measurement_channel:
+                lit: "Email"
+              traffic_source:
+                lit: "Klaviyo"
+              # time & geography
+              date: date
+              country:
+                lit: ""
+              campaign: klaviyo-campaign_name
+              currency:
+                lit: ""
+              # measures
+              cost:
+                lit: 0
+              impressions:
+                lit: 0
+              clicks: klaviyo-clicks2
+              platform_conversions:
+                lit: 0
+              platform_revenue:
+                lit: 0
+              actions:
+                lit: 0
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Standalone Dataset: Shopify
+  # ═══════════════════════════════════════════════════════════════════════════
+  datasets:
+    - name: shopify
+      dimensions:
+        - ref: dataset_name
+        - ref: export_account_id
+        - ref: date
+        - ref: currency
+        - name: country
+          description: "Shopify order country"
+          data_type: string
+        - name: market
+          description: "Derived market code from Shopify country name"
+          data_type: string
+          expr:
+            case:
+              when:
+                - condition:
+                    eq:
+                      - country
+                      - lit: "Germany"
+                  then:
+                    lit: "DE"
+                - condition:
+                    eq:
+                      - country
+                      - lit: "Spain"
+                  then:
+                    lit: "ES"
+                - condition:
+                    eq:
+                      - country
+                      - lit: "France"
+                  then:
+                    lit: "FR"
+                - condition:
+                    eq:
+                      - country
+                      - lit: "United Kingdom"
+                  then:
+                    lit: "GB"
+                - condition:
+                    eq:
+                      - country
+                      - lit: "Italy"
+                  then:
+                    lit: "IT"
+              else:
+                lit: null
+
+        - name: sales_channel
+          data_type: string
+        - name: brand
+          data_type: string
+        - name: sale_line_type
+          data_type: string
+        - name: sale_action_type
+          data_type: string
+        - name: order_action_type
+          data_type: string
+      measures:
+        - name: orders
+          data_type: decimal
+          agg: sum
+        - name: revenue
+          data_type: decimal
+          agg: sum
+        - name: tax
+          data_type: decimal
+          agg: sum
+      extras:
+        catalog: polaris
+        temporal:
+          granularity: day
+          type:
+            events:
+              occurred_at: date
+        storage:
+          tables:
+            - "shopify.*"
+        column_mapping:
+          date: date
+          brand:
+            lit: "Acme"
+          conversion_event:
+            lit: "purchase"
+          currency: currency
+          order_action_type: shopify-order_action_type
+          sale_action_type: shopify-sale_action_type
+          sale_line_type: sale_line_type
+          sales_channel: order_app_name
+          orders: shopify-orders
+          revenue: shopify-total_amount
+          tax: shopify-total_tax_amount
+          country: shopify-shipping_country

@@ -1,0 +1,36 @@
+# A commerce variant that keeps its own Uris-read orders rows.
+semantic_model:
+  name: commerce_own_uris
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+  datasets:
+    - name: orders_daily
+      extras:
+        storage:
+          format: parquet
+          paths: ['s3://semstrait-e2e/orders/a.parquet']
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue
+    - name: orders_daily_two_uris
+      extras:
+        storage:
+          format: parquet
+          paths: ['s3://semstrait-e2e/orders/b.parquet', 's3://semstrait-e2e/orders/a.parquet']
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue

@@ -1,0 +1,1 @@
+error: row-level semantics `labelled` references `web_label`, a Measure or Metric

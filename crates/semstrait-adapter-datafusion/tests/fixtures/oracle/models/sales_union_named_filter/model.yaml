@@ -1,0 +1,44 @@
+# A Grainset of sales over a Day dataset and a Month Unionset of two regional datasets, with a web filter on the Grainset.
+semantic_model:
+  name: sales_union_named_filter
+  dimensions:
+    - name: ordered_at
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: channel, data_type: string, type: categorical}
+  measures:
+    - {name: revenue, data_type: bigint, agg: sum}
+  grainsets:
+    - name: sales
+      dimensions:
+        - {ref: ordered_at, is_key: true}
+        - {ref: channel, is_key: true}
+      measures: [{ref: revenue}]
+      filters:
+        - {name: web, expr: {eq: [channel, {lit: web}]}}
+      datasets:
+        - name: d
+          extras:
+            storage: {tables: [warehouse.d]}
+            semantic_mapping: {ordered_at: day, channel: channel, revenue: amount}
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: day}
+      unionsets:
+        - name: u
+          mode: all
+          dimensions: [{ref: ordered_at}, {ref: channel}]
+          measures: [{ref: revenue}]
+          extras:
+            temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}
+          datasets:
+            - name: east
+              extras:
+                storage: {tables: [warehouse.east]}
+                semantic_mapping: {ordered_at: month_start, channel: channel, revenue: amount}
+                temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}
+            - name: west
+              extras:
+                storage: {tables: [warehouse.west]}
+                semantic_mapping: {ordered_at: month_start, channel: channel, revenue: amount}
+                temporal: {timeseries: {occurred_at: ordered_at}, granularity: month}

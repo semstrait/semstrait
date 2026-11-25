@@ -1,0 +1,1 @@
+physical source bf575591-d8c6-59c7-b3aa-5fbdf5673b12: column `amount` has no canonical type

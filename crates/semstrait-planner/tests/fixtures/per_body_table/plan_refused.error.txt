@@ -1,0 +1,2 @@
+error: the plan is refused: the parameter RequestDimensionsMinusTemporal is not bound
+  note: node 3 (ScanNode)

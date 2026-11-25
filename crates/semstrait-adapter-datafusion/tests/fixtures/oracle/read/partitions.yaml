@@ -1,0 +1,235 @@
+# A path physical source's key=value folders give partition columns, read like any other column.
+
+default_partition_null:
+  # A year=__HIVE_DEFAULT_PARTITION__ folder gives one row with its partition key NULL.
+  model: models/commerce_own_tables
+  request:
+    from: sales
+    select: [order_year, total_amount]
+  expect:
+    rows:
+      - [order_year, total_amount]
+      - [2026, 25.5]
+      - [null, 8.25]
+  sql: SELECT year AS order_year, sum(amount) AS total_amount FROM sales GROUP BY year
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[order_year, total_amount]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?, ($1)::!fp64?]
+          Read[!{ReadRel} => year:i32?, amount:fp64?]
+            + Opt:Trace[semantic_source='sales', source_role=&Dataset, physical_source='orders']
+
+dt_key_bucketed_month:
+  # A partition key is a column, so date_trunc can bucket it by month.
+  model: models/commerce_own_formula
+  request:
+    from: sales
+    select:
+      - {dimension: event_date, granularity: month}
+      - total_amount
+  expect:
+    rows:
+      - [event_date, total_amount]
+      - ['2026-01-01', 16.5]
+      - ['2026-02-01', 9.5]
+  sql: >-
+    SELECT date_trunc('month', dt) AS event_date, sum(amount) AS total_amount
+    FROM sales GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[event_date, total_amount]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales', compositions=0, granularity_fit=&NotSelected]
+        Project[(date_trunc('month', $0):date?)::!date?, $1]
+          Project[($0)::!date?, ($1)::!fp64?]
+            Read[!{ReadRel} => dt:date?, amount:fp64?]
+              + Opt:Trace[semantic_source='sales', source_role=&Dataset, physical_source='orders']
+
+file_own_year_column:
+  # A Uris read discovers no partitions, so the partition key's name is read from the file's own column.
+  model: models/commerce_own_union
+  request:
+    from: sales_file
+    select: [file_year]
+  expect:
+    rows:
+      - [file_year]
+      - [1999]
+  sql: SELECT year AS file_year FROM sales_file GROUP BY year
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[file_year]
+      Aggregate[$0 => $0]
+        + Opt:Trace[scope_root='sales_file', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?]
+          Read[!{ReadRel} => year:i32?]
+            + Opt:Trace[semantic_source='sales_file', source_role=&Dataset, physical_source='orders']
+
+folder_value_wins:
+  # A file's own column of the partition key's name is not read; the folder's value wins.
+  model: models/commerce
+  request:
+    from: sales_folder_wins
+    select: [order_year, total_amount]
+  expect:
+    rows:
+      - [order_year, total_amount]
+      - [2025, 12.5]
+      - [2026, 24.5]
+  sql: SELECT year AS order_year, sum(amount) AS total_amount FROM sales GROUP BY year
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[order_year, total_amount]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales_folder_wins', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?, ($1)::!fp64?]
+          Read[!{ReadRel} => year:i32?, amount:fp64?]
+            + Opt:Trace[semantic_source='sales_folder_wins', source_role=&Dataset, physical_source='orders']
+
+folder_distinct_count:
+  # Counting the distinct partition-key values counts the folders, not the files' own column.
+  model: models/commerce
+  request:
+    from: sales_folder_wins
+    select: [n_years]
+  expect:
+    rows:
+      - [n_years]
+      - [2]
+  sql: SELECT count(DISTINCT year) AS n_years FROM sales
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: count
+
+    === Plan
+    Root[n_years]
+      Aggregate[_ => count($0, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='sales_folder_wins', compositions=0, granularity_fit=&NotSelected]
+        Project[$0]
+          Read[!{ReadRel} => year:i32?]
+            + Opt:Trace[semantic_source='sales_folder_wins', source_role=&Dataset, physical_source='orders']
+
+month_key_partitions:
+  # Only the month key is mapped, and the request returns both partitions' rows.
+  model: models/commerce_decimal_revenue
+  request:
+    from: sales
+    select: [order_month, total_amount]
+  expect:
+    rows:
+      - [order_month, total_amount]
+      - [1, 24.5]
+      - [2, 6.5]
+  sql: SELECT month AS order_month, sum(amount) AS total_amount FROM sales GROUP BY month
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[order_month, total_amount]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?, ($1)::!fp64?]
+          Read[!{ReadRel} => month:i32?, amount:fp64?]
+            + Opt:Trace[semantic_source='sales', source_role=&Dataset, physical_source='orders']
+
+predicate_on_key:
+  # A predicate on a partition key placed before aggregation keeps only its own partition's rows.
+  model: models/commerce_expr_form
+  request:
+    from: sales
+    select: [order_year, total_amount]
+    where: {eq: [order_year, 2026]}
+  expect:
+    rows:
+      - [order_year, total_amount]
+      - [2026, 26.5]
+  sql: SELECT year AS order_year, sum(amount) AS total_amount FROM sales WHERE year = 2026 GROUP BY year
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[order_year, total_amount]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales', compositions=0, granularity_fit=&NotSelected]
+        Filter[equal($0, 2026:i32):boolean? => $0, $1]
+          Project[($0)::!i32?, ($1)::!fp64?]
+            Read[!{ReadRel} => year:i32?, amount:fp64?]
+              + Opt:Trace[semantic_source='sales', source_role=&Dataset, physical_source='orders']
+
+base_path_key_column:
+  # One read of the base path lists the partition key in its schema like any other column.
+  model: models/commerce_expr_form
+  request:
+    from: sales
+    select: [order_year, total_amount]
+  expect:
+    rows:
+      - [order_year, total_amount]
+      - [2025, 12.5]
+      - [2026, 26.5]
+  sql: SELECT year AS order_year, sum(amount) AS total_amount FROM sales GROUP BY year
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[order_year, total_amount]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?, ($1)::!fp64?]
+          Read[!{ReadRel} => year:i32?, amount:fp64?]
+            + Opt:Trace[semantic_source='sales', source_role=&Dataset, physical_source='orders']

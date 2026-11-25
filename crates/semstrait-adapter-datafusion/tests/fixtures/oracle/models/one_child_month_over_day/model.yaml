@@ -1,0 +1,42 @@
+# A Grainset over a yearly Dataset and a one-branch Unionset that states month over its one daily Dataset, with a semi-additive balance and a non-additive reach.
+semantic_model:
+  name: one_child_month_over_day
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month, year]
+  measures:
+    - name: bal
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          by: date
+          strategy: latest
+    - name: reach
+      data_type: bigint
+      agg: sum
+      additivity: non
+  grainsets:
+    - name: one
+      dimensions: [{ref: date}]
+      measures: [{ref: bal}, {ref: reach}]
+      datasets:
+        - name: yearly
+          extras:
+            storage: {tables: [warehouse.yearly]}
+            semantic_mapping: {date: date, bal: bal, reach: reach}
+            temporal: {timeseries: {occurred_at: date}, granularity: year}
+      unionsets:
+        - name: inner
+          mode: all
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: daily
+              extras:
+                storage: {tables: [warehouse.daily]}
+                semantic_mapping: {date: date, bal: bal, reach: reach}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}

@@ -1,0 +1,40 @@
+# A finance variant of the balances Dataset at a wider grain.
+semantic_model:
+  name: balances
+  dimensions:
+    - name: account
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+  measures:
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          strategy: latest
+  datasets:
+    - name: balances
+      extras:
+        storage:
+          tables: [warehouse.balances]
+        semantic_mapping:
+          account: account
+          date: date
+          balance: balance
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: account
+          is_key: true
+        - ref: date
+          is_key: true
+      measures:
+        - ref: balance

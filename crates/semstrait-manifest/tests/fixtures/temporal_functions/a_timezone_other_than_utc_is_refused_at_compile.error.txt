@@ -1,0 +1,1 @@
+error: `ts_month`: `date_trunc` truncates in the timezone 'Europe/Stockholm', and a semantic model's `date_trunc` takes 'UTC' only

@@ -1,0 +1,1 @@
+error: at `channels`: both operands of `channels` map `revenue`, and an operand's condition for it has no own filter of `channels` to replace it

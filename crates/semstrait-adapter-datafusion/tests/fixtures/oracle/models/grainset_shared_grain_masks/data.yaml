@@ -1,0 +1,18 @@
+tables:
+  - namespace: warehouse
+    name: first
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: bigint}
+      - {name: spend, type: bigint}
+    rows:
+      - [2024-01-01, 1, 50]
+  - namespace: warehouse
+    name: second
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: bigint}
+      - {name: spend, type: bigint}
+      - {name: conversions, type: bigint}
+    rows:
+      - [2024-01-01, 1, 50, 7]

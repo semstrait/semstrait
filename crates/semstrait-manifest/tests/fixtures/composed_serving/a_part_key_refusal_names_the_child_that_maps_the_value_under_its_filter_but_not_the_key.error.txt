@@ -1,0 +1,1 @@
+error: Grainset `spend` cannot compute `web_only_cpc_in_eu`: its part key reads `channel`, and `spend.spend_clicks`, which gives `clicks`, does not map `channel` at the grain the key reads

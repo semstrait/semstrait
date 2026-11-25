@@ -1,0 +1,59 @@
+# A rank marker keeps the latest row of its partition for a semi-additive aggregate.
+
+latest_by_month:
+  # A rank marker gives the latest balance beside a plain sum's total cost, by month.
+  request:
+    select: [month, balance, cost]
+  expect:
+    rows:
+      - [month, balance, cost]
+      - [Sep, 320, 10]
+      - [Oct, 130, 26]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: rank
+      #  2 @  1: sum
+      #  3 @  2: equal
+
+    === Plan
+    Root[month, balance, cost]
+      Project[$0, $1, $2]
+        Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):i64?, sum($4, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}]
+            Project[$0, $1, $2, $3, $4]
+              Read[sales.daily => account:string?, date:date?, month:string?, balance:i64?, cost:i64?]
+
+latest_by_account:
+  # Partitioning the rank by account too gives each account its own latest balance.
+  request:
+    select: [month, balance, cost]
+  expect:
+    rows:
+      - [month, balance, cost]
+      - [Sep, 320, 10]
+      - [Oct, 360, 26]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: rank
+      #  2 @  1: sum
+      #  3 @  2: equal
+
+    === Plan
+    Root[month, balance, cost]
+      Project[$0, $1, $2]
+        Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):i64?, sum($4, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}]
+            Project[$0, $1, $2, $3, $4]
+              Read[sales.daily => account:string?, date:date?, month:string?, balance:i64?, cost:i64?]

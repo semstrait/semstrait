@@ -1,0 +1,91 @@
+# A Joinset's own projection coalesces a name both operands map, or a filter sits above a cross.
+
+coalesce_both_map:
+  # Two operands that both map the same name read Coalesce of them above the Full join.
+  model: models/commerce_own_types
+  request:
+    from: channels
+    select: [campaign_id, revenue]
+  expect:
+    rows:
+      - [campaign_id, revenue]
+      - [A, 10]
+      - [B, 20]
+      - [C, 7]
+  sql: >-
+    SELECT coalesce(w.campaign_id, s.campaign_id) AS campaign_id,
+    sum(coalesce(w.revenue, s.revenue)) AS revenue FROM warehouse.web w
+    FULL JOIN warehouse.store s ON w.campaign_id = s.campaign_id GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[campaign_id, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='channels', compositions=1, granularity_fit=&NotSelected]
+        Project[coalesce($0, $2):string?, coalesce($1, $3):i64?]
+          Join[&Outer, equal($0, $2):boolean? => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='channels', source_role=&Joinset, cardinality=&OneToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$0, $1]
+                Read[warehouse.web => campaign_id:string?, revenue:i64?]
+                  + Opt:Trace[semantic_source='channels.web', source_role=&Dataset, originators=('channels',), physical_source='web']
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$0, $1]
+                Read[warehouse.store => campaign_id:string?, revenue:i64?]
+                  + Opt:Trace[semantic_source='channels.store', source_role=&Dataset, originators=('channels',), physical_source='store']
+
+cross_filter_above:
+  # A non-equi relationship filter on a cross is a FilterNode above the CrossNode.
+  model: models/commerce_own_tables
+  request:
+    from: tiered_orders
+    select: [order_id, tier]
+  input_data:
+    warehouse.orders:
+      - [1, null, 100]
+      - [2, null, 50]
+      - [3, null, 10]
+  expect:
+    rows:
+      - [order_id, tier]
+      - [1, gold]
+      - [1, silver]
+      - [2, silver]
+  sql: >-
+    SELECT DISTINCT o.order_id, t.tier FROM warehouse.orders o CROSS JOIN warehouse.tiers t
+    WHERE o.amount >= t.floor
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: gte
+
+    === Plan
+    Root[order_id, tier]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='tiered_orders', compositions=1, granularity_fit=&NotSelected]
+        Project[$0, $2]
+          Filter[gte($1, $3):boolean? => $0, $1, $2, $3]
+            Cross[$0, $1, $2, $3]
+              + Opt:Trace[semantic_source='tiered_orders', source_role=&Joinset, cardinality=&ManyToMany]
+              Aggregate[$1, $0 => $1, $0]
+                Project[$1, $0]
+                  Read[warehouse.orders => order_id:i64?, amount:i64?]
+                    + Opt:Trace[semantic_source='tiered_orders.orders', source_role=&Dataset, originators=('tiered_orders',), physical_source='orders']
+              Aggregate[$1, $0 => $1, $0]
+                Project[$1, $0]
+                  Read[warehouse.tiers => tier:string?, floor:i64?]
+                    + Opt:Trace[semantic_source='tiered_orders.tiers', source_role=&Dataset, originators=('tiered_orders',), physical_source='tiers']

@@ -1,0 +1,42 @@
+# A Joinset over the all_orders Unionset, with a sum that casts above the union.
+semantic_model:
+  name: top
+  dimensions:
+    - {name: channel, data_type: string, type: categorical}
+    - {name: customer_id, data_type: string, type: categorical}
+    - {name: region, data_type: string, type: categorical}
+  measures:
+    - {name: customer_rows, data_type: double, agg: count}
+    - {name: cost, data_type: 'decimal(18,2)', agg: sum}
+  joinsets:
+    - name: top
+      dimensions: [{ref: channel}, {ref: customer_id}, {ref: region}]
+      measures: [{ref: customer_rows}, {ref: cost}]
+      datasets:
+        - name: customer_regions
+          extras:
+            storage: {tables: [warehouse.customer_regions]}
+            semantic_mapping: {customer_id: customer_id, region: region}
+      unionsets:
+        - name: all_orders
+          mode: all
+          datasets:
+            - name: orders_store
+              extras:
+                storage: {tables: [warehouse.orders_store]}
+                semantic_mapping: {channel: {lit: store}, customer_id: customer_id, customer_rows: order_id, cost: cost}
+          joinsets:
+            - name: jw
+              datasets:
+                - name: orders_web
+                  extras:
+                    storage: {tables: [warehouse.orders_web]}
+                    semantic_mapping: {channel: {lit: web}, customer_id: customer_id, cost: cost}
+                - name: customers
+                  extras:
+                    storage: {tables: [warehouse.customers]}
+                    semantic_mapping: {customer_id: customer_id, customer_rows: customer_id}
+              relationships:
+                - {name: web_to_customers, from: orders_web, to: customers, on: [customer_id], cardinality: many_to_one, optional: right, integrity: none}
+      relationships:
+        - {name: orders_to_regions, from: all_orders, to: customer_regions, on: [customer_id], cardinality: many_to_one, optional: left, integrity: none}

@@ -1,0 +1,41 @@
+# The harness model: a table-read orders Dataset and a files-read events Dataset.
+semantic_model:
+  name: harness
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+    - name: channel
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+    - name: clicks
+      data_type: bigint
+      agg: sum
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue
+    - name: events
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/events/]
+        semantic_mapping:
+          channel: channel
+          clicks: clicks
+      dimensions:
+        - ref: channel
+      measures:
+        - ref: clicks

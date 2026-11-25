@@ -1,0 +1,1 @@
+error: YAML syntax error: semantic_model.dimensions: MetadataSource: unknown variant `partition` at line 5 column 5

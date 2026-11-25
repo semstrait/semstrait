@@ -1,0 +1,2 @@
+error: dataset `orders`: storage entry `s3://lake/orders/` holds the value `2026` of the key `year`, which the `partition_def` entry for `order_year` does not list
+  note: `orders` reads `s3://lake/orders/` as parquet

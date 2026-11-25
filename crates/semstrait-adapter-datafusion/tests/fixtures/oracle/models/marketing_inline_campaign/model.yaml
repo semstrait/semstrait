@@ -1,0 +1,33 @@
+# A marketing variant whose Dataset declares its own campaign Dimension.
+semantic_model:
+  name: market_body
+  datasets:
+    - name: campaigns
+      extras:
+        storage:
+          tables: [warehouse.campaigns]
+      dimensions:
+        - name: dataset_name
+          data_type: string
+          type: categorical
+        - name: campaign
+          data_type: string
+          type: categorical
+        - name: market
+          data_type: string
+          type: categorical
+          expr:
+            case:
+              whens:
+                - when:
+                    in:
+                      value: {col: dataset_name}
+                      list: [{lit: adwords}, {lit: facebookads}]
+                  then:
+                    upper:
+                      regexp_extract: [{col: campaign}, {lit: '^([A-Z]{2})_'}, {lit: 1}]
+                - when:
+                    eq: [{col: dataset_name}, {lit: impact}]
+                  then:
+                    regexp_extract: [{col: campaign}, {lit: '^Acme ([A-Z]{2})'}, {lit: 1}]
+              else: {lit: ''}

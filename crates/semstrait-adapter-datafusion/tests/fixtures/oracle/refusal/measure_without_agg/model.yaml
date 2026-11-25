@@ -1,0 +1,22 @@
+# A model whose Measure declares no agg:.
+semantic_model:
+  name: measure_without_agg
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: double
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue

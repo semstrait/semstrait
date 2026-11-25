@@ -1,0 +1,61 @@
+# date_trunc buckets by the request's own timezone and week start.
+
+timezone_and_week_start:
+  # date_trunc buckets by the request's timezone and week start, and keeps a Date a Date.
+  model: models/reads
+  request:
+    select: [m, h, ws, wm]
+  types: [timestamp, timestamp, date, date]
+  expect:
+    rows:
+      - [m, h, ws, wm]
+      - ['2026-04-01 00:00:00', '2026-03-31 19:00:00', '2026-10-11', '2026-10-12']
+      - ['2026-11-01 00:00:00', '2026-11-01 01:00:00', '2026-10-18', '2026-10-12']
+      - ['2026-11-01 00:00:00', '2026-11-01 01:00:00', '2026-10-18', '2026-10-19']
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+      #  4 @  1: add
+      #  5 @  1: subtract
+
+    === Plan
+    Root[m, h, ws, wm]
+      Project[to_local_time(date_trunc('month', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"Europe/Stockholm\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>, to_local_time(date_trunc('hour', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"America/New_York\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>, (subtract(date_trunc('week', add($1, '1d':interval_day<6>):date?):date?, '1d':interval_day<6>):date?)::!date?, (date_trunc('week', $1):date?)::!date?]
+        Project[$0, $1]
+          Read:Virtual[
+            - ('2026-03-31T23:30:00.000000':precisiontimestamp<6>, '2026-10-17':date),
+            - ('2026-11-01T05:30:00.000000':precisiontimestamp<6>, '2026-10-18':date),
+            - ('2026-11-01T06:30:00.000000':precisiontimestamp<6>, '2026-10-19':date)
+            - => ts:precisiontimestamp?<6>, d:date?]
+
+null_timezone_bucket:
+  # date_trunc gives NULL where the request's timezone is itself NULL.
+  model: models/reads
+  request:
+    select: [m]
+  types: [timestamp]
+  expect:
+    rows:
+      - [m]
+      - [null]
+      - [null]
+      - [null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[m]
+      Project[null:precisiontimestamp?<6>]
+        Project[$0, $1]
+          Read:Virtual[
+            - ('2026-03-31T23:30:00.000000':precisiontimestamp<6>, '2026-10-17':date),
+            - ('2026-11-01T05:30:00.000000':precisiontimestamp<6>, '2026-10-18':date),
+            - ('2026-11-01T06:30:00.000000':precisiontimestamp<6>, '2026-10-19':date)
+            - => ts:precisiontimestamp?<6>, d:date?]

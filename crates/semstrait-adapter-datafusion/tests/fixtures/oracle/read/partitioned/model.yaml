@@ -1,0 +1,24 @@
+# A model over one Parquet folder in year=<value>/ folders.
+semantic_model:
+  name: partitioned
+  dimensions:
+    - name: order_year
+      data_type: integer
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: bigint
+      agg: sum
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_year: year
+          revenue: amount
+      dimensions:
+        - ref: order_year
+      measures:
+        - ref: revenue

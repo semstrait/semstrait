@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `s3://lake/orders/` holds the folder `s3://lake/orders/year=2026/month=/`, whose key or value is empty

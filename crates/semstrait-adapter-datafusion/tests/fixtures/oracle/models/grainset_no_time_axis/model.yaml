@@ -1,0 +1,21 @@
+# A Grainset whose children map no time axis.
+semantic_model:
+  name: grainset_no_time_axis
+  dimensions:
+    - {name: remote_key, data_type: string, type: categorical}
+    - {name: campaign, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+  grainsets:
+    - name: ads
+      dimensions: [{ref: remote_key}, {ref: campaign}]
+      measures: [{ref: clicks}]
+      datasets:
+        - name: rt_advertiser
+          extras:
+            storage: {tables: [warehouse.rt_advertiser]}
+            semantic_mapping: {remote_key: remote_key, clicks: clicks}
+        - name: rt3
+          extras:
+            storage: {tables: [warehouse.rt3]}
+            semantic_mapping: {remote_key: remote_key, campaign: campaign, clicks: clicks}

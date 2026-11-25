@@ -1,0 +1,38 @@
+# A commerce variant whose revenue stays bigint.
+semantic_model:
+  name: sales_by_grain
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: region, data_type: string, type: categorical}
+    - {name: channel, data_type: string, type: categorical}
+  measures:
+    - {name: revenue, data_type: bigint, agg: sum}
+    - {name: target, data_type: bigint, agg: sum}
+  metrics:
+    - name: web_revenue
+      data_type: bigint
+      expr: revenue
+      filter: {eq: [channel, {lit: web}]}
+  grainsets:
+    - name: sales
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: region, is_key: true}
+        - {ref: channel}
+      measures: [{ref: revenue}, {ref: target}]
+      metrics: [{ref: web_revenue}]
+      datasets:
+        - name: sales_monthly
+          extras:
+            storage: {tables: [warehouse.sales_monthly]}
+            semantic_mapping: {date: month_start, region: region, revenue: amount, target: target}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+        - name: sales_daily
+          extras:
+            storage: {tables: [warehouse.sales_daily]}
+            semantic_mapping: {date: day, region: region, channel: channel, revenue: amount}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

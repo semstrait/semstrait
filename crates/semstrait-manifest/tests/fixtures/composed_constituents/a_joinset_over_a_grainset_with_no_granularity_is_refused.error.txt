@@ -1,0 +1,1 @@
+error: composite `05285870-a594-5cb2-acb8-d9f427eec577`: its constituent `16b7d7d5-7103-5bbb-8211-09b4dffda486` carries no granularity, declared or derived, so a request has no granularity to route it by; declare one as `extras.temporal.granularity:`

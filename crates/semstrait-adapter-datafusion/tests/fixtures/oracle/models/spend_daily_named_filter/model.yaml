@@ -1,0 +1,89 @@
+# A Grainset of spend keyed by date and campaign (a Month child and a Day Joinset child of two datasets, with a campaign filter), and a Unionset of the same Grainset without its filter and a Day Dataset, with the campaign filter on the Unionset.
+semantic_model:
+  name: spend_daily_named_filter
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign, data_type: string, type: categorical}
+  measures:
+    - {name: budget, data_type: bigint, agg: sum}
+    - {name: cost, data_type: bigint, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+  grainsets:
+    - name: spend
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: budget}, {ref: cost}, {ref: clicks}]
+      filters:
+        - {name: x_only, expr: {eq: [campaign, {lit: X}]}}
+      datasets:
+        - name: budget_monthly
+          extras:
+            storage: {tables: [warehouse.budget_monthly]}
+            semantic_mapping: {date: month_start, campaign: campaign, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+      joinsets:
+        - name: spend_daily
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+          datasets:
+            - name: cost_daily
+              extras:
+                storage: {tables: [warehouse.cost_daily]}
+                semantic_mapping: {date: day, campaign: campaign, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: clicks_daily
+              extras:
+                storage: {tables: [warehouse.clicks_daily]}
+                semantic_mapping: {date: day, campaign: campaign, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+          relationships:
+            - {name: cost_to_clicks, from: cost_daily, to: clicks_daily, on: [date, campaign], cardinality: one_to_one, optional: both, integrity: assumed, cross_filter: both}
+  unionsets:
+    - name: all_spend
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign}]
+      measures: [{ref: budget}, {ref: cost}, {ref: clicks}]
+      filters:
+        - {name: x_only, expr: {eq: [campaign, {lit: X}]}}
+      datasets:
+        - name: extra
+          extras:
+            storage: {tables: [warehouse.extra]}
+            semantic_mapping: {date: day, campaign: campaign, cost: cost, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+      grainsets:
+        - name: spend
+          dimensions:
+            - {ref: date, is_key: true}
+            - {ref: campaign, is_key: true}
+          measures: [{ref: budget}, {ref: cost}, {ref: clicks}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: budget_monthly
+              extras:
+                storage: {tables: [warehouse.budget_monthly]}
+                semantic_mapping: {date: month_start, campaign: campaign, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+          joinsets:
+            - name: spend_daily
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+              datasets:
+                - name: cost_daily
+                  extras:
+                    storage: {tables: [warehouse.cost_daily]}
+                    semantic_mapping: {date: day, campaign: campaign, cost: cost}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: clicks_daily
+                  extras:
+                    storage: {tables: [warehouse.clicks_daily]}
+                    semantic_mapping: {date: day, campaign: campaign, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+              relationships:
+                - {name: cost_to_clicks, from: cost_daily, to: clicks_daily, on: [date, campaign], cardinality: one_to_one, optional: both, integrity: assumed, cross_filter: both}

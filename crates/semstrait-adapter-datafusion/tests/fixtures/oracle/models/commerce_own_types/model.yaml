@@ -1,0 +1,264 @@
+# A commerce variant whose keys and measures keep bigint, with narrower orders/customers tables.
+semantic_model:
+  name: commerce_own_types
+  dimensions:
+    - name: order_id
+      data_type: string
+      type: categorical
+    - name: line_id
+      data_type: string
+      type: categorical
+    - name: ad_id
+      data_type: string
+      type: categorical
+    - name: ad_type
+      data_type: string
+      type: categorical
+    - {name: channel, data_type: string, type: {metadata: {source: {path: {token: 1}}}}}
+    - name: customer_id
+      data_type: bigint
+      type: categorical
+    - name: region
+      data_type: string
+      type: categorical
+    - name: segment
+      data_type: string
+      type: categorical
+    - name: region_name
+      data_type: string
+      type: categorical
+    - name: campaign_id
+      data_type: string
+      type: categorical
+    - name: order_date
+      data_type: date
+      type: categorical
+    - name: order_ts
+      data_type: timestamp
+      type: categorical
+    - name: order_ref
+      data_type: string
+      type: categorical
+  measures:
+    - name: total
+      data_type: bigint
+      agg: sum
+    - name: avg_amount
+      data_type: double
+      agg: avg
+    - name: revenue
+      data_type: bigint
+      agg: sum
+    - name: order_count
+      data_type: bigint
+      agg: count
+    - name: tag
+      data_type: string
+      agg: max
+    - name: quantity
+      data_type: bigint
+      agg: sum
+  metrics:
+    - name: bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when: {eq: [ad_id, {lit: ad1}]}
+                  then: {lit: 100.0}
+                - when: {eq: [ad_type, {lit: search}]}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - avg_amount
+    - name: inner_bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when:
+                    eq:
+                      - case:
+                          whens:
+                            - when: {eq: [ad_id, {lit: ad1}]}
+                              then: {lit: 1}
+                            - when: {eq: [ad_type, {lit: search}]}
+                              then: {lit: 1}
+                          else: {lit: 0}
+                      - {lit: 1}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - avg_amount
+  datasets:
+    - name: orders
+      dimensions: [{ref: channel}]
+      measures: [{ref: avg_amount}]
+      extras:
+        storage: {format: parquet, paths: ['s3://semstrait-e2e/a/orders/', 's3://semstrait-e2e/c/orders/']}
+        semantic_mapping: {avg_amount: amount}
+    - name: orders_read_types
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_date: created_at
+          order_ts: created_at
+          order_ref: order_id
+          order_count: order_id
+          tag: qty
+          quantity: qty
+      dimensions:
+        - ref: order_date
+        - ref: order_ts
+        - ref: order_ref
+      measures:
+        - ref: order_count
+        - ref: tag
+        - ref: quantity
+  joinsets:
+    - name: ad_orders
+      dimensions:
+        - ref: order_id
+        - ref: line_id
+        - ref: ad_id
+        - ref: ad_type
+      measures:
+        - ref: total
+        - ref: avg_amount
+      metrics:
+        - ref: bonus
+        - ref: inner_bonus
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              order_id: order_id
+              total: amount
+              avg_amount: amount
+          dimensions:
+            - ref: order_id
+              is_key: true
+          measures:
+            - ref: total
+            - ref: avg_amount
+        - name: order_lines
+          extras:
+            storage:
+              tables: [warehouse.order_lines]
+          dimensions:
+            - ref: line_id
+              is_key: true
+            - ref: order_id
+            - ref: ad_id
+        - name: placements
+          extras:
+            storage:
+              tables: [warehouse.placements]
+          dimensions:
+            - ref: ad_id
+              is_key: true
+            - ref: ad_type
+      relationships:
+        - name: lines
+          from: orders
+          to: order_lines
+          on: [order_id]
+          cardinality: one_to_many
+        - name: placed
+          from: order_lines
+          to: placements
+          on: [ad_id]
+          cardinality: many_to_one
+    - name: sales
+      dimensions:
+        - ref: customer_id
+        - ref: region
+        - ref: segment
+        - ref: region_name
+      measures:
+        - ref: revenue
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              customer_id: cust_key
+              region: region_code
+              revenue: amount
+        - name: customers
+          extras:
+            storage:
+              tables: [warehouse.customers]
+        - name: regions
+          extras:
+            storage:
+              tables: [warehouse.regions]
+            semantic_mapping:
+              region: reg
+              region_name: region_name
+      relationships:
+        - name: r1
+          from: orders
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: left
+        - name: r2
+          from: orders
+          to: regions
+          on: [region]
+          cardinality: many_to_one
+    - name: channels
+      dimensions:
+        - ref: campaign_id
+      measures:
+        - ref: revenue
+      datasets:
+        - name: web
+          extras:
+            storage:
+              tables: [warehouse.web]
+        - name: store
+          extras:
+            storage:
+              tables: [warehouse.store]
+      relationships:
+        - name: web_to_store
+          from: web
+          to: store
+          on: [campaign_id]
+          cardinality: one_to_one
+          optional: both
+          cross_filter: both
+    - name: orders_customers
+      dimensions:
+        - ref: customer_id
+        - ref: region
+        - ref: segment
+      measures:
+        - ref: revenue
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              customer_id: cust_key
+              region: region_code
+              revenue: amount
+        - name: customers
+          extras:
+            storage:
+              tables: [warehouse.customers]
+      relationships:
+        - name: orders_to_customers
+          from: orders
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: left

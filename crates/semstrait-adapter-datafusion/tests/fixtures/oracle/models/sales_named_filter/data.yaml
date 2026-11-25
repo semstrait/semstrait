@@ -1,0 +1,33 @@
+tables:
+  - namespace: warehouse
+    name: d
+    columns:
+      - {name: day, type: date}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-09-12, web, 40]
+      - [2026-10-05, web, 100]
+      - [2026-10-10, app, 200]
+      - [2026-10-20, web, 50]
+      - [2026-10-25, null, 10]
+  - namespace: warehouse
+    name: m
+    columns:
+      - {name: month_start, type: date}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-09-01, web, 40]
+      - [2026-10-01, web, 150]
+      - [2026-10-01, app, 200]
+      - [2026-10-01, null, 10]
+  - namespace: warehouse
+    name: x
+    columns:
+      - {name: day, type: date}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-10-07, web, 5]
+      - [2026-10-08, app, 7]

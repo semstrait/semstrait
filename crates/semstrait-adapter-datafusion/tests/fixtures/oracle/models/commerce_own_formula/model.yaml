@@ -1,0 +1,83 @@
+# A commerce variant that keeps its own bonus formula and dt= partition rows.
+semantic_model:
+  name: commerce_own_formula
+  dimensions:
+    - {name: region, data_type: string, type: categorical}
+    - {name: channel, data_type: string, type: categorical}
+  measures:
+    - {name: revenue, data_type: double, agg: sum}
+    - name: total_amount
+      data_type: double
+      agg: sum
+  metrics:
+    - name: revenue_adj
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [revenue, {lit: 1.2}]}
+          else: revenue
+    - name: bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: 100.0}
+                - when: {eq: [channel, {lit: web}]}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - revenue
+    - name: inner_bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when:
+                    eq:
+                      - case:
+                          whens:
+                            - when: {eq: [region, {lit: eu}]}
+                              then: {lit: 1}
+                            - when: {eq: [channel, {lit: web}]}
+                              then: {lit: 1}
+                          else: {lit: 0}
+                      - {lit: 1}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - revenue
+  datasets:
+    - name: sales
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          event_date: dt
+          total_amount: amount
+      dimensions:
+        - name: event_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, week, month, quarter, year]
+      measures:
+        - ref: total_amount
+  unionsets:
+    - name: split_orders
+      mode: all
+      dimensions: [{ref: region}, {ref: channel}]
+      measures: [{ref: revenue}]
+      metrics: [{ref: revenue_adj}, {ref: bonus}, {ref: inner_bonus}]
+      datasets:
+        - name: eu_orders
+          extras:
+            storage: {tables: [warehouse.eu_orders]}
+            semantic_mapping: {region: region, channel: channel, revenue: amount}
+        - name: us_orders
+          extras:
+            storage: {tables: [warehouse.us_orders]}
+            semantic_mapping: {region: region, channel: channel, revenue: amount}

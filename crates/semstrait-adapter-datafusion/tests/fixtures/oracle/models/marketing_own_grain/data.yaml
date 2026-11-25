@@ -1,0 +1,20 @@
+tables:
+  - namespace: warehouse
+    name: a_raw
+    columns:
+      - {name: opened, type: date}
+      - {name: account, type: string}
+    rows: [[2026-03-01, X]]
+  - namespace: warehouse
+    name: b_daily
+    columns:
+      - {name: date, type: date}
+      - {name: account, type: string}
+      - {name: cpc, type: double}
+    rows: [[2026-03-10, X, 2.0], [2026-03-11, X, 4.0]]
+  - namespace: warehouse
+    name: c_calendar
+    columns:
+      - {name: date, type: date}
+      - {name: fiscal_week, type: string}
+    rows: [[2026-03-10, W11], [2026-03-11, W11]]

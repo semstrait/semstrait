@@ -1,0 +1,1 @@
+error: composite `14f04b83-6f03-522a-8d80-4977730fea37`: the declared granularity week is not served by the constituents [("ee15e57d-0d4a-5ea1-a158-8f3b67ea8494", Month)] below it

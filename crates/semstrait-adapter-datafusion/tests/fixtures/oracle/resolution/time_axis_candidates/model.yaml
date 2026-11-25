@@ -1,0 +1,62 @@
+# A model of candidate Datasets that read the time axis bucketed, selected, or not at all.
+semantic_model:
+  name: orders_by_time_axis
+  dimensions:
+    - name: order_date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - name: ship_date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          order_date: order_date
+          revenue: revenue
+        temporal:
+          timeseries:
+            occurred_at: order_date
+          granularity: day
+      dimensions:
+        - ref: order_date
+      measures:
+        - ref: revenue
+    - name: shipments
+      extras:
+        storage:
+          tables: [warehouse.shipments]
+        semantic_mapping:
+          order_date: order_date
+          ship_date: ship_date
+          revenue: revenue
+        temporal:
+          timeseries:
+            occurred_at: ship_date
+          granularity: month
+      dimensions:
+        - ref: order_date
+        - ref: ship_date
+      measures:
+        - ref: revenue
+    - name: orders_raw
+      extras:
+        storage:
+          tables: [warehouse.orders_raw]
+        semantic_mapping:
+          order_date: order_date
+          revenue: revenue
+      dimensions:
+        - ref: order_date
+      measures:
+        - ref: revenue

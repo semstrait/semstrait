@@ -1,0 +1,831 @@
+# A Unionset branch that is not a Dataset writes each Measure's partial under the entry that the union reads.
+
+u1_counts_count_by_channel:
+  model: models/u1_counts
+  request:
+    from: u1
+    select: [channel, order_count]
+  expect:
+    rows:
+      - [channel, order_count]
+      - [a, 2.0]
+      - [c, 3.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+      #  3 @  3: coalesce
+
+    === Plan
+    Root[channel, order_count]
+      Project[$0, (coalesce($1, 0):i64)::!fp64]
+        + Opt:Trace[scope_root='u1', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='u1', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                Project[$0, $2, $1]
+                  Project['c', true, $0]
+                    Read[!{ReadRel} => amount:fp64?]
+                      + Opt:Trace[semantic_source='u1.d9', source_role=&Dataset, originators=('u1',), physical_source='returns']
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1]
+                    Set[&UnionAll => $0, $1]
+                      + Opt:Trace[semantic_source='u1.u2', source_role=&Unionset, originators=('u1',), delivery=&PartialAggregates]
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $2, $1]
+                          Project['a', true, $0]
+                            Read[!{ReadRel} => amount:fp64?]
+                              + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+                      Project[$0, $1]
+                        Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                          Project[$0, $2, $1]
+                            Project['c', true, $0]
+                              Read[!{ReadRel} => amount:fp64?]
+                                + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+
+u1_counts_count_and_filtered_metric:
+  model: models/u1_counts
+  request:
+    from: u1
+    select: [channel, order_count, c_orders]
+  expect:
+    rows:
+      - [channel, order_count, c_orders]
+      - [a, 2.0, 0.0]
+      - [c, 3.0, 3.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_aggregate_generic
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: count
+      #  4 @  4: sum
+      #  5 @  1: coalesce
+
+    === Plan
+    Root[channel, order_count, c_orders]
+      Project[$1, $2, $0]
+        + Opt:Trace[scope_root='u1', compositions=2, granularity_fit=&NotSelected]
+        Project[(coalesce($2, 0):i64)::!fp64, $0, (coalesce($1, 0):i64)::!fp64]
+          Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):i64?, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$2, $0, $1]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='u1', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$2 => $2, count($3, overflow⇒[ERROR]):i64, count($0, overflow⇒[ERROR]):i64]
+                  Project[$2, and(equal($0, 'c'):boolean, $1):boolean, $0, $2, $1]
+                    Project['c', true, $0]
+                      Read[!{ReadRel} => amount:fp64?]
+                        + Opt:Trace[semantic_source='u1.d9', source_role=&Dataset, originators=('u1',), physical_source='returns']
+                Project[$0, $2, $1]
+                  Project[$0, $2, $1]
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+                      Project[$0, $1, $2]
+                        Set[&UnionAll => $0, $1, $2]
+                          + Opt:Trace[semantic_source='u1.u2', source_role=&Unionset, originators=('u1',), delivery=&PartialAggregates]
+                          Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                            Project[$0, $2, $1, $2, and(equal($0, 'c'):boolean, $1):boolean]
+                              Project['a', true, $0]
+                                Read[!{ReadRel} => amount:fp64?]
+                                  + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+                          Project[$0, $1, $2]
+                            Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                              Project[$0, $2, $1, $2, and(equal($0, 'c'):boolean, $1):boolean]
+                                Project['c', true, $0]
+                                  Read[!{ReadRel} => amount:fp64?]
+                                    + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+
+u1_counts_bigint_count_by_channel:
+  model: models/u1_counts_bigint
+  request:
+    from: u1
+    select: [channel, order_count]
+  expect:
+    rows:
+      - [channel, order_count]
+      - [a, 2]
+      - [c, 3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+      #  3 @  3: coalesce
+
+    === Plan
+    Root[channel, order_count]
+      Project[$0, coalesce($1, 0):i64]
+        + Opt:Trace[scope_root='u1', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='u1', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                Project[$0, $2, $1]
+                  Project['c', true, $0]
+                    Read[!{ReadRel} => amount:i64?]
+                      + Opt:Trace[semantic_source='u1.d9', source_role=&Dataset, originators=('u1',), physical_source='returns']
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $1]
+                    Set[&UnionAll => $0, $1]
+                      + Opt:Trace[semantic_source='u1.u2', source_role=&Unionset, originators=('u1',), delivery=&PartialAggregates]
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $2, $1]
+                          Project['a', true, $0]
+                            Read[!{ReadRel} => amount:i64?]
+                              + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+                      Project[$0, $1]
+                        Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                          Project[$0, $2, $1]
+                            Project['c', true, $0]
+                              Read[!{ReadRel} => amount:i64?]
+                                + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+
+u1_counts_bigint_count_and_filtered_metric:
+  model: models/u1_counts_bigint
+  request:
+    from: u1
+    select: [channel, order_count, c_orders]
+  expect:
+    rows:
+      - [channel, order_count, c_orders]
+      - [a, 2, 0]
+      - [c, 3, 3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_aggregate_generic
+      @  4: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: count
+      #  4 @  4: sum
+      #  5 @  1: coalesce
+
+    === Plan
+    Root[channel, order_count, c_orders]
+      Project[$1, $2, $0]
+        + Opt:Trace[scope_root='u1', compositions=2, granularity_fit=&NotSelected]
+        Project[coalesce($2, 0):i64, $0, coalesce($1, 0):i64]
+          Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):i64?, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$2, $0, $1]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='u1', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$2 => $2, count($3, overflow⇒[ERROR]):i64, count($0, overflow⇒[ERROR]):i64]
+                  Project[$2, and(equal($0, 'c'):boolean, $1):boolean, $0, $2, $1]
+                    Project['c', true, $0]
+                      Read[!{ReadRel} => amount:i64?]
+                        + Opt:Trace[semantic_source='u1.d9', source_role=&Dataset, originators=('u1',), physical_source='returns']
+                Project[$0, $1, $2]
+                  Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+                    Project[$0, $1, $2]
+                      Set[&UnionAll => $0, $1, $2]
+                        + Opt:Trace[semantic_source='u1.u2', source_role=&Unionset, originators=('u1',), delivery=&PartialAggregates]
+                        Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                          Project[$0, $2, $1, $2, and(equal($0, 'c'):boolean, $1):boolean]
+                            Project['a', true, $0]
+                              Read[!{ReadRel} => amount:i64?]
+                                + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+                        Project[$0, $1, $2]
+                          Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                            Project[$0, $2, $1, $2, and(equal($0, 'c'):boolean, $1):boolean]
+                              Project['c', true, $0]
+                                Read[!{ReadRel} => amount:i64?]
+                                  + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+
+all_orders_cast_count_by_channel:
+  model: models/all_orders_cast
+  request:
+    from: all_orders
+    select: [channel, customer_rows]
+  expect:
+    rows:
+      - [channel, customer_rows]
+      - [web, 2.0]
+      - [store, 3.0]
+      - [null, 1.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  3: sum
+      #  4 @  2: coalesce
+
+    === Plan
+    Root[channel, customer_rows]
+      Project[$0, (coalesce($1, 0):i64)::!fp64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $3]
+                    Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$0, $1 => $0, $1]
+                        Project['web', $0]
+                          Read[warehouse.orders_web => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $1]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                  Project[$0, $2, $1]
+                    Project['store', true, $0]
+                      Read[warehouse.orders_store => order_id:string?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_count_and_node:
+  model: models/all_orders_cast
+  request:
+    from: all_orders
+    select: [channel, customer_rows, doubled_rows]
+  expect:
+    rows:
+      - [channel, customer_rows, doubled_rows]
+      - [web, 2.0, 4.0]
+      - [store, 3.0, 6.0]
+      - [null, 1.0, 2.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  3: sum
+      #  4 @  2: coalesce
+      #  5 @  3: multiply
+
+    === Plan
+    Root[channel, customer_rows, doubled_rows]
+      Project[$0, (coalesce($1, 0):i64)::!fp64, multiply((coalesce($2, 0):i64)::!fp64, 2):fp64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+          Project[$0, $2, $1]
+            Set[&UnionAll => $0, $1, $2]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Project[$0, $1, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $3]
+                    Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$0, $1 => $0, $1]
+                        Project['web', $0]
+                          Read[warehouse.orders_web => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $2, $1]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                  Project[$0, $2, $1, $2, $1]
+                    Project['store', true, $0]
+                      Read[warehouse.orders_store => order_id:string?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_count_and_filtered_metric:
+  model: models/all_orders_cast
+  request:
+    from: all_orders
+    select: [channel, customer_rows, rows_c1]
+  expect:
+    rows:
+      - [channel, customer_rows, rows_c1]
+      - [web, 2.0, 1.0]
+      - [store, 3.0, 2.0]
+      - [null, 1.0, 0.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: sum
+      #  5 @  4: and
+
+    === Plan
+    Root[channel, customer_rows, rows_c1]
+      Project[$0, (coalesce($1, 0):i64)::!fp64, (coalesce($2, 0):i64)::!fp64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+          Project[$0, $2, $1]
+            Set[&UnionAll => $0, $1, $2]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Project[$0, $2, $1]
+                Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+                  Project[$0, coalesce($2, $1):string?, $3, $3, equal(coalesce($2, $1):string?, 'c1'):boolean?]
+                    Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$0, $1 => $0, $1]
+                        Project['web', $0]
+                          Read[warehouse.orders_web => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $2, $1]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                  Project[$0, $3, $2, $3, and(equal($1, 'c1'):boolean?, $2):boolean?]
+                    Project['store', $1, true, $0]
+                      Read[warehouse.orders_store => order_id:string?, customer_id:string?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_node_where_count:
+  model: models/all_orders_cast
+  request:
+    from: all_orders
+    select: [channel, doubled_rows]
+    where: {gt: [customer_rows, 1]}
+  expect:
+    rows:
+      - [channel, doubled_rows]
+      - [web, 4.0]
+      - [store, 6.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  3: sum
+      #  4 @  2: coalesce
+      #  5 @  3: multiply
+      #  6 @  2: gt
+
+    === Plan
+    Root[channel, doubled_rows]
+      Project[$0, $2]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Filter[gt($1, 1):boolean => $0, $1, $2]
+          Project[$0, (coalesce($2, 0):i64)::!fp64, multiply((coalesce($1, 0):i64)::!fp64, 2):fp64]
+            Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$0, $2, $1]
+                Set[&UnionAll => $0, $1, $2]
+                  + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+                  Project[$0, $1, $1]
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                      Project[$0, $3]
+                        Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                          + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                          Aggregate[$0, $1 => $0, $1]
+                            Project['web', $0]
+                              Read[warehouse.orders_web => customer_id:string?]
+                                + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                          Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                            Project[$0, $0]
+                              Read[warehouse.customers => customer_id:string?]
+                                + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+                  Project[$0, $1, $2]
+                    Aggregate[$0 => $0, count($3, overflow⇒[ERROR]):i64, count($1, overflow⇒[ERROR]):i64]
+                      Project[$0, $2, $1, $2, $1]
+                        Project['store', true, $0]
+                          Read[warehouse.orders_store => order_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_integer_sum_past_its_type:
+  model: models/all_orders_cast
+  request:
+    from: all_orders
+    select: [customer_id, quantity]
+  expect:
+    rows:
+      - [customer_id, quantity]
+      - [c1, 1]
+      - [c2, 1000]
+      - [c3, 5]
+      - [c9, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[customer_id, quantity]
+      Project[$0, ($1)::!i32?]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[coalesce($2, $0):string?, $1]
+                    Join[&Right, equal($0, $2):boolean? => $0, $1, $2]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                        Project[$0, $1]
+                          Read[warehouse.orders_web => customer_id:string?, qty:i32?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0]
+                        Project[$0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $2, $1]
+                    Project[$0, true, $1]
+                      Read[warehouse.orders_store => customer_id:string?, qty:i32?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_decimal_sum_past_its_type:
+  model: models/all_orders_cast
+  request:
+    from: all_orders
+    select: [customer_id, cost]
+  expect:
+    rows:
+      - [customer_id, cost]
+      - [c1, 7000000000000000.00]
+      - [c2, 10.00]
+      - [c3, 1.00]
+      - [c9, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic_decimal
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[customer_id, cost]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Project[($1)::!decimal?<18, 2>, $0]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+                Project[$0, $1]
+                  Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                    Project[$1, coalesce($2, $0):string?]
+                      Join[&Right, equal($0, $2):boolean? => $0, $1, $2]
+                        + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                        Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                          Project[$1, $0]
+                            Read[warehouse.orders_web => customer_id:string?, cost:decimal?<18, 2>]
+                              + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                        Aggregate[$0 => $0]
+                          Project[$0]
+                            Read[warehouse.customers => customer_id:string?]
+                              + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                    Project[$1, $0, $2]
+                      Project[true, $1, $0]
+                        Read[warehouse.orders_store => customer_id:string?, cost:decimal?<18, 2>]
+                          + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_bigint_count_by_channel:
+  model: models/all_orders_cast_bigint
+  request:
+    from: all_orders
+    select: [channel, customer_rows]
+  expect:
+    rows:
+      - [channel, customer_rows]
+      - [web, 2]
+      - [store, 3]
+      - [null, 1]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  3: sum
+      #  4 @  2: coalesce
+
+    === Plan
+    Root[channel, customer_rows]
+      Project[$0, coalesce($1, 0):i64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                Project[$0, $3]
+                  Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                    Aggregate[$0, $1 => $0, $1]
+                      Project['web', $0]
+                        Read[warehouse.orders_web => customer_id:string?]
+                          + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                    Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                      Project[$0, $0]
+                        Read[warehouse.customers => customer_id:string?]
+                          + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $1]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                  Project[$0, $2, $1]
+                    Project['store', true, $0]
+                      Read[warehouse.orders_store => order_id:string?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_bigint_count_and_node:
+  model: models/all_orders_cast_bigint
+  request:
+    from: all_orders
+    select: [channel, customer_rows, doubled_rows]
+  expect:
+    rows:
+      - [channel, customer_rows, doubled_rows]
+      - [web, 2, 4]
+      - [store, 3, 6]
+      - [null, 1, 2]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  3: sum
+      #  4 @  2: coalesce
+      #  5 @  3: multiply
+
+    === Plan
+    Root[channel, customer_rows, doubled_rows]
+      Project[$0, coalesce($1, 0):i64, multiply(coalesce($2, 0):i64, 2, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, $2]
+            Set[&UnionAll => $0, $1, $2]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Project[$0, $1, $1]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$0, $3]
+                    Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$0, $1 => $0, $1]
+                        Project['web', $0]
+                          Read[warehouse.orders_web => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $1, $2]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                  Project[$0, $2, $1, $2, $1]
+                    Project['store', true, $0]
+                      Read[warehouse.orders_store => order_id:string?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+all_orders_cast_bigint_count_and_filtered_metric:
+  model: models/all_orders_cast_bigint
+  request:
+    from: all_orders
+    select: [channel, customer_rows, rows_c1]
+  expect:
+    rows:
+      - [channel, customer_rows, rows_c1]
+      - [web, 2, 1]
+      - [store, 3, 2]
+      - [null, 1, 0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_boolean
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: sum
+      #  5 @  4: and
+
+    === Plan
+    Root[channel, customer_rows, rows_c1]
+      Project[$0, coalesce($1, 0):i64, coalesce($2, 0):i64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, $2]
+            Set[&UnionAll => $0, $1, $2]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Project[$0, $1, $2]
+                Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+                  Project[$0, coalesce($2, $1):string?, $3, $3, equal(coalesce($2, $1):string?, 'c1'):boolean?]
+                    Join[&Right, equal($1, $2):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$0, $1 => $0, $1]
+                        Project['web', $0]
+                          Read[warehouse.orders_web => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $1, $2]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, count($3, overflow⇒[ERROR]):i64]
+                  Project[$0, $3, $2, $3, and(equal($1, 'c1'):boolean?, $2):boolean?]
+                    Project['store', $1, true, $0]
+                      Read[warehouse.orders_store => order_id:string?, customer_id:string?]
+                        + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+spend_two_levels_clicks_by_region:
+  model: models/spend_two_levels
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, region, clicks]
+  expect:
+    rows:
+      - [date, region, clicks]
+      - [2026-03-01, null, 10]
+      - [2026-03-01, us, 7]
+      - [2026-04-01, null, 3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: date_trunc
+
+    === Plan
+    Root[date, region, clicks]
+      Project[$1, $2, $0]
+        + Opt:Trace[scope_root='spend', compositions=4, granularity_fit=&Requested]
+        Project[($2)::!i32?, $0, $1]
+          Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, (date_trunc('month', $1):date?)::!date?, $2]
+              Project[$2, $0, $1]
+                Set[&UnionAll => $0, $1, $2]
+                  + Opt:Trace[semantic_source='spend', source_role=&Unionset, delivery=&PartialAggregates]
+                  Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2, $3]
+                      Project[true, $2, $0, $1]
+                        Read[warehouse.spend_store => day:date?, region:string?, clicks:i32?]
+                          + Opt:Trace[semantic_source='spend.spend_store', source_role=&Dataset, originators=('spend',), physical_source='spend_store']
+                  Project[$0, $1, $2]
+                    Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                      + Opt:Trace[semantic_source='spend.spend_web', source_role=&Grainset, originators=('spend',), answered_by='spend.spend_web.daily_u']
+                      Project[$2, $0, $1]
+                        Set[&UnionAll => $0, $1, $2]
+                          + Opt:Trace[semantic_source='spend.spend_web.daily_u', source_role=&Unionset, originators=('spend.spend_web',), delivery=&PartialAggregates]
+                          Project[$0, $1, $2]
+                            Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):i64?]
+                              Project[$2, $0, $3]
+                                Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                                  + Opt:Trace[semantic_source='spend.spend_web.daily_u.daily_j', source_role=&Joinset, originators=('spend.spend_web.daily_u',), cardinality=&ManyToOne]
+                                  Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                                    Project[$2, $1, $0]
+                                      Read[warehouse.web_daily_b => day:date?, clicks:i32?, campaign_id:string?]
+                                        + Opt:Trace[semantic_source='spend.spend_web.daily_u.daily_j.web_daily_b', source_role=&Dataset, originators=('spend.spend_web.daily_u.daily_j',), physical_source='web_daily_b']
+                                  Aggregate[$1, $0 => $1, $0]
+                                    Project[$1, $0]
+                                      Read[warehouse.campaigns => region:string?, campaign_id:string?]
+                                        + Opt:Trace[semantic_source='spend.spend_web.daily_u.daily_j.campaigns', source_role=&Dataset, originators=('spend.spend_web.daily_u.daily_j',), physical_source='campaigns']
+                          Project[$0, $1, $2]
+                            Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+                              Project[$1, $0, $2, $3]
+                                Project[true, $1, $0, null:string?]
+                                  Read[warehouse.web_daily => day:date?, clicks:i32?]
+                                    + Opt:Trace[semantic_source='spend.spend_web.daily_u.web_daily', source_role=&Dataset, originators=('spend.spend_web.daily_u',), physical_source='web_daily']
+
+joinset_over_unionset_cast_sum_by_region:
+  model: models/all_orders_regions
+  request:
+    from: top
+    select: [region, cost]
+  expect:
+    rows:
+      - [region, cost]
+      - [eu, 7000000000000001.00]
+      - [us, 10.00]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic_decimal
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[region, cost]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='top', compositions=3, granularity_fit=&NotSelected]
+        Project[($1)::!decimal?<18, 2>, $0]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+            Project[$1, $2]
+              Join[&Left, equal($0, $3):boolean? => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='top', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                  Project[$1, $0]
+                    Set[&UnionAll => $0, $1]
+                      + Opt:Trace[semantic_source='top.all_orders', source_role=&Unionset, originators=('top',), delivery=&PartialAggregates]
+                      Project[$0, $1]
+                        Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                          Project[$1, coalesce($2, $0):string?]
+                            Join[&Right, equal($0, $2):boolean? => $0, $1, $2]
+                              + Opt:Trace[semantic_source='top.all_orders.jw', source_role=&Joinset, originators=('top.all_orders',), cardinality=&ManyToOne]
+                              Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                                Project[$0, $1]
+                                  Read[warehouse.orders_web => cost:decimal?<18, 2>, customer_id:string?]
+                                    + Opt:Trace[semantic_source='top.all_orders.jw.orders_web', source_role=&Dataset, originators=('top.all_orders.jw',), physical_source='orders_web']
+                              Aggregate[$0 => $0]
+                                Project[$0]
+                                  Read[warehouse.customers => customer_id:string?]
+                                    + Opt:Trace[semantic_source='top.all_orders.jw.customers', source_role=&Dataset, originators=('top.all_orders.jw',), physical_source='customers']
+                      Project[$0, $1]
+                        Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                          Project[$1, $0, $2]
+                            Project[true, $0, $1]
+                              Read[warehouse.orders_store => cost:decimal?<18, 2>, customer_id:string?]
+                                + Opt:Trace[semantic_source='top.all_orders.orders_store', source_role=&Dataset, originators=('top.all_orders',), physical_source='orders_store']
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.customer_regions => region:string?, customer_id:string?]
+                      + Opt:Trace[semantic_source='top.customer_regions', source_role=&Dataset, originators=('top',), physical_source='customer_regions']

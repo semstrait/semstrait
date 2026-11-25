@@ -1,0 +1,46 @@
+tables:
+  - namespace: warehouse
+    name: snap_raw
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: ts, type: timestamp}
+      - {name: balance, type: bigint}
+    rows:
+      - [A, "2026-03-10 08:00:00", 100]
+      - [A, "2026-03-10 20:00:00", 80]
+      - [A, "2026-03-11 09:00:00", 70]
+  - namespace: warehouse
+    name: snap_daily
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: ts, type: timestamp}
+      - {name: balance, type: bigint}
+    rows:
+      - [B, "2026-03-10 00:00:00", 50]
+      - [B, "2026-03-11 00:00:00", 40]
+  - namespace: polaris
+    name: adwords
+    columns:
+      - {name: country, type: string}
+      - {name: market, type: string}
+      - {name: cost, type: double}
+    rows:
+      - [SE, nordics, 10.0]
+      - [DE, dach, 20.0]
+  - namespace: polaris
+    name: bing
+    columns:
+      - {name: campaign, type: string}
+      - {name: day, type: date}
+      - {name: cost, type: double}
+    rows:
+      - [brand, 2026-05-18, 5.0]
+      - [generic, 2026-05-17, 7.0]
+  - namespace: polaris
+    name: facebook
+    columns:
+      - {name: country, type: string}
+      - {name: market, type: string}
+      - {name: cost, type: double}
+    rows:
+      - [SE, nordics, 1.0]

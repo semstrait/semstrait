@@ -1,0 +1,877 @@
+# Category 1: Paid Media Campaign Performance — E2E Kind Definition (v3)
+# Grainset: 4 datasets (Google Ads, Bing Ads, Facebook/Meta, TikTok)
+#
+# API-verified semantic unification (sources: Google Ads API v20, Microsoft
+# Advertising Reporting API v13, Meta Marketing API, TikTok Marketing API v1.3):
+#
+#   Facebook "Ad Set" = TikTok "Ad Group" → unified as "adgroup"
+#   campaign.status / CampaignStatus / effective_status / secondary_status → "campaign_status"
+#   campaign.start_date / Campaign.start_time → "campaign_start_date"
+#   campaign.end_date / Campaign.stop_time → "campaign_end_date"
+#   objective (Meta) / objective_type (TikTok) → "campaign_objective"
+#   buying_type (Meta) / rf_campaign_type (TikTok) → "buying_type"
+#   bidding_strategy_type (Google) / bid_type (TikTok) → "bid_strategy"
+#   optimization_goal (Meta) / optimization_goal (TikTok) → "adgroup_optimization_goal"
+#   conversion_action_name (Google) / Goal (Bing) → "conversion_name"
+#   conversion_action_category (Google) / GoalType (Bing) → "conversion_category"
+#   conversions_value (Google) / Revenue (Bing) → "conversion_value"
+#   tracking_url_template (Google) / TrackingTemplate (Bing) → "tracking_url_template"
+#   url_custom_parameters (Google) / CustomParameters (Bing) → "custom_url_parameters"
+#   customer.id (Google) / AccountId (Bing) / account_id (Meta) → "account_id"
+#   country_region (TikTok) → dropped (redundant with country_code)
+#   stat_time_day (TikTok) → dropped (redundant with date)
+#
+# Dimensions grouped by semantic domain. Column mappings mirror the same grouping.
+
+semantic_model:
+  name: acme_paid_media
+
+  # ─── Shared dimensions ───────────────────────────────────────────────────
+  dimensions:
+    - name: date
+      description: "Reporting date"
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+
+    - name: currency
+      description: "Currency of the reported monetary values"
+      data_type: string
+
+    - name: country
+      description: "Country where the ad was served or the audience is located"
+      data_type: string
+
+    - name: campaign_name
+      description: "Campaign name"
+      data_type: string
+      ai_context:
+        synonyms: [campaign, ad campaign]
+
+    - name: account_name
+      description: "Ad account descriptive name"
+      data_type: string
+      ai_context:
+        synonyms: [ad account, account]
+
+    - name: ad_name
+      description: "Ad creative name"
+      data_type: string
+
+  # ─── Shared measures ─────────────────────────────────────────────────────
+  measures:
+    - name: impressions
+      description: "Number of times the ad was displayed on screen"
+      data_type: decimal
+      agg: sum
+
+    - name: clicks
+      description: "Number of clicks on the ad"
+      data_type: decimal
+      agg: sum
+
+    - name: cost
+      description: "Total ad spend in account currency"
+      data_type: decimal
+      agg: sum
+      ai_context:
+        synonyms: [ad cost, ad spend, spend]
+
+    - name: conversions
+      description: "Total tracked conversions attributed to ads"
+      data_type: decimal
+      agg: sum
+      ai_context:
+        synonyms: [conv, total conversions]
+
+    - name: landing_page_views
+      description: "Successful landing page loads after ad click (requires pixel/SDK)"
+      data_type: decimal
+      agg: sum
+
+    - name: view_through_conversions
+      description: "Conversions where the user saw but did not click the ad"
+      data_type: decimal
+      agg: sum
+
+    - name: all_conversions
+      description: "Total conversions including those excluded from bid optimization"
+      data_type: decimal
+      agg: sum
+
+  # ─── Shared metrics ────────────────────────────────────────────────────
+  metrics:
+    - name: ctr
+      description: "Click-through rate"
+      data_type: decimal
+      expr: "clicks / impressions"
+
+    - name: cpc
+      description: "Cost per click"
+      data_type: decimal
+      expr: "cost / clicks"
+
+    - name: cpa
+      description: "Cost per conversion"
+      data_type: decimal
+      expr: "cost / conversions"
+
+    - name: conversion_rate
+      description: "Share of clicks resulting in a conversion"
+      data_type: decimal
+      expr: "conversions / clicks"
+
+    - name: cpm
+      description: "Cost per thousand impressions"
+      data_type: decimal
+      expr: "(cost / impressions) * 1000"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Kind: Paid Media Campaign Performance
+  # ═══════════════════════════════════════════════════════════════════════════
+  unionsets:
+    - name: paid_media_campaign_performance
+      description: "Cross-platform paid media performance unified across Google Ads, Bing Ads, Facebook/Meta, and TikTok"
+      ai_context: "Use for cross-channel paid media analysis. Filter by platform or campaign_category (search/social). Hierarchy: campaign > adgroup > ad. Facebook 'adset' = TikTok 'adgroup'."
+
+      dimensions:
+        # ── 1. Metadata & classification ─────────────────────────────────
+        # Keyness is per-site (ADR 0039): the six `*_id` sites below carry
+        # `is_key: true`, which is this kind's `default` keyset.
+        - name: platform
+          description: "Ad platform identifier extracted from resolved S3 location path"
+          data_type: string
+          type:
+            metadata:
+              path:
+                token: 5
+
+        - name: export_account_id
+          description: "Export account UUID extracted from resolved S3 location path"
+          data_type: string
+          type:
+            metadata:
+              path:
+                token: 6
+
+        - name: campaign_category
+          description: "High-level category: search (Google/Bing) or social (Facebook/TikTok)"
+          data_type: string
+
+        # ── 2. Time & geography ──────────────────────────────────────────
+        - ref: date
+        - ref: currency
+        - ref: country
+
+        # ── 3. Campaign ──────────────────────────────────────────────────
+        #    Identity
+        - name: campaign_id
+          description: "Campaign identifier (Google: campaign.id, Bing: CampaignId, Meta: campaign_id, TikTok: campaign_id)"
+          data_type: string
+          is_key: true
+        - ref: campaign_name
+        - name: campaign_status
+          description: "Campaign operational status (Google: ENABLED/PAUSED/REMOVED, Bing: Active/Paused, Meta: ACTIVE/PAUSED/ARCHIVED, TikTok: secondary_status enum)"
+          data_type: string
+        - name: campaign_labels
+          description: "Labels applied to the campaign (Bing: semicolon-delimited)"
+          data_type: string
+        #    Strategy / objective
+        - name: campaign_objective
+          description: "Campaign objective or goal (Meta: objective e.g. OUTCOME_SALES, TikTok: objective_type e.g. CONVERSIONS)"
+          data_type: string
+        - name: campaign_objective_type
+          description: "TikTok v1.3 objective type — more granular than campaign_objective (TRAFFIC, CONVERSIONS, APP_PROMOTION, REACH, VIDEO_VIEWS, LEAD_GENERATION, WEB_CONVERSIONS, PRODUCT_SALES)"
+          data_type: string
+        - name: campaign_type
+          description: "Platform-specific campaign type (Bing: Search/Shopping/Audience/Performance max, TikTok: REGULAR_CAMPAIGN/IOS14_CAMPAIGN)"
+          data_type: string
+        - name: buying_type
+          description: "Ad buying model (Meta: AUCTION/RESERVED, TikTok: AUCTION/REACH_AND_FREQUENCY)"
+          data_type: string
+        #    Schedule
+        - name: campaign_start_date
+          description: "Campaign start date (Google: YYYY-MM-DD, Meta: datetime)"
+          data_type: string
+        - name: campaign_end_date
+          description: "Campaign end date (Google: YYYY-MM-DD defaults to 2037-12-30, Meta: stop_time datetime)"
+          data_type: string
+        #    Campaign-level optimization (TikTok)
+        - name: campaign_optimize_goal
+          description: "Campaign-level optimization goal (TikTok: CLICK/CONVERT/INSTALL/REACH/IMPRESSION/VIDEO_VIEW)"
+          data_type: string
+        - name: campaign_budget_mode
+          description: "Budget mode (TikTok: BUDGET_MODE_DAY or BUDGET_MODE_TOTAL)"
+          data_type: string
+
+        # ── 4. Account ───────────────────────────────────────────────────
+        - name: account_id
+          description: "Ad account identifier (Google: customer.id, Bing: AccountId, Meta: account_id)"
+          data_type: string
+          is_key: true
+        - ref: account_name
+        - name: account_number
+          description: "Bing Ads account number (Microsoft-assigned)"
+          data_type: string
+        - name: account_status
+          description: "Bing Ads account status"
+          data_type: string
+        - name: account_timezone
+          description: "Account timezone (Google: customer.time_zone e.g. America/New_York)"
+          data_type: string
+
+        # ── 5. Bidding ───────────────────────────────────────────────────
+        - name: bid_strategy
+          description: "Bidding strategy (Google: bidding_strategy_type e.g. TARGET_CPA/TARGET_ROAS/MAXIMIZE_CONVERSIONS, TikTok: BID_TYPE_CUSTOM/BID_TYPE_NO_BID)"
+          data_type: string
+          ai_context:
+            synonyms: [bidding type, bid type]
+        - name: target_roas_campaign
+          description: "Google Ads: target ROAS setting on TargetRoas strategy (0.01–1000.0)"
+          data_type: string
+        - name: target_roas_max_conv
+          description: "Google Ads: target ROAS within MaximizeConversionValue strategy"
+          data_type: string
+        - name: campaign_target_cpa
+          description: "Google Ads: target CPA in micros for TargetCpa strategy"
+          data_type: string
+        - name: optimization_score
+          description: "Google Ads: campaign optimization score (0.0–1.0)"
+          data_type: string
+
+        # ── 6. Ad group ──────────────────────────────────────────────────
+        #    Identity (Meta "adset" = TikTok "adgroup")
+        - name: adgroup_id
+          description: "Ad group identifier (Meta: adset_id, TikTok: adgroup_id)"
+          data_type: string
+          is_key: true
+        - name: adgroup_name
+          description: "Ad group name (Meta: adset_name, TikTok: adgroup_name)"
+          data_type: string
+        - name: adgroup_status
+          description: "Ad group status (Meta: adset effective_status, TikTok: adgroup secondary_status)"
+          data_type: string
+        #    Schedule
+        - name: adgroup_start_date
+          description: "Ad group start time (Meta: adset start_time as UTC datetime)"
+          data_type: string
+        - name: adgroup_end_date
+          description: "Ad group end time (Meta: adset end_time — note: field is end_time, not stop_time like campaign)"
+          data_type: string
+        #    Strategy
+        - name: adgroup_optimization_goal
+          description: "Ad group optimization goal (Meta: LINK_CLICKS/CONVERSIONS/IMPRESSIONS/REACH, TikTok: CLICK/CONVERT/INSTALL)"
+          data_type: string
+        - name: adgroup_bid_type
+          description: "TikTok ad group bid type (BID_TYPE_CUSTOM/BID_TYPE_NO_BID)"
+          data_type: string
+        - name: adgroup_pacing
+          description: "TikTok budget pacing (PACING_MODE_SMOOTH/PACING_MODE_FAST)"
+          data_type: string
+        #    Targeting
+        - name: adgroup_placement
+          description: "TikTok placement surfaces (PLACEMENT_TIKTOK/PLACEMENT_PANGLE etc.)"
+          data_type: string
+        - name: adgroup_placement_type
+          description: "TikTok placement selection mode (PLACEMENT_TYPE_AUTOMATIC/PLACEMENT_TYPE_NORMAL)"
+          data_type: string
+        - name: adgroup_landing_page_url
+          description: "Landing page URL for the ad group"
+          data_type: string
+        - name: adgroup_interest_category
+          description: "TikTok interest category targeting IDs (v2 taxonomy)"
+          data_type: string
+        - name: promotion_type
+          description: "TikTok promotion type (WEBSITE/APP_ANDROID/APP_IOS/LEAD_GENERATION/TIKTOK_SHOP)"
+          data_type: string
+
+        # ── 7. Ad creative ───────────────────────────────────────────────
+        - name: ad_id
+          description: "Ad creative identifier (TikTok: ad_id)"
+          data_type: string
+          is_key: true
+        - ref: ad_name
+        - name: ad_status
+          description: "TikTok ad creative status (secondary_status: AD_STATUS_DELIVERY_OK/AD_STATUS_AUDIT etc.)"
+          data_type: string
+        - name: ad_call_to_action
+          description: "TikTok CTA button (LEARN_MORE/SHOP_NOW/SIGN_UP/DOWNLOAD)"
+          data_type: string
+        - name: ad_text
+          description: "Ad copy text (TikTok: ad_text)"
+          data_type: string
+        - name: ad_video_id
+          description: "Video creative identifier (TikTok: video_id)"
+          data_type: string
+          is_key: true
+        - name: ad_image_mode
+          description: "TikTok display mode (SINGLE/CAROUSEL)"
+          data_type: string
+        - name: ad_format
+          description: "TikTok ad format (SINGLE_VIDEO/SINGLE_IMAGE/CAROUSEL/COLLECTION/PLAYABLE)"
+          data_type: string
+
+        # ── 8. Conversion tracking ───────────────────────────────────────
+        - name: conversion_name
+          description: "Conversion action name (Google: segments.conversion_action_name, Bing: Goal)"
+          data_type: string
+          ai_context:
+            synonyms: [conversion action, goal name]
+        - name: conversion_category
+          description: "Conversion category (Google: conversion_action_category e.g. PURCHASE/LEAD/SIGNUP, Bing: GoalType e.g. AppInstall/Event/Url)"
+          data_type: string
+        - name: conversion_tracker_id
+          description: "Google Ads conversion tracker resource name (customers/{id}/conversionActions/{id})"
+          data_type: string
+          is_key: true
+        - name: external_conversion_source
+          description: "Google Ads external conversion source (GOOGLE_PLAY/FIREBASE/SALESFORCE etc.)"
+          data_type: string
+
+        # ── 9. Tracking URLs ─────────────────────────────────────────────
+        - name: tracking_url_template
+          description: "Campaign tracking URL template (Google: campaign.tracking_url_template, Bing: TrackingTemplate)"
+          data_type: string
+        - name: custom_url_parameters
+          description: "Custom URL parameters (Google: campaign.url_custom_parameters, Bing: CustomParameters as {_key}=value pairs)"
+          data_type: string
+        - name: customer_tracking_url_template
+          description: "Google Ads account-level tracking URL template"
+          data_type: string
+        - name: campaign_final_url_suffix
+          description: "Google Ads campaign-level final URL suffix for parallel tracking"
+          data_type: string
+        - name: customer_final_url_suffix
+          description: "Google Ads account-level final URL suffix"
+          data_type: string
+
+        # ── 10. Network & distribution ───────────────────────────────────
+        - name: advertising_channel
+          description: "Google Ads channel type (SEARCH/DISPLAY/SHOPPING/VIDEO/MULTI_CHANNEL)"
+          data_type: string
+          ai_context:
+            synonyms: [channel type, google channel type]
+        - name: advertising_sub_channel
+          description: "Google Ads sub-channel refinement"
+          data_type: string
+        - name: ad_distribution
+          description: "Bing ad distribution network"
+          data_type: string
+        - name: network
+          description: "Bing ad network (Microsoft sites/Syndicated partners/Audience/Content)"
+          data_type: string
+        - name: top_vs_other
+          description: "Bing ad position: top of page vs other"
+          data_type: string
+
+        # ── 11. Device & matching ────────────────────────────────────────
+        - name: device_type
+          description: "Bing device type (Computer/Smartphone/Tablet/Unknown)"
+          data_type: string
+        - name: device_os
+          description: "Bing device OS (Android/iOS/Windows/Other/Unknown)"
+          data_type: string
+        - name: bid_match_type
+          description: "Bing bid match type (Exact/Phrase/Broad)"
+          data_type: string
+        - name: delivered_match_type
+          description: "Bing actual match type used to serve the ad"
+          data_type: string
+
+        # ── 12. Budget (Bing shared budgets) ─────────────────────────────
+        - name: budget_name
+          description: "Bing shared budget name (empty for unshared budgets)"
+          data_type: string
+        - name: budget_status
+          description: "Bing budget status (Active/Deleted)"
+          data_type: string
+        - name: budget_association_status
+          description: "Bing budget association status (Current/Ended)"
+          data_type: string
+
+        # ── 13. Attribution (Meta) ───────────────────────────────────────
+        - name: attribution_setting
+          description: "Meta attribution window setting (1d_click/7d_click/1d_view/7d_view)"
+          data_type: string
+        - name: result_type
+          description: "Meta result type — derived from campaign objective + optimization goal"
+          data_type: string
+
+      # ── Measures ──────────────────────────────────────────────────────────
+      measures:
+        # ── Core performance (all platforms) ──
+        - ref: impressions
+        - ref: clicks
+        - ref: cost
+        - ref: conversions
+        - ref: landing_page_views
+        - ref: view_through_conversions
+        - ref: all_conversions
+
+        # ── Conversion value (Google + Bing) ──
+        - name: conversion_value
+          description: "Total value of tracked conversions (Google: metrics.conversions_value, Bing: Revenue)"
+          data_type: decimal
+          agg: sum
+          ai_context:
+            synonyms: [conversion revenue, bing revenue]
+        - name: all_conversions_value
+          description: "Google Ads: value of all conversions regardless of include_in_conversions_metric"
+          data_type: decimal
+          agg: sum
+        - name: cross_device_conversions
+          description: "Google Ads: conversions attributed across multiple devices (subset of all_conversions)"
+          data_type: decimal
+          agg: sum
+
+        # ── Google Ads performance ──
+        - name: views
+          description: "Google Ads: video ad views (metrics.video_views)"
+          data_type: decimal
+          agg: sum
+        - name: interactions
+          description: "Google Ads: main user action per ad format — clicks for text, views for video (metrics.interactions)"
+          data_type: decimal
+          agg: sum
+        - name: target_roas_numeric
+          description: "Google Ads: target ROAS as numeric value (derived)"
+          data_type: decimal
+          agg: sum
+
+        # ── Bing Ads performance ──
+        - name: total_position
+          description: "Bing: sum of ad positions for average position calculation (DEPRECATED since 2021 — returns 0)"
+          data_type: decimal
+          agg: sum
+        - name: low_quality_clicks
+          description: "Bing: clicks with low commercial intent likelihood (not billed)"
+          data_type: decimal
+          agg: sum
+        - name: low_quality_impressions
+          description: "Bing: impressions from low-quality keyword searches"
+          data_type: decimal
+          agg: sum
+        - name: low_quality_conversions
+          description: "Bing: conversions from low-quality clicks (DEPRECATED since 2022 — returns 0)"
+          data_type: decimal
+          agg: sum
+        - name: phone_impressions
+          description: "Bing: tracked phone number shown with ad"
+          data_type: decimal
+          agg: sum
+        - name: phone_calls
+          description: "Bing: total calls to tracked phone number"
+          data_type: decimal
+          agg: sum
+        - name: assists
+          description: "Bing: assist conversions (contributed to conversion path but not last click)"
+          data_type: decimal
+          agg: sum
+
+        # ── Meta engagement & conversion funnel ──
+        - name: link_clicks
+          description: "Meta: clicks on ad links to specified destinations (actions.link_click — subset of clicks)"
+          data_type: decimal
+          agg: sum
+        - name: outbound_clicks
+          description: "Meta: clicks leading off Meta-owned properties (outbound_clicks.outbound_click)"
+          data_type: decimal
+          agg: sum
+        - name: add_to_cart
+          description: "Meta: add-to-cart pixel events (actions.offsite_conversion.fb_pixel_add_to_cart)"
+          data_type: decimal
+          agg: sum
+          ai_context:
+            synonyms: [atc, cart additions]
+        - name: initiate_checkout
+          description: "Meta: checkout initiation pixel events"
+          data_type: decimal
+          agg: sum
+        - name: purchases
+          description: "Meta: purchase pixel events (actions.offsite_conversion.fb_pixel_purchase)"
+          data_type: decimal
+          agg: sum
+          ai_context:
+            synonyms: [fb purchases, facebook purchases]
+        - name: purchase_value
+          description: "Meta: total monetary value of purchase events (action_values.offsite_conversion.fb_pixel_purchase)"
+          data_type: decimal
+          agg: sum
+          ai_context:
+            synonyms: [fb revenue, facebook revenue]
+
+        # ── Meta budget (AdSet object fields, not Insights metrics) ──
+        - name: bid_amount
+          description: "Meta: adset bid cap or target cost in account currency minor units"
+          data_type: decimal
+          agg: sum
+        - name: daily_budget
+          description: "Meta: adset daily budget"
+          data_type: decimal
+          agg: sum
+        - name: lifetime_budget
+          description: "Meta: adset lifetime budget"
+          data_type: decimal
+          agg: sum
+        - name: result_value
+          description: "Meta: monetary value of results (derived from action_values filtered by campaign objective)"
+          data_type: decimal
+          agg: sum
+
+        # ── TikTok video engagement ──
+        - name: total_plays
+          description: "TikTok: total video play actions initiated"
+          data_type: decimal
+          agg: sum
+        - name: average_video_play
+          description: "TikTok: average video play duration in seconds"
+          data_type: decimal
+          agg: sum
+        - name: play_2s
+          description: "TikTok: video watched at least 2 seconds"
+          data_type: decimal
+          agg: sum
+        - name: play_6s
+          description: "TikTok: video watched at least 6 seconds"
+          data_type: decimal
+          agg: sum
+        - name: play_25pct
+          description: "TikTok: video watched to 25%"
+          data_type: decimal
+          agg: sum
+        - name: play_50pct
+          description: "TikTok: video watched to 50%"
+          data_type: decimal
+          agg: sum
+        - name: play_75pct
+          description: "TikTok: video watched to 75%"
+          data_type: decimal
+          agg: sum
+        - name: play_100pct
+          description: "TikTok: video completions (100%)"
+          data_type: decimal
+          agg: sum
+          ai_context:
+            synonyms: [video completions]
+        - name: engaged_views
+          description: "TikTok: 6s focused views (watched 6s+ or interacted within first 6s)"
+          data_type: decimal
+          agg: sum
+        - name: engaged_views_15s
+          description: "TikTok: 15s focused views"
+          data_type: decimal
+          agg: sum
+
+        # ── TikTok social engagement ──
+        - name: likes
+          description: "TikTok: ad likes"
+          data_type: decimal
+          agg: sum
+        - name: paid_follows
+          description: "TikTok: new followers from ads"
+          data_type: decimal
+          agg: sum
+        - name: paid_shares
+          description: "TikTok: ad shares"
+          data_type: decimal
+          agg: sum
+        - name: paid_comments
+          description: "TikTok: ad comments"
+          data_type: decimal
+          agg: sum
+        - name: profile_visits
+          description: "TikTok: profile visits from ads"
+          data_type: decimal
+          agg: sum
+
+        # ── TikTok conversion & budget ──
+        - name: complete_payments
+          description: "TikTok: completed payment conversion events (requires pixel/SDK)"
+          data_type: decimal
+          agg: sum
+          ai_context:
+            synonyms: [tiktok purchases]
+        - name: campaign_budget
+          description: "TikTok: campaign budget in advertiser currency"
+          data_type: decimal
+          agg: sum
+        - name: adgroup_budget
+          description: "TikTok: ad group budget in advertiser currency"
+          data_type: decimal
+          agg: sum
+
+      # ── Metrics ───────────────────────────────────────────────────────────
+      metrics:
+        - ref: ctr
+        - ref: cpc
+        - ref: cpa
+        - ref: conversion_rate
+        - ref: cpm
+        - name: facebook_roas
+          description: "Meta ROAS — purchase value / cost"
+          data_type: decimal
+          expr: "purchase_value / cost"
+        - name: google_roas
+          description: "Google Ads ROAS — conversion value / cost"
+          data_type: decimal
+          expr: "conversion_value / cost"
+
+      # ── Datasets ──────────────────────────────────────────────────────────
+      datasets:
+        # ── Google Ads ───────────────────────────────────────────────────
+        # 6 accounts under adwords namespace (shared prefix with keyword_clicks —
+        # glob selects all; filter specific tables if needed in production)
+        - name: adwords_campaign_data
+          description: "Google Ads campaign performance + conversion breakdown"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "adwords.*"
+            column_mapping:
+              # metadata & classification
+              campaign_category:
+                lit: "search"
+              # time & geography
+              date: date
+              currency: currency
+              country: adwords-country
+              # campaign
+              campaign_id: adwords-campaignID
+              campaign_name: adwords-campaign
+              campaign_status: adwords-campaign_status
+              campaign_start_date: adwords-campaign_start_date
+              campaign_end_date: adwords-campaign_end_date
+              # account
+              account_id: adwords-accountId
+              account_name: adwords-accountName
+              account_timezone: adwords-adAccountTimeZone
+              # bidding
+              bid_strategy: adwords-biddingStrategyType
+              target_roas_campaign: adwords-target_roas_campaign
+              target_roas_max_conv: adwords-targetRoasMaxConv
+              campaign_target_cpa: adwords-campaign_target_cpa
+              optimization_score: adwords-optimization_score
+              # conversion tracking
+              conversion_name: adwords-conversionName
+              conversion_category: adwords-conversionCategoryName
+              conversion_tracker_id: adwords-conversionTrackerId
+              external_conversion_source: adwords-externalConversionSource
+              # tracking URLs
+              tracking_url_template: adwords-trackingUrlTemplate
+              custom_url_parameters: adwords-urlCustomParameters
+              customer_tracking_url_template: adwords-customerTrackingUrlTemplate
+              campaign_final_url_suffix: adwords-campaign_final_url_suffix
+              customer_final_url_suffix: adwords-customer_final_url_suffix
+              # network & distribution
+              advertising_channel: adwords-advertisingChannel
+              advertising_sub_channel: adwords-advertisingSubChannel
+              # measures
+              cost: adwords-cost
+              clicks: adwords-clicks
+              impressions: adwords-impressions
+              conversions: adwords-conversions
+              views: adwords-views
+              interactions: adwords-interactions
+              all_conversions: adwords-allConv
+              all_conversions_value: adwords-allConvValue
+              conversion_value: adwords-totalConvValue
+              view_through_conversions: adwords-viewThroughConv
+              cross_device_conversions: adwords-cross_device_conversions
+              target_roas_numeric: "adwords-target_roas_campaign:numeric"
+
+        # ── Bing Ads ─────────────────────────────────────────────────────
+        # 6 accounts, glob safe (all bing tables are campaign perf)
+        - name: bing_campaign_data
+          description: "Bing/Microsoft Ads campaign performance (CampaignPerformanceReport)"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "bing.*"
+            column_mapping:
+              # metadata & classification
+              campaign_category:
+                lit: "search"
+              # time & geography
+              date: date
+              currency: currency
+              # campaign
+              campaign_id: bing-CampaignId
+              campaign_name: bing-CampaignName
+              campaign_status: bing-CampaignStatus
+              campaign_type: bing-CampaignType
+              campaign_labels: bing-CampaignLabels
+              # account
+              account_id: bing-AccountId
+              account_name: bing-AccountName
+              account_number: bing-AccountNumber
+              account_status: bing-AccountStatus
+              # conversion tracking
+              conversion_name: bing-Goal
+              conversion_category: bing-GoalType
+              # tracking URLs
+              tracking_url_template: bing-TrackingTemplate
+              custom_url_parameters: bing-CustomParameters
+              # network & distribution
+              ad_distribution: bing-AdDistribution
+              network: bing-Network
+              top_vs_other: bing-TopVsOther
+              # device & matching
+              device_type: bing-DeviceType
+              device_os: bing-DeviceOS
+              bid_match_type: bing-BidMatchType
+              delivered_match_type: bing-DeliveredMatchType
+              # budget
+              budget_name: bing-BudgetName
+              budget_status: bing-BudgetStatus
+              budget_association_status: bing-BudgetAssociationStatus
+              # measures
+              impressions: bing-impressions
+              clicks: bing-clicks
+              cost: bing-cost
+              conversions: bing-Conversions
+              all_conversions: bing-AllConversions
+              view_through_conversions: bing-ViewThroughConversions
+              conversion_value: bing-Revenue
+              total_position: bing-TotalPosition
+              low_quality_clicks: bing-LowQualityClicks
+              low_quality_impressions: bing-LowQualityImpressions
+              low_quality_conversions: bing-LowQualityConversions
+              phone_impressions: bing-PhoneImpressions
+              phone_calls: bing-PhoneCalls
+              assists: bing-Assists
+
+        # ── Facebook / Meta ──────────────────────────────────────────────
+        # 1 account, glob (future-proof for additional accounts)
+        - name: facebook_adset_data
+          description: "Meta Ads adset-level Insights with action breakdowns"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "facebookads.*"
+            column_mapping:
+              # metadata & classification
+              campaign_category:
+                lit: "social"
+              # time & geography
+              date: date
+              currency: currency
+              country: facebookads-country
+              # campaign
+              campaign_id: facebookads-campaign_id
+              campaign_name: facebookads-campaign_name
+              campaign_status: facebookads-campaign_effective_status
+              campaign_objective: facebookads-objective
+              buying_type: facebookads-buying_type
+              campaign_start_date: facebookads-campaign_start_time
+              campaign_end_date: facebookads-campaign_stop_time
+              # account
+              account_id: facebookads-ad_account_id
+              # ad group (Meta "adset")
+              adgroup_id: facebookads-adset_id
+              adgroup_name: facebookads-adset_name
+              adgroup_status: facebookads-adset_effective_status
+              adgroup_start_date: facebookads-adset_start_time
+              adgroup_end_date: facebookads-adset_end_time
+              adgroup_optimization_goal: facebookads-optimization_goal
+              # attribution
+              attribution_setting: facebookads-attribution_setting
+              result_type: facebookads-result_type
+              # measures — core
+              cost: facebookads-spend
+              impressions: facebookads-impressions
+              clicks: facebookads-clicks
+              # measures — engagement & conversion funnel
+              link_clicks: facebookads-actions.link_click
+              landing_page_views: facebookads-actions.landing_page_view
+              outbound_clicks: "facebookads-outbound_clicks.outbound_click"
+              add_to_cart: facebookads-actions.offsite_conversion.fb_pixel_add_to_cart
+              initiate_checkout: facebookads-actions.offsite_conversion.fb_pixel_initiate_checkout
+              purchases: facebookads-actions.offsite_conversion.fb_pixel_purchase
+              purchase_value: facebookads-action_values.offsite_conversion.fb_pixel_purchase
+              # measures — budget
+              bid_amount: facebookads-bid_amount
+              daily_budget: facebookads-daily_budget
+              lifetime_budget: facebookads-lifetime_budget
+              result_value: facebookads-result_value
+
+        # ── TikTok ───────────────────────────────────────────────────────
+        # 1 account, glob (future-proof for additional accounts)
+        - name: tiktok_ad_data
+          description: "TikTok Ads performance with video engagement metrics"
+          extras:
+            catalog: polaris
+            storage:
+              tables:
+                - "tiktok.*"
+            column_mapping:
+              # metadata & classification
+              campaign_category:
+                lit: "social"
+              # time & geography
+              date: date
+              currency: currency
+              country: tiktok-country
+              # campaign
+              campaign_id: tiktok-campaign_id
+              campaign_name: tiktok-campaign_name
+              campaign_status: tiktok-campaign_secondary_status
+              campaign_objective: tiktok-campaign_objective
+              campaign_objective_type: tiktok-campaign_objective_type
+              campaign_type: tiktok-campaign_type
+              buying_type: tiktok-campaign_buying_type
+              campaign_optimize_goal: tiktok-campaign_optimize_goal
+              campaign_budget_mode: tiktok-campaign_budget_mode
+              # bidding
+              bid_strategy: tiktok-campaign_bid_type
+              # ad group
+              adgroup_id: tiktok-adgroup_id
+              adgroup_name: tiktok-adgroup_name
+              adgroup_status: tiktok-adgroup_secondary_status
+              adgroup_optimization_goal: tiktok-adgroup_optimize_goal
+              adgroup_bid_type: tiktok-adgroup_bid_type
+              adgroup_pacing: tiktok-adgroup_pacing
+              adgroup_placement: tiktok-adgroup_placement
+              adgroup_placement_type: tiktok-adgroup_placement_type
+              adgroup_landing_page_url: tiktok-adgroup_landing_page_url
+              adgroup_interest_category: tiktok-adgroup_interest_category_v2
+              promotion_type: tiktok-promotion_type
+              # ad creative
+              ad_id: tiktok-ad_id
+              ad_name: tiktok-ad_name
+              ad_status: tiktok-ad_secondary_status
+              ad_call_to_action: tiktok-ad_call_to_action
+              ad_text: tiktok-ad_text
+              ad_video_id: tiktok-ad_video_id
+              ad_image_mode: tiktok-ad_image_mode
+              ad_format: tiktok-ad_format
+              # measures — core
+              cost: tiktok-stat_cost
+              impressions: tiktok-show_cnt
+              clicks: tiktok-click_cnt
+              conversions: tiktok-convert_cnt
+              landing_page_views: tiktok-total_landing_page_view
+              # measures — video engagement
+              total_plays: tiktok-total_play
+              average_video_play: tiktok-average_video_play
+              play_2s: tiktok-play_duration_2s
+              play_6s: tiktok-play_duration_6s
+              play_25pct: tiktok-play_first_quartile
+              play_50pct: tiktok-play_midpoint
+              play_75pct: tiktok-play_third_quartile
+              play_100pct: tiktok-play_over
+              engaged_views: tiktok-engaged_view
+              engaged_views_15s: tiktok-engaged_view_15s
+              # measures — social engagement
+              likes: tiktok-likes
+              paid_follows: tiktok-paid_follows
+              paid_shares: tiktok-paid_shares
+              paid_comments: tiktok-paid_comments
+              profile_visits: tiktok-profile_visits
+              # measures — conversion & budget
+              complete_payments: tiktok-complete_payment
+              campaign_budget: tiktok-campaign_budget
+              adgroup_budget: tiktok-budget

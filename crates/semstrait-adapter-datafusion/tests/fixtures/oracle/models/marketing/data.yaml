@@ -1,0 +1,77 @@
+tables:
+  - namespace: warehouse
+    name: spend
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: date, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2026-03-10, 10]
+      - [A, 2026-03-20, 5]
+  - namespace: warehouse
+    name: bookings
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: date, type: date}
+      - {name: revenue, type: bigint}
+      - {name: channel, type: string}
+    rows:
+      - [A, 2026-03-10, 100, app]
+      - [A, 2026-03-20, 50, web]
+  - namespace: warehouse
+    name: spend_web
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: date, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2026-03-10, 10]
+      - [A, 2026-03-20, 20]
+      - [B, 2026-03-10, 60]
+  - namespace: warehouse
+    name: spend_app
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: date, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2026-03-10, 40]
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: campaign_name, type: string}
+      - {name: budget, type: bigint}
+    rows:
+      - [A, Summer, 100]
+      - [B, Summer, 200]
+  - namespace: warehouse
+    name: cpc_daily
+    columns:
+      - {name: campaign, type: string}
+      - {name: date, type: date}
+      - {name: cpc, type: double}
+    rows:
+      - [c1, 2026-09-30, 1.0]
+      - [c1, 2026-10-01, 2.0]
+      - [c2, 2026-10-01, 4.0]
+      - [c1, 2026-10-02, 6.0]
+  - namespace: warehouse
+    name: tags
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: tag, type: string}
+    rows:
+      - [A, x]
+      - [A, y]
+      - [B, x]
+  - namespace: warehouse
+    name: spend2
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: date, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2026-03-10, 10]
+      - [A, 2026-03-10, 10]
+      - [B, 2026-03-10, 5]

@@ -1,0 +1,524 @@
+# A Unionset leaves out a branch its predicate excludes, or fills a name it does not map.
+
+branch_null_fill_unmapped:
+  # A branch that maps no name writes a typed NULL for it in its own row projection.
+  model: models/marketing_own_shape
+  request:
+    from: ad_platforms
+    select: [country, market, cost]
+  expect:
+    rows:
+      - [country, market, cost]
+      - [SE, nordics, 11.0]
+      - [DE, dach, 20.0]
+      - [null, brand, 5.0]
+      - [null, generic, 7.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[country, market, cost]
+      Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='ad_platforms', compositions=1, granularity_fit=&NotSelected]
+        Project[$2, $0, $1]
+          Set[&UnionAll => $0, $1, $2]
+            + Opt:Trace[semantic_source='ad_platforms', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):fp64?]
+              Project[$1, $0, $2, $3]
+                Project[true, $2, $0, $1]
+                  Read[polaris.adwords => country:string?, market:string?, cost:fp64?]
+                    + Opt:Trace[semantic_source='ad_platforms.adwords', source_role=&Dataset, originators=('ad_platforms',), physical_source='adwords']
+            Project[$0, $1, $2]
+              Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):fp64?]
+                Project[$1, $0, $2, $3]
+                  Project[true, $1, null:string?, $0]
+                    Read[polaris.bing => campaign:string?, cost:fp64?]
+                      + Opt:Trace[semantic_source='ad_platforms.bing', source_role=&Dataset, originators=('ad_platforms',), physical_source='bing']
+            Project[$0, $1, $2]
+              Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):fp64?]
+                Project[$1, $0, $2, $3]
+                  Project[true, $2, $0, $1]
+                    Read[polaris.facebook => country:string?, market:string?, cost:fp64?]
+                      + Opt:Trace[semantic_source='ad_platforms.facebook', source_role=&Dataset, originators=('ad_platforms',), physical_source='facebook']
+
+literal_folds_prunes_branch:
+  # A predicate that folds to false against a branch's own literal excludes that branch from the plan.
+  model: models/marketing_own_shape
+  request:
+    from: ad_platforms
+    select: [traffic_source, cost]
+    where: {eq: [day, {lit: '2026-05-18'}]}
+  expect:
+    rows:
+      - [traffic_source, cost]
+      - [Bing, 5.0]
+      - [Facebook, 1.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[traffic_source, cost]
+      Set[&UnionAll => $0, $1]
+        + Opt:Trace[scope_root='ad_platforms', compositions=1, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='ad_platforms', source_role=&Unionset, delivery=&FinalAggregates, pruned=('ad_platforms.adwords',)]
+        Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?]
+          Project[$1, $0, $3]
+            Filter[equal($2, '2026-05-18':date):boolean? => $0, $1, $2, $3]
+              Project[true, $0, $1, 'Bing']
+                Read[polaris.bing => cost:fp64?, day:date?]
+                  + Opt:Trace[semantic_source='ad_platforms.bing', source_role=&Dataset, originators=('ad_platforms',), physical_source='bing']
+        Project[$0, $1]
+          Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$1, $0, $3]
+              Filter[equal($2, '2026-05-18':date):boolean => $0, $1, $2, $3]
+                Project[true, $0, '2026-05-18':date, 'Facebook']
+                  Read[polaris.facebook => cost:fp64?]
+                    + Opt:Trace[semantic_source='ad_platforms.facebook', source_role=&Dataset, originators=('ad_platforms',), physical_source='facebook']
+
+every_branch_excluded_count:
+  # Where a predicate excludes every branch, a re-aggregated count over the empty read coalesces to zero.
+  model: models/commerce
+  request:
+    from: all_sales
+    select: [order_count]
+    where: {eq: [region, {lit: apac}]}
+  expect:
+    rows:
+      - [order_count]
+      - [0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: coalesce
+
+    === Plan
+    Root[order_count]
+      Project[coalesce($0, 0):i64]
+        + Opt:Trace[scope_root='all_sales', compositions=1, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+          Project[$0]
+            Read:Virtual[_ => "ssu2.order_count":i64]
+              + Opt:Trace[semantic_source='all_sales', source_role=&Unionset, delivery=&PartialAggregates, pruned=('all_sales.store_sales', 'all_sales.web_sales')]
+
+every_branch_excluded_sum_null:
+  # Where a predicate excludes every branch, a re-aggregated sum over the empty read gives NULL.
+  model: models/commerce
+  request:
+    from: all_sales
+    select: [revenue]
+    where: {eq: [region, {lit: apac}]}
+  expect:
+    rows:
+      - [revenue]
+      - [null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='all_sales', compositions=1, granularity_fit=&NotSelected]
+        Project[$0]
+          Read:Virtual[_ => "ssu2.revenue":fp64?]
+            + Opt:Trace[semantic_source='all_sales', source_role=&Unionset, delivery=&PartialAggregates, pruned=('all_sales.store_sales', 'all_sales.web_sales')]
+
+null_fill_equality_prunes_branch:
+  # A request predicate that is false on a branch's NULL fill leaves that branch out.
+  model: models/unionset_null_fill
+  request:
+    from: ads
+    select: [clicks]
+    where: {eq: [campaign, {lit: brand}]}
+  expect:
+    rows:
+      - [clicks]
+      - [1]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates, pruned=('ads.tiktok',)]
+            Project[$2, $1]
+              Filter[equal($0, 'brand'):boolean? => $0, $1, $2]
+                Project[$1, true, $0]
+                  Read[warehouse.facebook => clicks:i64?, campaign:string?]
+                    + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+
+null_fill_is_null_reads_branch:
+  # A request predicate that is true on a branch's NULL fill reads that branch.
+  model: models/unionset_null_fill
+  request:
+    from: ads
+    select: [clicks]
+    where: {is_null: campaign}
+  expect:
+    rows:
+      - [clicks]
+      - [10]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: is_null
+      #  2 @  2: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Set[&UnionAll => $0]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+              Project[$2, $1]
+                Filter[is_null($0):boolean => $0, $1, $2]
+                  Project[$1, true, $0]
+                    Read[warehouse.facebook => clicks:i64?, campaign:string?]
+                      + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+            Project[$0]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                Project[$2, $1]
+                  Filter[is_null($0):boolean => $0, $1, $2]
+                    Project[null:string?, true, $0]
+                      Read[warehouse.tiktok => clicks:i64?]
+                        + Opt:Trace[semantic_source='ads.tiktok', source_role=&Dataset, originators=('ads',), physical_source='tiktok']
+
+null_fill_negation_prunes_branch:
+  # A negated equality is NULL on a branch's NULL fill, so the branch is pruned.
+  model: models/unionset_null_fill
+  request:
+    from: ads
+    select: [clicks]
+    where: {not: {eq: [campaign, {lit: brand}]}}
+  expect:
+    rows:
+      - [clicks]
+      - [2]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: not
+      #  3 @  3: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates, pruned=('ads.tiktok',)]
+            Project[$2, $1]
+              Filter[not(equal($0, 'brand'):boolean?):boolean? => $0, $1, $2]
+                Project[$1, true, $0]
+                  Read[warehouse.facebook => clicks:i64?, campaign:string?]
+                    + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+
+null_fill_named_equality_prunes_branch:
+  # A named filter that is false on a branch's NULL fill leaves that branch out.
+  model: models/unionset_null_fill
+  request:
+    from: ads
+    select: [clicks]
+    filters: [brand_only]
+  expect:
+    rows:
+      - [clicks]
+      - [1]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates, pruned=('ads.tiktok',)]
+            Project[$2, $1]
+              Project[$1, $2, $3]
+                Filter[$0 => $0, $1, $2, $3]
+                  Project[equal($1, 'brand'):boolean?, $1, true, $0]
+                    Read[warehouse.facebook => clicks:i64?, campaign:string?]
+                      + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+
+null_fill_named_is_null_reads_branch:
+  # A named filter that is true on a branch's NULL fill reads that branch.
+  model: models/unionset_null_fill
+  request:
+    from: ads
+    select: [clicks]
+    filters: [unattributed]
+  expect:
+    rows:
+      - [clicks]
+      - [10]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: is_null
+      #  2 @  2: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Set[&UnionAll => $0]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+              Project[$2, $1]
+                Project[$0, $1, $2]
+                  Filter[$3 => $0, $1, $2, $3]
+                    Project[$1, true, $0, is_null($1):boolean]
+                      Read[warehouse.facebook => clicks:i64?, campaign:string?]
+                        + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+            Project[$0]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                Project[$2, $1]
+                  Project[$0, $1, $2]
+                    Filter[$3 => $0, $1, $2, $3]
+                      Project[null:string?, true, $0, true]
+                        Read[warehouse.tiktok => clicks:i64?]
+                          + Opt:Trace[semantic_source='ads.tiktok', source_role=&Dataset, originators=('ads',), physical_source='tiktok']
+
+null_fill_named_negation_prunes_branch:
+  # A named negated equality prunes a branch that NULL-fills its name.
+  model: models/unionset_null_fill
+  request:
+    from: ads
+    select: [clicks]
+    filters: [not_brand]
+  expect:
+    rows:
+      - [clicks]
+      - [2]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: not
+      #  3 @  3: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates, pruned=('ads.tiktok',)]
+            Project[$2, $1]
+              Project[$0, $1, $2]
+                Filter[$3 => $0, $1, $2, $3]
+                  Project[$1, true, $0, not(equal($1, 'brand'):boolean?):boolean?]
+                    Read[warehouse.facebook => clicks:i64?, campaign:string?]
+                      + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+
+null_fill_or_keeps_branch_for_later_rows:
+  # An `or` with a part that the NULL fill does not decide keeps the branch, and its rows after the 15th pass.
+  model: models/unionset_null_fill_dated
+  request:
+    from: ads
+    select: [clicks]
+    filters: [brand_or_late]
+  expect:
+    rows:
+      - [clicks]
+      - [101]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: gt
+      #  3 @  2: or
+      #  4 @  3: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0]
+          Set[&UnionAll => $0]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+              Project[$2, $1]
+                Project[$1, $2, $3, $4]
+                  Filter[$0 => $0, $1, $2, $3, $4]
+                    Project[or(equal($1, 'brand'):boolean?, gt($2, '2024-01-15':date):boolean?):boolean?, $1, true, $0, $2]
+                      Read[warehouse.facebook => clicks:i64?, campaign:string?, date:date?]
+                        + Opt:Trace[semantic_source='ads.facebook', source_role=&Dataset, originators=('ads',), physical_source='facebook']
+            Project[$0]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+                Project[$2, $1]
+                  Project[$1, $2, $3, $4]
+                    Filter[$0 => $0, $1, $2, $3, $4]
+                      Project[or(null:boolean?, gt($1, '2024-01-15':date):boolean?):boolean?, null:string?, true, $0, $1]
+                        Read[warehouse.tiktok => clicks:i64?, date:date?]
+                          + Opt:Trace[semantic_source='ads.tiktok', source_role=&Dataset, originators=('ads',), physical_source='tiktok']
+
+branch_not_servable_is_pruned:
+  # A Grainset branch whose children map each name but no one child maps all of them is pruned; the other branch answers.
+  model: models/unionset_branch_not_servable
+  request:
+    from: ads
+    select: [gender, age, clicks]
+  expect:
+    rows:
+      - [gender, age, clicks]
+      - [null, null, 11]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[gender, age, clicks]
+      Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ads', compositions=2, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$1, $2, $0]
+          Aggregate[$3, $0 => $3, $0, sum($1, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='ads', source_role=&Unionset, delivery=&PartialAggregates, pruned=('ads.facebook',)]
+            Project[$0, $2, $1, $3]
+              Project[null:string?, true, $0, null:string?]
+                Read[warehouse.google_by_campaign => clicks:i64?]
+                  + Opt:Trace[semantic_source='ads.google', source_role=&Dataset, originators=('ads',), physical_source='google_by_campaign']
+
+every_branch_excluded_with_grainset_branch:
+  # Where a predicate excludes every branch, a Grainset branch that would need a drill-across does not refuse the empty read.
+  model: models/unionset_grainset_literal
+  request:
+    from: all_spend
+    select: [{dimension: date, granularity: month}, campaign, clicks, budget]
+    where: {eq: [channel, {lit: apac}]}
+  expect:
+    rows:
+      - [date, campaign, clicks, budget]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, campaign, clicks, budget]
+      Aggregate[$3, $1 => $3, $1, sum($2, overflow⇒[ERROR]):i64?, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='all_spend', compositions=2, granularity_fit=&Requested]
+        Project[$0, $1, $2, (date_trunc('month', $3):date?)::!date?]
+          Project[$3, $1, $2, $0]
+            Read:Virtual[_ => "ssu5.date":date?, "ssu5.campaign":string?, "ssu5.clicks":i64?, "ssu5.budget":i64?]
+              + Opt:Trace[semantic_source='all_spend', source_role=&Unionset, delivery=&PartialAggregates, pruned=('all_spend.spend_c', 'all_spend.spend_g')]
+
+every_branch_a_grainset_excluded:
+  # Where a predicate excludes every branch and each branch is a Grainset that would need a drill-across, the empty read stands.
+  model: models/unionset_grainset_only
+  request:
+    from: all_spend
+    select: [{dimension: date, granularity: month}, campaign, clicks, budget]
+    where: {eq: [channel, {lit: apac}]}
+  expect:
+    rows:
+      - [date, campaign, clicks, budget]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: sum
+
+    === Plan
+    Root[date, campaign, clicks, budget]
+      Project[$3, $1, $2, $0]
+        + Opt:Trace[scope_root='all_spend', compositions=3, granularity_fit=&Requested, granularity=&Month]
+        Project[($3)::!i64?, $1, ($2)::!i64?, $0]
+          Aggregate[$3, $1 => $3, $1, sum($2, overflow⇒[ERROR]):i64?, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, $2, (date_trunc('month', $3):date?)::!date?]
+              Project[$3, $1, $2, $0]
+                Read:Virtual[_ => "ssu7.date":date?, "ssu7.campaign":string?, "ssu7.__plan_agg1_clicks":i64?, "ssu7.__plan_agg1_budget":i64?]
+                  + Opt:Trace[semantic_source='all_spend', source_role=&Unionset, delivery=&PartialAggregates, pruned=('all_spend.spend_c', 'all_spend.spend_g')]

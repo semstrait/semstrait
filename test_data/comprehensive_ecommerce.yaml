@@ -1,0 +1,841 @@
+# Comprehensive E-Commerce Analytics — Semantic Model Test Suite
+#
+# Single model exercising ALL semstrait features end-to-end:
+#
+#   Kind strategies:     Grainset, Unionset (all + distinct), Joinset (left, 3-way BFS)
+#   Dimension types:     Temporal (multi-grain), Categorical, Binary, Bucketed, Metadata (path + literal)
+#   Aggregation:         SUM, COUNT, COUNT_DISTINCT, AVG, MIN, MAX — all declarative
+#   Additivity:          Full (explicit + derived), Semi (latest), Non (derived from count_distinct/avg)
+#   Measure features:    Filters
+#   Metric types:        Simple, Ratio (divide), Derived, Nested (depth > 0)
+#   Semantic mapping:    Simple, Literal, Auto
+#   Physical binding:    Multi-source paths, NULL-fill in unions, partial coverage
+#   Relationships:       2-hop join chain, 3-way joinset, cross-kind ad-hoc
+#   Temporal configs:    Timeseries, Snapshot, SCD type 2
+#   Kind-level filters:  Domain filtering
+#   Dataset-level filters: Status-based pre-filters
+#
+# Each Dataset reads one Parquet folder under `s3://semstrait-e2e/`; a traffic
+# folder, `traffic/<channel>/<year>/`, has token 3 for `source_path` (ADR 0070,
+# ADR 0081).
+
+
+semantic_model:
+  name: ecommerce_analytics
+  description: "Comprehensive e-commerce analytics model for full feature coverage testing"
+  labels:
+    - test
+    - e2e
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Shared top-level definitions (ref: targets)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  dimensions:
+    - name: order_date
+      description: "Date the order was placed"
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+
+    - name: region
+      description: "Geographic region"
+      data_type: string
+      type: categorical
+
+    # Join bases: a relationship joins on Dimensions that both sides map (ADR 0038).
+    - name: customer_id
+      data_type: string
+      type: categorical
+
+    - name: product_id
+      data_type: string
+      type: categorical
+
+    - name: campaign_id
+      data_type: string
+      type: categorical
+
+  measures:
+    - name: revenue
+      description: "Total revenue (cancelled orders excluded)"
+      data_type: float64
+      agg: sum
+      filter:
+        not:
+          eq: [status, {lit: cancelled}]
+      additivity: full
+
+    - name: order_count
+      description: "Number of orders"
+      data_type: int64
+      agg: count
+
+    - name: cost
+      description: "Total cost of goods sold"
+      data_type: float64
+      agg: sum
+
+  metrics:
+    - name: avg_order_value
+      description: "Average order value (ratio metric)"
+      data_type: float64
+      expr:
+        divide: [revenue, order_count]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Standalone datasets (used by kinds + ad-hoc joins)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  datasets:
+    # ─── Orders daily: fine-grain fact table ────────────────────────────────
+    - name: orders_daily
+      description: "Daily order transactions"
+      domain: commerce
+      dimensions:
+        - ref: order_date
+        - ref: region
+        - ref: customer_id
+        - ref: product_id
+        - name: category
+          description: "Product category"
+          data_type: string
+          type: categorical
+        - name: status
+          description: "Order status (read by revenue's filter and active_orders)"
+          data_type: string
+          type: categorical
+        - name: is_premium
+          description: "Whether this is a premium order"
+          data_type: bool
+          type: binary
+        - name: price_bucket
+          description: "Order value tier"
+          data_type: string
+          type:
+            bucketed:
+              buckets:
+                - name: low
+                  lower: {bigint: 0}
+                  upper: {bigint: 50}
+                - name: medium
+                  lower: {bigint: 50}
+                  upper: {bigint: 200}
+                - name: high
+                  lower: {bigint: 200}
+                  upper: {bigint: 100000}
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - ref: cost
+        - name: unique_customers
+          description: "Distinct customer count (non-additive)"
+          data_type: int64
+          agg: count_distinct
+        - name: min_order_amount
+          description: "Smallest order amount"
+          data_type: float64
+          agg: min
+        - name: max_order_amount
+          description: "Largest order amount"
+          data_type: float64
+          agg: max
+      metrics:
+        - ref: avg_order_value
+        - name: margin
+          description: "Profit margin (derived metric)"
+          data_type: float64
+          expr:
+            subtract: [revenue, cost]
+        - name: margin_pct
+          description: "Margin as percentage (nested metric, depth > 0)"
+          data_type: float64
+          expr:
+            divide: [margin, revenue]
+      filters:
+        - name: active_orders
+          expr:
+            not_eq: [status, {lit: deleted}]
+      extras:
+        temporal:
+          timeseries:
+            occurred_at: order_date
+          granularity: day
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/warehouse/orders/daily/
+
+    # ─── Orders monthly: coarse-grain aggregate ─────────────────────────────
+    - name: orders_monthly
+      description: "Monthly order aggregates"
+      domain: commerce
+      dimensions:
+        - ref: order_date
+        - ref: region
+        - name: status
+          description: "Order status (read by revenue's filter)"
+          data_type: string
+          type: categorical
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - ref: cost
+      extras:
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/warehouse/orders/monthly/
+
+    # ─── Customers: SCD type 2 dimension table ──────────────────────────────
+    - name: customers
+      description: "Customer dimension with history tracking"
+      domain: crm
+      dimensions:
+        - ref: customer_id
+        - name: customer_name
+          data_type: string
+          type: categorical
+        - name: customer_tier
+          data_type: string
+          type: categorical
+        - name: signup_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, month, year]
+        - name: customer_region
+          data_type: string
+          type: categorical
+        - name: effective_date
+          description: "Start of the row's validity (SCD type 2)"
+          data_type: date
+          type:
+            temporal:
+              granularities: [day]
+        - name: expiry_date
+          description: "End of the row's validity (SCD type 2)"
+          data_type: date
+          type:
+            temporal:
+              granularities: [day]
+      measures:
+        - name: customer_count
+          data_type: int64
+          agg: count
+      extras:
+        temporal:
+          scd:
+            scd_type: type2
+            valid_from: effective_date
+            valid_to: expiry_date
+          granularity: day
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/warehouse/customers/
+
+    # ─── Products: dimension table ──────────────────────────────────────────
+    - name: products
+      description: "Product catalog"
+      domain: catalog
+      dimensions:
+        - ref: product_id
+        - name: product_name
+          data_type: string
+          type: categorical
+        - name: product_category
+          data_type: string
+          type: categorical
+        - name: brand
+          data_type: string
+          type: categorical
+      measures:
+        - name: product_count
+          data_type: int64
+          agg: count
+      extras:
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/warehouse/products/
+
+    # ─── Inventory snapshots: semi-additive ─────────────────────────────────
+    - name: inventory_snapshots
+      description: "Daily inventory snapshots (balance is semi-additive)"
+      domain: operations
+      dimensions:
+        - name: snapshot_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, month]
+        - name: warehouse_id
+          data_type: string
+          type: categorical
+        - name: sku
+          data_type: string
+          type: categorical
+      measures:
+        - name: inventory_balance
+          description: "Stock on hand (semi-additive: latest by snapshot_date)"
+          data_type: int64
+          agg: sum
+          additivity:
+            semi:
+              by: snapshot_date
+              strategy: latest
+        - name: units_received
+          description: "Units received (fully additive)"
+          data_type: int64
+          agg: sum
+        - name: units_shipped
+          description: "Units shipped (fully additive)"
+          data_type: int64
+          agg: sum
+      metrics:
+        - name: turnover_rate
+          description: "Units shipped / inventory balance"
+          data_type: float64
+          expr:
+            divide: [units_shipped, inventory_balance]
+      extras:
+        temporal:
+          snapshot:
+            snapshotted_at: snapshot_date
+          granularity: day
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/warehouse/inventory/snapshots/
+
+    # ─── Web clicks: traffic event stream ───────────────────────────────────
+    - name: web_clicks
+      description: "Website click events"
+      domain: traffic
+      dimensions:
+        - name: click_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, week, month]
+        - name: page_type
+          data_type: string
+          type: categorical
+        - name: source_path
+          description: "Extracted from S3 path token 3 (e.g. s3://semstrait-e2e/traffic/web/2024/)"
+          data_type: string
+          type:
+            metadata:
+              source:
+                path:
+                  token: 3
+      measures:
+        - name: clicks
+          data_type: int64
+          agg: count
+        - name: sessions
+          data_type: int64
+          agg: count_distinct
+        - name: conversions
+          data_type: int64
+          agg: sum
+        - name: click_revenue
+          description: "Revenue attributed to clicks"
+          data_type: float64
+          agg: sum
+      extras:
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/traffic/web/2024/
+
+    # ─── Mobile clicks: mobile app events ───────────────────────────────────
+    - name: mobile_clicks
+      description: "Mobile app click events"
+      domain: traffic
+      dimensions:
+        - name: click_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, week, month]
+        - name: page_type
+          data_type: string
+          type: categorical
+      measures:
+        - name: clicks
+          data_type: int64
+          agg: count
+        - name: sessions
+          data_type: int64
+          agg: count_distinct
+        - name: conversions
+          data_type: int64
+          agg: sum
+      extras:
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/traffic/mobile/2024/
+
+    # ─── Email events: email campaign events ────────────────────────────────
+    - name: email_events
+      description: "Email campaign click events"
+      domain: traffic
+      dimensions:
+        - name: click_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, week, month]
+      measures:
+        - name: clicks
+          data_type: int64
+          agg: count
+      extras:
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/traffic/email/2024/
+
+    # ─── Campaigns: marketing campaign dimension ────────────────────────────
+    - name: campaigns
+      description: "Marketing campaign definitions"
+      domain: marketing
+      dimensions:
+        - name: campaign_name
+          data_type: string
+          type: categorical
+        - name: campaign_channel
+          data_type: string
+          type: categorical
+        - name: campaign_status
+          data_type: string
+          type: categorical
+      measures:
+        - name: campaign_budget
+          data_type: float64
+          agg: sum
+      extras:
+        storage:
+          format: parquet
+          paths:
+            - s3://semstrait-e2e/warehouse/campaigns/
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Kind definitions
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ─── GRAINSET: sales (grain-aware routing) ────────────────────────────────
+  grainsets:
+    - name: sales
+      description: "Sales metrics with grain-aware routing across daily and monthly tables"
+      domain: commerce
+      dimensions:
+        - ref: order_date
+        - ref: region
+        - name: category
+          data_type: string
+          type: categorical
+        - name: status
+          description: "Order status (used by kind-level filter)"
+          data_type: string
+          type: categorical
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - ref: cost
+      metrics:
+        - ref: avg_order_value
+        - name: profit
+          description: "Revenue minus cost"
+          data_type: float64
+          expr:
+            subtract: [revenue, cost]
+        - name: roi
+          description: "Return on investment (nested: references profit metric)"
+          data_type: float64
+          expr:
+            divide: [profit, cost]
+      filters:
+        - name: kind_active_filter
+          expr:
+            not_eq: [status, {lit: deleted}]
+      datasets:
+        - name: orders_daily
+          extras:
+            semantic_mapping:
+              order_date: created_at
+              region: region_code
+              category: product_category
+              revenue: amount
+              order_count: order_id
+              cost: cogs_amount
+              status: order_status
+            temporal:
+              timeseries:
+                occurred_at: order_date
+              granularity: day
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/orders/daily/
+        - name: orders_monthly
+          extras:
+            semantic_mapping:
+              order_date: month_start
+              region: region_code
+              revenue: total_revenue
+              order_count: total_orders
+              cost: total_cogs
+              status: order_status
+            temporal:
+              timeseries:
+                occurred_at: order_date
+              granularity: month
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/orders/monthly/
+
+    # ─── GRAINSET: inventory (semi-additive measures) ─────────────────────────
+    - name: inventory
+      description: "Inventory tracking with semi-additive balance measures"
+      domain: operations
+      dimensions:
+        - name: snapshot_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, month]
+        - name: warehouse_id
+          data_type: string
+          type: categorical
+        - name: sku
+          data_type: string
+          type: categorical
+      measures:
+        - name: inventory_balance
+          description: "Stock on hand (semi-additive: latest by snapshot_date)"
+          data_type: int64
+          agg: sum
+          additivity:
+            semi:
+              by: snapshot_date
+              strategy: latest
+        - name: units_received
+          data_type: int64
+          agg: sum
+        - name: units_shipped
+          data_type: int64
+          agg: sum
+      metrics:
+        - name: turnover_rate
+          description: "Shipping velocity relative to stock"
+          data_type: float64
+          expr:
+            divide: [units_shipped, inventory_balance]
+      datasets:
+        - name: inventory_snapshots
+          extras:
+            semantic_mapping:
+              snapshot_date: snap_date
+              warehouse_id: wh_id
+              sku: product_sku
+              inventory_balance: qty_on_hand
+              units_received: qty_received
+              units_shipped: qty_shipped
+            temporal:
+              snapshot:
+                snapshotted_at: snapshot_date
+              granularity: day
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/inventory/snapshots/
+        - name: inventory_monthly
+          extras:
+            semantic_mapping:
+              snapshot_date: snap_month
+              warehouse_id: wh_id
+              sku: product_sku
+              inventory_balance: qty_on_hand
+              units_received: qty_received
+              units_shipped: qty_shipped
+            temporal:
+              snapshot:
+                snapshotted_at: snapshot_date
+              granularity: month
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/inventory/monthly/
+
+  # ─── UNIONSET: all_traffic (NULL-fill + literal dims + metadata) ──────────
+  unionsets:
+    - name: all_traffic
+      description: "All traffic events unified across web, mobile, and email channels"
+      mode: all
+      dimensions:
+        - name: click_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, week, month]
+        - name: platform
+          description: "Traffic source platform (injected as literal per dataset)"
+          data_type: string
+          type: categorical
+        - name: page_type
+          data_type: string
+          type: categorical
+        - name: source_path
+          description: "Extracted from storage path (metadata dimension)"
+          data_type: string
+          type:
+            metadata:
+              source:
+                path:
+                  token: 3
+      measures:
+        - name: clicks
+          data_type: int64
+          agg: count
+        - name: sessions
+          description: "Distinct sessions (non-additive, only web + mobile)"
+          data_type: int64
+          agg: count_distinct
+        - name: conversions
+          description: "Conversion events (only web + mobile)"
+          data_type: int64
+          agg: sum
+        - name: click_revenue
+          description: "Revenue from clicks (only web)"
+          data_type: float64
+          agg: sum
+      metrics:
+        - name: conversion_rate
+          description: "Conversions per click (ratio metric)"
+          data_type: float64
+          expr:
+            divide: [conversions, clicks]
+        - name: revenue_per_click
+          description: "Revenue per click (ratio, only meaningful for web)"
+          data_type: float64
+          expr:
+            divide: [click_revenue, clicks]
+      datasets:
+        # Web: full coverage — clicks, sessions, conversions, click_revenue, page_type
+        - name: web_clicks
+          extras:
+            semantic_mapping:
+              click_date: event_date
+              platform:
+                lit: web
+              page_type: page_category
+              clicks: click_id
+              sessions: session_id
+              conversions: conversion_count
+              click_revenue: attributed_revenue
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/traffic/web/2024/
+        # Mobile: partial — clicks, sessions, conversions, page_type (NO click_revenue)
+        - name: mobile_clicks
+          extras:
+            semantic_mapping:
+              click_date: event_date
+              platform:
+                lit: mobile
+              page_type: screen_name
+              clicks: tap_id
+              sessions: session_id
+              conversions: conversion_count
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/traffic/mobile/2024/
+        # Email: minimal — clicks only (NO sessions, conversions, click_revenue, page_type)
+        - name: email_events
+          extras:
+            semantic_mapping:
+              click_date: event_date
+              platform:
+                lit: email
+              clicks: click_id
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/traffic/email/2024/
+
+  # ─── JOINSET: order_details (3-way BFS join) ─────────────────────────────
+  joinsets:
+    - name: order_details
+      description: "Order details joining orders with customers and products (3-way join)"
+      dimensions:
+        - ref: order_date
+        - ref: region
+        - ref: customer_id
+        - ref: product_id
+        - name: status
+          description: "Order status (read by revenue's filter)"
+          data_type: string
+          type: categorical
+        - name: customer_name
+          data_type: string
+          type: categorical
+        - name: customer_tier
+          data_type: string
+          type: categorical
+        - name: product_name
+          data_type: string
+          type: categorical
+        - name: product_category
+          data_type: string
+          type: categorical
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - name: customer_count
+          data_type: int64
+          agg: count
+      metrics:
+        - ref: avg_order_value
+      datasets:
+        - name: orders_daily
+          extras:
+            semantic_mapping:
+              order_date: created_at
+              region: region_code
+              customer_id: customer_id
+              product_id: product_id
+              status: order_status
+              revenue: amount
+              order_count: order_id
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/orders/daily/
+        - name: customers
+          extras:
+            semantic_mapping:
+              customer_id: customer_id
+              customer_name: full_name
+              customer_tier: tier
+              customer_count: customer_id
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/customers/
+        - name: products
+          extras:
+            semantic_mapping:
+              product_id: product_id
+              product_name: name
+              product_category: category
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/products/
+      relationships:
+        - name: orders_to_customers
+          from: orders_daily
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: left
+        - name: orders_to_products
+          from: orders_daily
+          to: products
+          on: [product_id]
+          cardinality: many_to_one
+          optional: left
+
+    # ─── JOINSET: traffic_campaigns (campaign attribution via join) ──────────
+    - name: traffic_campaigns
+      description: "Web traffic with campaign attribution"
+      dimensions:
+        - ref: campaign_id
+        - name: click_date
+          data_type: date
+          type:
+            temporal:
+              granularities: [day, week, month]
+        - name: campaign_name
+          data_type: string
+          type: categorical
+        - name: campaign_channel
+          data_type: string
+          type: categorical
+        - name: page_type
+          data_type: string
+          type: categorical
+      measures:
+        - name: clicks
+          data_type: int64
+          agg: count
+        - name: conversions
+          data_type: int64
+          agg: sum
+        - name: campaign_budget
+          data_type: float64
+          agg: sum
+      metrics:
+        - name: cost_per_conversion
+          description: "Campaign budget per conversion"
+          data_type: float64
+          expr:
+            divide: [campaign_budget, conversions]
+      datasets:
+        - name: web_clicks
+          extras:
+            semantic_mapping:
+              campaign_id: campaign_id
+              click_date: event_date
+              page_type: page_category
+              clicks: click_id
+              conversions: conversion_count
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/traffic/web/2024/
+        - name: campaigns
+          extras:
+            semantic_mapping:
+              campaign_id: campaign_id
+              campaign_name: name
+              campaign_channel: channel
+              campaign_budget: budget_amount
+            storage:
+              format: parquet
+              paths:
+                - s3://semstrait-e2e/warehouse/campaigns/
+      relationships:
+        - name: clicks_to_campaigns
+          from: web_clicks
+          to: campaigns
+          on: [campaign_id]
+          cardinality: many_to_one
+          optional: left
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Top-level relationships (ad-hoc join resolution)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  relationships:
+    - name: orders_to_customers
+      from: orders_daily
+      to: customers
+      on: [customer_id]
+      cardinality: many_to_one
+      optional: left
+
+    - name: orders_to_products
+      from: orders_daily
+      to: products
+      on: [product_id]
+      cardinality: many_to_one
+      optional: left

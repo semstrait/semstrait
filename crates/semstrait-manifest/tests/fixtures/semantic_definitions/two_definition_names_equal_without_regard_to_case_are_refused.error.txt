@@ -1,0 +1,1 @@
+error: definition names `Region` and `region` are equal without regard to case, which an engine that folds identifiers would collide

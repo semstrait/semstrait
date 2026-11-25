@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `warehouse.orders` is read as `delta`; a path source is read as `parquet`, and a table source is an `iceberg` table

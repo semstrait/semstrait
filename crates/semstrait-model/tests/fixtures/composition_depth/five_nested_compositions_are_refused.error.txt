@@ -1,0 +1,1 @@
+error: composition `l1` nests 5 compositions deep; ADR 0054's `MAX_COMPOSITION_DEPTH = 4` bounds authored nesting

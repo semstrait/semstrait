@@ -1,0 +1,1 @@
+error: at `tagged_spend`: the fan-out marker of `weighted_cost` has no place above the join that repeats its rows

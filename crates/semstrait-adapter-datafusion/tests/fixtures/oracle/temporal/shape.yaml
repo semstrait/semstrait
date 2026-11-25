@@ -1,0 +1,670 @@
+# A time axis buckets by granularity and week start, and a model-authored date_trunc or extract Dimension keeps its own clock.
+
+default_week_start:
+  # Under the default week start, Monday, a Saturday and the next Sunday fall in the same week.
+  model: models/events
+  request:
+    from: days
+    select: [{dimension: d, granularity: week}, event_count]
+  expect:
+    rows:
+      - [d, event_count]
+      - [2026-10-12, 2]
+  sql: SELECT date_trunc('week', d) AS d, count(*) AS event_count FROM warehouse.days GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: count
+
+    === Plan
+    Root[d, event_count]
+      Aggregate[$0 => $0, count(1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='days', compositions=0, granularity_fit=&NotSelected]
+        Project[(date_trunc('week', $0):date?)::!date?]
+          Project[$0]
+            Read[warehouse.days => d:date?]
+              + Opt:Trace[semantic_source='days', source_role=&Dataset, physical_source='days']
+
+sunday_week_start:
+  # Under week_start: sunday, a Saturday and the next Sunday fall in different weeks.
+  model: models/events
+  request:
+    from: days
+    select: [{dimension: d, granularity: week}, event_count]
+  context:
+    week_start: sunday
+  expect:
+    rows:
+      - [d, event_count]
+      - [2026-10-11, 1]
+      - [2026-10-18, 1]
+  sql: >-
+    SELECT d - CAST(extract(dow FROM d) AS integer) AS d, count(*) AS event_count
+    FROM warehouse.days GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: add
+      #  2 @  1: date_trunc
+      #  3 @  1: subtract
+      #  4 @  2: count
+
+    === Plan
+    Root[d, event_count]
+      Aggregate[$0 => $0, count(1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='days', compositions=0, granularity_fit=&NotSelected]
+        Project[(subtract(date_trunc('week', add($0, '1d':interval_day<6>):date?):date?, '1d':interval_day<6>):date?)::!date?]
+          Project[$0]
+            Read[warehouse.days => d:date?]
+              + Opt:Trace[semantic_source='days', source_role=&Dataset, physical_source='days']
+
+repeated_local_hour:
+  # Two UTC hours that read the same local hour under a timezone offset count as one bucket.
+  model: models/events
+  request:
+    from: new_york_events
+    select: [{dimension: ts, granularity: hour}, event_count]
+  context:
+    timezone: America/New_York
+  expect:
+    rows:
+      - [ts, event_count]
+      - ["2026-11-01 01:00:00", 2]
+  sql: >-
+    SELECT date_trunc('hour', ts AT TIME ZONE 'America/New_York') AS ts, count(*) AS event_count
+    FROM warehouse.new_york_events GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+      #  4 @  2: count
+
+    === Plan
+    Root[ts, event_count]
+      Aggregate[$0 => $0, count(1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='new_york_events', compositions=0, granularity_fit=&NotSelected]
+        Project[to_local_time(date_trunc('hour', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"America/New_York\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>]
+          Project[$0]
+            Read[warehouse.new_york_events => ts:precisiontimestamp?<6>]
+              + Opt:Trace[semantic_source='new_york_events', source_role=&Dataset, physical_source='new_york_events']
+
+month_crosses_midnight:
+  # A UTC time near midnight buckets to the next local month under a positive offset.
+  model: models/events
+  request:
+    from: stockholm_events
+    select: [{dimension: ts, granularity: month}, event_count]
+  context:
+    timezone: Europe/Stockholm
+  expect:
+    rows:
+      - [ts, event_count]
+      - ["2026-04-01 00:00:00", 1]
+  sql: >-
+    SELECT date_trunc('month', ts AT TIME ZONE 'Europe/Stockholm') AS ts, count(*) AS event_count
+    FROM warehouse.stockholm_events GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+      #  4 @  2: count
+
+    === Plan
+    Root[ts, event_count]
+      Aggregate[$0 => $0, count(1, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='stockholm_events', compositions=0, granularity_fit=&NotSelected]
+        Project[to_local_time(date_trunc('month', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"Europe/Stockholm\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>]
+          Project[$0]
+            Read[warehouse.stockholm_events => ts:precisiontimestamp?<6>]
+              + Opt:Trace[semantic_source='stockholm_events', source_role=&Dataset, physical_source='stockholm_events']
+
+timestamptz_month_bucket:
+  # Under the default timezone, an Iceberg timestamptz buckets to the month of its UTC clock value.
+  model: models/commerce_iceberg
+  request:
+    from: orders
+    select: [{dimension: created_at, granularity: month}, revenue]
+  expect:
+    rows:
+      - [created_at, revenue]
+      - ["2026-01-01 00:00:00", 10]
+      - ["2026-02-01 00:00:00", 50]
+  sql: >-
+    SELECT date_trunc('month', created_at AT TIME ZONE 'UTC') AS created_at, sum(amount) AS
+    revenue FROM warehouse.orders GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+      #  4 @  2: sum
+
+    === Plan
+    Root[created_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[to_local_time(date_trunc('month', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>, $1]
+          Project[$0, $1]
+            Read[warehouse.orders => created_at:precisiontimestamp?<6>, amount:i64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+timestamptz_month_under_zone:
+  # Under the request's own timezone, an Iceberg timestamptz buckets to the month of its local clock value.
+  model: models/commerce_iceberg
+  request:
+    from: orders
+    select: [{dimension: created_at, granularity: month}, revenue]
+  context:
+    timezone: Europe/Stockholm
+  expect:
+    rows:
+      - [created_at, revenue]
+      - ["2026-02-01 00:00:00", 60]
+  sql: >-
+    SELECT date_trunc('month', created_at AT TIME ZONE 'Europe/Stockholm') AS created_at,
+    sum(amount) AS revenue FROM warehouse.orders GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+      #  4 @  2: sum
+
+    === Plan
+    Root[created_at, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Project[to_local_time(date_trunc('month', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"Europe/Stockholm\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>, $1]
+          Project[$0, $1]
+            Read[warehouse.orders => created_at:precisiontimestamp?<6>, amount:i64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+timestamptz_predicate_utc:
+  # A predicate on an Iceberg timestamptz reads its literal as a UTC instant.
+  model: models/commerce_iceberg
+  request:
+    from: orders
+    select: [revenue]
+    where: {gt_eq: [created_at, {lit: '2026-02-01 00:00:00'}]}
+  expect:
+    rows:
+      - [revenue]
+      - [50]
+  sql: >-
+    SELECT sum(amount) AS revenue FROM warehouse.orders
+    WHERE created_at >= TIMESTAMP '2026-02-01 00:00:00'
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: gte
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Filter[gte($0, '2026-02-01T00:00:00.000000':precisiontimestamp<6>):boolean? => $0, $1]
+          Project[$1, $0]
+            Read[warehouse.orders => amount:i64?, created_at:precisiontimestamp?<6>]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+date_trunc_month:
+  # A model-authored date_trunc Dimension buckets a date to its month.
+  model: models/events
+  request:
+    from: events
+    select: [event_date, event_month]
+  expect:
+    rows:
+      - [event_date, event_month]
+      - ["2026-03-31", "2026-03-01"]
+      - ["2026-04-05", "2026-04-01"]
+      - ["2027-01-01", "2027-01-01"]
+  sql: >-
+    SELECT created_at AS event_date, date_trunc('month', created_at) AS event_month
+    FROM warehouse.events GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_trunc
+
+    === Plan
+    Root[event_date, event_month]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_trunc('month', $0):date?)::!date?]
+          Read[warehouse.events => created_at:date?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']
+
+date_trunc_month_fixed:
+  # The request's own timezone does not reach a model-authored date_trunc, so its bucket stays the same.
+  model: models/events
+  request:
+    from: events
+    select: [event_date, event_month]
+  context:
+    timezone: Europe/Stockholm
+  expect:
+    rows:
+      - [event_date, event_month]
+      - ["2026-03-31", "2026-03-01"]
+      - ["2026-04-05", "2026-04-01"]
+      - ["2027-01-01", "2027-01-01"]
+  sql: >-
+    SELECT created_at AS event_date, date_trunc('month', created_at) AS event_month
+    FROM warehouse.events GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_trunc
+
+    === Plan
+    Root[event_date, event_month]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_trunc('month', $0):date?)::!date?]
+          Read[warehouse.events => created_at:date?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']
+
+date_trunc_hour:
+  # A model-authored date_trunc Dimension buckets a timestamp to its hour.
+  model: models/events
+  request:
+    from: sensor_readings
+    select: [event_timestamp, reading_hour]
+  expect:
+    rows:
+      - [event_timestamp, reading_hour]
+      - ["2026-03-31 23:30:00", "2026-03-31 23:00:00"]
+      - ["2026-03-31 23:30:15", "2026-03-31 23:00:00"]
+  sql: >-
+    SELECT event_timestamp, date_trunc('hour', event_timestamp) AS reading_hour
+    FROM warehouse.sensor_readings GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+
+    === Plan
+    Root[event_timestamp, reading_hour]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='sensor_readings', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, to_local_time(date_trunc('hour', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>]
+          Read[warehouse.sensor_readings => event_timestamp:precisiontimestamp?<6>]
+            + Opt:Trace[semantic_source='sensor_readings', source_role=&Dataset, physical_source='sensor_readings']
+
+date_trunc_hour_fixed:
+  # The request's own timezone does not reach a model-authored date_trunc on a timestamp.
+  model: models/events
+  request:
+    from: sensor_readings
+    select: [event_timestamp, reading_hour]
+  context:
+    timezone: Europe/Stockholm
+  expect:
+    rows:
+      - [event_timestamp, reading_hour]
+      - ["2026-03-31 23:30:00", "2026-03-31 23:00:00"]
+      - ["2026-03-31 23:30:15", "2026-03-31 23:00:00"]
+  sql: >-
+    SELECT event_timestamp, date_trunc('hour', event_timestamp) AS reading_hour
+    FROM warehouse.sensor_readings GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: arrow_cast
+      #  2 @  1: date_trunc
+      #  3 @  1: to_local_time
+
+    === Plan
+    Root[event_timestamp, reading_hour]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='sensor_readings', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, to_local_time(date_trunc('hour', arrow_cast(($0)::!precisiontimestamptz?<6>, 'Timestamp(Microsecond, \"UTC\")'):precisiontimestamptz?<6>):precisiontimestamptz?<6>):precisiontimestamp?<6>]
+          Read[warehouse.sensor_readings => event_timestamp:precisiontimestamp?<6>]
+            + Opt:Trace[semantic_source='sensor_readings', source_role=&Dataset, physical_source='sensor_readings']
+
+date_trunc_week:
+  # A model-authored date_trunc Dimension buckets a date to its own default week start.
+  model: models/events
+  request:
+    from: events
+    select: [event_date, event_week]
+  expect:
+    rows:
+      - [event_date, event_week]
+      - ["2026-03-31", "2026-03-30"]
+      - ["2026-04-05", "2026-03-30"]
+      - ["2027-01-01", "2026-12-28"]
+  sql: >-
+    SELECT created_at AS event_date, date_trunc('week', created_at) AS event_week
+    FROM warehouse.events GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_trunc
+
+    === Plan
+    Root[event_date, event_week]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_trunc('week', $0):date?)::!date?]
+          Read[warehouse.events => created_at:date?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']
+
+date_trunc_week_fixed:
+  # The request's own week start does not reach a model-authored date_trunc.
+  model: models/events
+  request:
+    from: events
+    select: [event_date, event_week]
+  context:
+    week_start: sunday
+  expect:
+    rows:
+      - [event_date, event_week]
+      - ["2026-03-31", "2026-03-30"]
+      - ["2026-04-05", "2026-03-30"]
+      - ["2027-01-01", "2026-12-28"]
+  sql: >-
+    SELECT created_at AS event_date, date_trunc('week', created_at) AS event_week
+    FROM warehouse.events GROUP BY 1, 2
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_trunc
+
+    === Plan
+    Root[event_date, event_week]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_trunc('week', $0):date?)::!date?]
+          Read[warehouse.events => created_at:date?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']
+
+extract_date_parts:
+  # A model-authored extract Dimension gives each date component, including the ISO week and day of week.
+  model: models/events
+  request:
+    from: events
+    select:
+      - event_date
+      - event_year_part
+      - event_quarter_part
+      - event_month_part
+      - event_week_part
+      - event_day_part
+      - event_day_of_week_part
+      - event_day_of_year_part
+  expect:
+    rows:
+      - [event_date, event_year_part, event_quarter_part, event_month_part, event_week_part, event_day_part, event_day_of_week_part, event_day_of_year_part]
+      - ["2026-03-31", 2026, 1, 3, 14, 31, 2, 90]
+      - ["2026-04-05", 2026, 2, 4, 14, 5, 7, 95]
+      - ["2027-01-01", 2027, 1, 1, 53, 1, 5, 1]
+  sql: >-
+    SELECT created_at AS event_date, extract(year FROM created_at), extract(quarter FROM
+    created_at), extract(month FROM created_at), extract(week FROM created_at),
+    extract(day FROM created_at), extract(isodow FROM created_at), extract(doy FROM
+    created_at) FROM warehouse.events GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_part
+
+    === Plan
+    Root[event_date, event_year_part, event_quarter_part, event_month_part, event_week_part, event_day_part, event_day_of_week_part, event_day_of_year_part]
+      Aggregate[$0, $7, $5, $4, $6, $3, $1, $2 => $0, $7, $5, $4, $6, $3, $1, $2]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_part('isodow', $0):i64?)::!i64?, (date_part('doy', $0):i64?)::!i64?, (date_part('day', $0):i64?)::!i64?, (date_part('month', $0):i64?)::!i64?, (date_part('quarter', $0):i64?)::!i64?, (date_part('week', $0):i64?)::!i64?, (date_part('year', $0):i64?)::!i64?]
+          Read[warehouse.events => created_at:date?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']
+
+extract_date_parts_fixed:
+  # The request's own timezone does not reach a model-authored extract of a date.
+  model: models/events
+  request:
+    from: events
+    select:
+      - event_date
+      - event_year_part
+      - event_quarter_part
+      - event_month_part
+      - event_week_part
+      - event_day_part
+      - event_day_of_week_part
+      - event_day_of_year_part
+  context:
+    timezone: Europe/Stockholm
+  expect:
+    rows:
+      - [event_date, event_year_part, event_quarter_part, event_month_part, event_week_part, event_day_part, event_day_of_week_part, event_day_of_year_part]
+      - ["2026-03-31", 2026, 1, 3, 14, 31, 2, 90]
+      - ["2026-04-05", 2026, 2, 4, 14, 5, 7, 95]
+      - ["2027-01-01", 2027, 1, 1, 53, 1, 5, 1]
+  sql: >-
+    SELECT created_at AS event_date, extract(year FROM created_at), extract(quarter FROM
+    created_at), extract(month FROM created_at), extract(week FROM created_at),
+    extract(day FROM created_at), extract(isodow FROM created_at), extract(doy FROM
+    created_at) FROM warehouse.events GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_part
+
+    === Plan
+    Root[event_date, event_year_part, event_quarter_part, event_month_part, event_week_part, event_day_part, event_day_of_week_part, event_day_of_year_part]
+      Aggregate[$0, $7, $5, $4, $6, $3, $1, $2 => $0, $7, $5, $4, $6, $3, $1, $2]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_part('isodow', $0):i64?)::!i64?, (date_part('doy', $0):i64?)::!i64?, (date_part('day', $0):i64?)::!i64?, (date_part('month', $0):i64?)::!i64?, (date_part('quarter', $0):i64?)::!i64?, (date_part('week', $0):i64?)::!i64?, (date_part('year', $0):i64?)::!i64?]
+          Read[warehouse.events => created_at:date?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']
+
+extract_timestamp_parts:
+  # A model-authored extract Dimension gives each timestamp component, down to the second.
+  model: models/events
+  request:
+    from: sensor_readings
+    select:
+      - event_timestamp
+      - reading_year_part
+      - reading_quarter_part
+      - reading_month_part
+      - reading_week_part
+      - reading_day_part
+      - reading_day_of_week_part
+      - reading_day_of_year_part
+      - reading_hour_part
+      - reading_minute_part
+      - reading_second_part
+  expect:
+    rows:
+      - [event_timestamp, reading_year_part, reading_quarter_part, reading_month_part, reading_week_part, reading_day_part, reading_day_of_week_part, reading_day_of_year_part, reading_hour_part, reading_minute_part, reading_second_part]
+      - ["2026-03-31 23:30:00", 2026, 1, 3, 14, 31, 2, 90, 23, 30, 0]
+      - ["2026-03-31 23:30:15", 2026, 1, 3, 14, 31, 2, 90, 23, 30, 15]
+  sql: >-
+    SELECT event_timestamp, extract(year FROM event_timestamp), extract(quarter FROM
+    event_timestamp), extract(month FROM event_timestamp), extract(week FROM
+    event_timestamp), extract(day FROM event_timestamp), extract(isodow FROM
+    event_timestamp), extract(doy FROM event_timestamp), extract(hour FROM
+    event_timestamp), extract(minute FROM event_timestamp), extract(second FROM
+    event_timestamp) FROM warehouse.sensor_readings GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    10, 11
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_part
+
+    === Plan
+    Root[event_timestamp, reading_year_part, reading_quarter_part, reading_month_part, reading_week_part, reading_day_part, reading_day_of_week_part, reading_day_of_year_part, reading_hour_part, reading_minute_part, reading_second_part]
+      Aggregate[$0, $10, $7, $6, $9, $3, $1, $2, $4, $5, $8 => $0, $10, $7, $6, $9, $3, $1, $2, $4, $5, $8]
+        + Opt:Trace[scope_root='sensor_readings', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_part('isodow', $0):i64?)::!i64?, (date_part('doy', $0):i64?)::!i64?, (date_part('day', $0):i64?)::!i64?, (date_part('hour', $0):i64?)::!i64?, (date_part('minute', $0):i64?)::!i64?, (date_part('month', $0):i64?)::!i64?, (date_part('quarter', $0):i64?)::!i64?, (date_part('second', $0):i64?)::!i64?, (date_part('week', $0):i64?)::!i64?, (date_part('year', $0):i64?)::!i64?]
+          Read[warehouse.sensor_readings => event_timestamp:precisiontimestamp?<6>]
+            + Opt:Trace[semantic_source='sensor_readings', source_role=&Dataset, physical_source='sensor_readings']
+
+extract_timestamp_fixed:
+  # The request's own timezone does not reach a model-authored extract of a timestamp.
+  model: models/events
+  request:
+    from: sensor_readings
+    select:
+      - event_timestamp
+      - reading_year_part
+      - reading_quarter_part
+      - reading_month_part
+      - reading_week_part
+      - reading_day_part
+      - reading_day_of_week_part
+      - reading_day_of_year_part
+      - reading_hour_part
+      - reading_minute_part
+      - reading_second_part
+  context:
+    timezone: Europe/Stockholm
+  expect:
+    rows:
+      - [event_timestamp, reading_year_part, reading_quarter_part, reading_month_part, reading_week_part, reading_day_part, reading_day_of_week_part, reading_day_of_year_part, reading_hour_part, reading_minute_part, reading_second_part]
+      - ["2026-03-31 23:30:00", 2026, 1, 3, 14, 31, 2, 90, 23, 30, 0]
+      - ["2026-03-31 23:30:15", 2026, 1, 3, 14, 31, 2, 90, 23, 30, 15]
+  sql: >-
+    SELECT event_timestamp, extract(year FROM event_timestamp), extract(quarter FROM
+    event_timestamp), extract(month FROM event_timestamp), extract(week FROM
+    event_timestamp), extract(day FROM event_timestamp), extract(isodow FROM
+    event_timestamp), extract(doy FROM event_timestamp), extract(hour FROM
+    event_timestamp), extract(minute FROM event_timestamp), extract(second FROM
+    event_timestamp) FROM warehouse.sensor_readings GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    10, 11
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: date_part
+
+    === Plan
+    Root[event_timestamp, reading_year_part, reading_quarter_part, reading_month_part, reading_week_part, reading_day_part, reading_day_of_week_part, reading_day_of_year_part, reading_hour_part, reading_minute_part, reading_second_part]
+      Aggregate[$0, $10, $7, $6, $9, $3, $1, $2, $4, $5, $8 => $0, $10, $7, $6, $9, $3, $1, $2, $4, $5, $8]
+        + Opt:Trace[scope_root='sensor_readings', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, (date_part('isodow', $0):i64?)::!i64?, (date_part('doy', $0):i64?)::!i64?, (date_part('day', $0):i64?)::!i64?, (date_part('hour', $0):i64?)::!i64?, (date_part('minute', $0):i64?)::!i64?, (date_part('month', $0):i64?)::!i64?, (date_part('quarter', $0):i64?)::!i64?, (date_part('second', $0):i64?)::!i64?, (date_part('week', $0):i64?)::!i64?, (date_part('year', $0):i64?)::!i64?]
+          Read[warehouse.sensor_readings => event_timestamp:precisiontimestamp?<6>]
+            + Opt:Trace[semantic_source='sensor_readings', source_role=&Dataset, physical_source='sensor_readings']
+
+predicate_under_bucket:
+  # A predicate on the day reads the row before the month bucket groups it.
+  model: models/marketing
+  request:
+    from: spend
+    select: [{dimension: date, granularity: month}, cost]
+    where: {gt_eq: [date, {lit: '2026-03-15'}]}
+  expect:
+    rows:
+      - [date, cost]
+      - [2026-03-01, 5]
+  sql: >-
+    SELECT date_trunc('month', date) AS date, sum(cost) AS cost FROM warehouse.spend
+    WHERE date >= DATE '2026-03-15' GROUP BY 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: gte
+      #  2 @  2: date_trunc
+      #  3 @  3: sum
+
+    === Plan
+    Root[date, cost]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?]
+          Filter[gte($1, '2026-03-15':date):boolean? => $0, $1]
+            Project[$1, $0]
+              Read[warehouse.spend => date:date?, cost:i64?]
+                + Opt:Trace[semantic_source='spend', source_role=&Dataset, physical_source='spend']

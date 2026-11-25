@@ -1,0 +1,57 @@
+# A union's branch keeps its field type under a NULL fill, and a folded-away branch still gives the other's rows.
+
+typed_null_fill:
+  # A branch's typed NULL fill keeps the union's field type, nullable in its output.
+  request:
+    select: [amount, customer_id]
+  expect:
+    rows:
+      - [amount, customer_id]
+      - [10, c1]
+      - [20, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[amount, customer_id]
+      Project[$0, $1]
+        Set[&UnionAll => $0, $1]
+          + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+          Project[$1, $0]
+            Read:Virtual[('c1', 10) => customer_id:string?, amount:i64?]
+          Project[$0, null:string?]
+            Read:Virtual[(20) => amount:i64?]
+
+first_branch_folded:
+  # A union whose first branch folds to no row still gives its other branch's rows.
+  request:
+    select: [ssu2.customer_id, ssu2.amount]
+  expect:
+    rows:
+      - [ssu2.customer_id, ssu2.amount]
+      - [c3, 7]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: coalesce
+      #  3 @  2: sum
+
+    === Plan
+    Root["ssu2.customer_id", "ssu2.amount"]
+      Set[&UnionAll => $0, $1]
+        + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+        Aggregate[coalesce($1, 'c0'):string => coalesce($1, 'c0'):string, sum($0, overflow⇒[ERROR]):i64?]
+          Filter[equal('web', 'store'):boolean => $0, $1]
+            Project[$1, $0]
+              Read:Virtual[('c1', 10) => customer_id:string?, amount:i64?]
+        Project[$0, $1]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+            Filter[equal('store', 'store'):boolean => $0, $1]
+              Project[$1, $0]
+                Read:Virtual[('c3', 7) => customer_id:string?, amount:i64?]

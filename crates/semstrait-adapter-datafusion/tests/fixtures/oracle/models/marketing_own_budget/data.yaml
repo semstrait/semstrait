@@ -1,0 +1,114 @@
+tables:
+  - namespace: warehouse
+    name: g_day
+    columns:
+      - {name: date, type: date}
+      - {name: campaign_id, type: string}
+      - {name: country, type: string}
+      - {name: clicks, type: double}
+    rows:
+      - [2026-03-01, A, SE, 10.0]
+      - [2026-03-02, A, SE, 20.0]
+      - [2026-03-01, A, 'NO', 30.0]
+      - [2026-03-01, B, SE, 40.0]
+  - namespace: warehouse
+    name: g_month
+    columns:
+      - {name: date, type: date}
+      - {name: campaign_id, type: string}
+      - {name: country, type: string}
+      - {name: budget, type: double}
+    rows:
+      - [2026-03-01, A, SE, 100.0]
+      - [2026-03-01, A, 'NO', 50.0]
+      - [2026-03-01, B, SE, 70.0]
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: region, type: string}
+      - {name: campaign_name, type: string}
+      - {name: segment, type: string}
+      - {name: budget, type: double}
+    rows:
+      - [A, EU, null, null, null]
+      - [B, EU, null, null, null]
+  - namespace: warehouse
+    name: spend_daily
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: cost, type: bigint}
+    rows:
+      - [2026-03-10, A, 10]
+      - [2026-03-20, A, 5]
+      - [2026-03-10, B, 8]
+      - [2026-04-05, A, 20]
+  - namespace: warehouse
+    name: spend_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: cost, type: bigint}
+    rows:
+      - [2026-03-01, A, 15]
+      - [2026-03-01, B, 8]
+      - [2026-04-01, A, 20]
+  - namespace: warehouse
+    name: daily_spend
+    columns:
+      - {name: date, type: date}
+      - {name: campaign_id, type: string}
+      - {name: channel, type: string}
+    rows:
+      - [2026-03-01, A, web]
+      - [2026-03-02, A, app]
+      - [2026-03-01, B, web]
+  - namespace: warehouse
+    name: monthly_spend
+    columns:
+      - {name: date, type: date}
+      - {name: campaign_id, type: string}
+      - {name: channel, type: string}
+      - {name: cost, type: double}
+    rows:
+      - [2026-03-01, A, web, 50.0]
+      - [2026-03-01, A, app, 60.0]
+      - [2026-03-01, B, web, 30.0]
+  - namespace: warehouse
+    name: channels
+    columns:
+      - {name: channel, type: string}
+      - {name: channel_group, type: string}
+    rows:
+      - [web, null]
+      - [app, null]
+  - namespace: warehouse
+    name: g_daily
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: day, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2026-03-10, 10]
+      - [A, 2026-03-20, 5]
+      - [A, 2026-04-05, 20]
+  - namespace: warehouse
+    name: g_monthly
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: month_start, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [A, 2026-03-01, 15]
+      - [A, 2026-04-01, 20]
+  - namespace: warehouse
+    name: spend_c
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: day, type: date}
+      - {name: cost, type: bigint}
+      - {name: clicks, type: bigint}
+    rows:
+      - [B, 2026-03-10, 8, 2]
+      - [B, 2026-04-01, 6, 1]

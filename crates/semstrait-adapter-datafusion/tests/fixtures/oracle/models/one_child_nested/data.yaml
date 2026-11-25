@@ -1,0 +1,37 @@
+tables:
+  - namespace: warehouse
+    name: other
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows: [[2024-01-01, spring, 7]]
+  - namespace: warehouse
+    name: google_by_campaign
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows: [[2024-01-01, spring, 5], [2024-01-01, search, 6]]
+  - namespace: warehouse
+    name: ads_ds
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: spend, type: bigint}
+    rows: [[2024-01-01, brand, 100], [2024-01-02, generic, 200]]
+  - namespace: warehouse
+    name: facebook_totals
+    columns:
+      - {name: date, type: date}
+      - {name: platform, type: string}
+      - {name: spend, type: bigint}
+    rows: [[2024-01-01, facebook, 7]]
+  - namespace: warehouse
+    name: facebook_by_campaign
+    columns:
+      - {name: date, type: date}
+      - {name: platform, type: string}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows: [[2024-01-01, facebook, brand, 1]]

@@ -1,0 +1,82 @@
+# A unique union compares every output field, keyset included (ADR 0079).
+
+keyed_by_customer:
+  # A unique union keyed by customer counts two sales by different customers twice.
+  request:
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [20]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        Set[&UnionDistinct => $0, $1]
+          + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+          Project[$1, $0]
+            Read:Virtual[('c1', 10) => customer_id:string?, amount:i64?]
+          Project[$1, $0]
+            Read:Virtual[('c2', 10) => customer_id:string?, amount:i64?]
+
+no_key:
+  # A unique union with no key counts two equal-amount sales once.
+  request:
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [10]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        Set[&UnionDistinct => $0]
+          + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+          Project[$0]
+            Read:Virtual[(10) => amount:i64?]
+          Project[$0]
+            Read:Virtual[(10) => amount:i64?]
+
+keyed_by_sale:
+  # A unique union keyed by sale counts two sales by the same id once, removing the duplicate.
+  request:
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [20]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        Set[&UnionDistinct => $0, $1]
+          + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+          Project[$1, $0]
+            Read:Virtual[('s1', 10) => sale_id:string?, amount:i64?]
+          Project[$1, $0]
+            Read:Virtual[('s2', 10), ('s1', 10) => sale_id:string?, amount:i64?]

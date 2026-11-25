@@ -1,0 +1,217 @@
+# A Unionset's own filter, or each branch's own signature filter, places a Measure's condition.
+
+own_filter_through_composed_join:
+  # A Unionset branch that is itself a join still reads its own Measure's filter on the operand below the join.
+  model: models/commerce
+  request:
+    from: shops_j
+    select: [region_name, paid_revenue]
+  expect:
+    rows:
+      - [region_name, paid_revenue]
+      - [Europe, 10.0]
+      - [America, 40.0]
+      - [null, 8.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_name, paid_revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='shops_j', compositions=2, granularity_fit=&NotSelected]
+        Project[$1, $0]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='shops_j', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+              Project[$1, $2]
+                Join[&Left, equal($0, $3):boolean? => $0, $1, $2, $3]
+                  + Opt:Trace[semantic_source='shops_j.north_regions', source_role=&Joinset, originators=('shops_j',), cardinality=&ManyToOne]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?]
+                    Project[$0, equal($1, 'paid'):boolean?, $2]
+                      Read[warehouse.north => paid_revenue:fp64?, status:string?, region:string?]
+                        + Opt:Trace[semantic_source='shops_j.north_regions.north', source_role=&Dataset, originators=('shops_j.north_regions',), physical_source='north']
+                  Aggregate[$1, $0 => $1, $0]
+                    Project[$1, $0]
+                      Read[warehouse.regions => region_name:string?, region:string?]
+                        + Opt:Trace[semantic_source='shops_j.north_regions.regions', source_role=&Dataset, originators=('shops_j.north_regions',), physical_source='regions']
+            Project[$0, $1]
+              Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?]
+                Project[$1, $0, $2]
+                  Project[equal($1, 'paid'):boolean?, $0, null:string?]
+                    Read[warehouse.south => paid_revenue:fp64?, status:string?]
+                      + Opt:Trace[semantic_source='shops_j.south', source_role=&Dataset, originators=('shops_j',), physical_source='south']
+
+own_filter_partial_aggregates:
+  # With no filter of its own, the Unionset reads each branch's own signature filter on its partial aggregates.
+  model: models/commerce
+  request:
+    from: shops
+    select: [region, paid_revenue]
+  expect:
+    rows:
+      - [region, paid_revenue]
+      - [eu, 15.0]
+      - [us, 40.0]
+      - [null, 3.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region, paid_revenue]
+      Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='shops', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $0]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='shops', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?]
+              Project[$1, $0, $2]
+                Project[equal($2, 'paid'):boolean?, $1, $0]
+                  Read[warehouse.north => region:string?, paid_revenue:fp64?, status:string?]
+                    + Opt:Trace[semantic_source='shops.north', source_role=&Dataset, originators=('shops',), physical_source='north']
+            Project[$0, $1]
+              Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?]
+                Project[$1, $0, $2]
+                  Project[equal($2, 'paid'):boolean?, $1, $0]
+                    Read[warehouse.south => region:string?, paid_revenue:fp64?, status:string?]
+                      + Opt:Trace[semantic_source='shops.south', source_role=&Dataset, originators=('shops',), physical_source='south']
+
+own_filter_over_rows:
+  # An avg that does not re-aggregate reads each branch's rows under its own signature filter.
+  model: models/commerce
+  request:
+    from: shops
+    select: [region, paid_revenue, paid_avg]
+  expect:
+    rows:
+      - [region, paid_revenue, paid_avg]
+      - [eu, 15.0, 7.5]
+      - [us, 40.0, 40.0]
+      - [null, 3.0, 3.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  2: avg
+
+    === Plan
+    Root[region, paid_revenue, paid_avg]
+      Aggregate[$4 => $4, sum($2, overflow⇒[ERROR]):fp64?, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='shops', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $0, $3, $2, $4]
+          Set[&UnionAll => $0, $1, $2, $3, $4]
+            + Opt:Trace[semantic_source='shops', source_role=&Unionset, delivery=&Rows]
+            Project[equal($2, 'paid'):boolean?, $3, equal($2, 'paid'):boolean?, $1, $0]
+              Read[warehouse.north => region:string?, paid_revenue:fp64?, status:string?, paid_avg:fp64?]
+                + Opt:Trace[semantic_source='shops.north', source_role=&Dataset, originators=('shops',), physical_source='north']
+            Project[equal($2, 'paid'):boolean?, $3, equal($2, 'paid'):boolean?, $1, $0]
+              Read[warehouse.south => region:string?, paid_revenue:fp64?, status:string?, paid_avg:fp64?]
+                + Opt:Trace[semantic_source='shops.south', source_role=&Dataset, originators=('shops',), physical_source='south']
+
+branch_filter_and_union_filter:
+  # A branch's own filter joins with And onto the Unionset's own filter before the partial sum.
+  model: models/commerce_revenue_measures
+  request:
+    from: shops
+    select: [eu_revenue]
+  expect:
+    rows:
+      - [eu_revenue]
+      - [40.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: sum
+
+    === Plan
+    Root[eu_revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='shops', compositions=1, granularity_fit=&NotSelected]
+        Project[$0]
+          Set[&UnionAll => $0]
+            + Opt:Trace[semantic_source='shops', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+              Project[$1, and(equal($2, 'eu'):boolean?, $0):boolean?]
+                Project[equal($1, 'eu'):boolean?, $0, $1]
+                  Read[warehouse.north => amount:fp64?, region:string?]
+                    + Opt:Trace[semantic_source='shops.north_shops', source_role=&Dataset, originators=('shops',), physical_source='north']
+            Project[$0]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+                Project[$1, and(equal($2, 'eu'):boolean?, $0):boolean?]
+                  Project[equal($1, 'eu'):boolean?, $0, $1]
+                    Read[warehouse.south => amount:fp64?, region:string?]
+                      + Opt:Trace[semantic_source='shops.south_shops', source_role=&Dataset, originators=('shops',), physical_source='south']
+
+named_filter_in_each_branch:
+  # An activated named filter on a Unionset applies inside each branch, over the union's own columns.
+  model: models/commerce
+  request:
+    from: web_sales
+    select: [revenue]
+    filters: [web_only]
+  expect:
+    rows:
+      - [revenue]
+      - [40.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='web_sales', compositions=1, granularity_fit=&NotSelected]
+        Project[$0]
+          Set[&UnionAll => $0]
+            + Opt:Trace[semantic_source='web_sales', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+              Project[$2, $1]
+                Project[$0, $1, $2]
+                  Filter[$3 => $0, $1, $2, $3]
+                    Project[$1, true, $0, equal($1, 'web'):boolean?]
+                      Read[warehouse.east => amount:fp64?, channel:string?]
+                        + Opt:Trace[semantic_source='web_sales.east', source_role=&Dataset, originators=('web_sales',), physical_source='east']
+            Project[$0]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+                Project[$2, $1]
+                  Project[$0, $1, $2]
+                    Filter[$3 => $0, $1, $2, $3]
+                      Project[$1, true, $0, equal($1, 'web'):boolean?]
+                        Read[warehouse.west => amount:fp64?, channel:string?]
+                          + Opt:Trace[semantic_source='web_sales.west', source_role=&Dataset, originators=('web_sales',), physical_source='west']

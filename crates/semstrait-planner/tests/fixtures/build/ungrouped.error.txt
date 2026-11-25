@@ -1,0 +1,1 @@
+error: at `orders`: the Metric `tier` reads `region_label` outside an aggregate, and its formula is not numeric: group the request by `region_label`

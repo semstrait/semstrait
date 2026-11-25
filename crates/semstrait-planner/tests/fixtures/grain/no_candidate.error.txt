@@ -1,0 +1,1 @@
+error: no public semantic source serves the request; nearest: `budget_monthly` lacks `clicks`; `spend_daily` lacks `budget`

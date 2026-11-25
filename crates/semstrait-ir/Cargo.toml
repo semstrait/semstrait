@@ -1,0 +1,19 @@
+[package]
+name = "semstrait-ir"
+version.workspace = true
+edition = "2021"
+rust-version = "1.79"
+license = "Apache-2.0"
+description = "The plan and graph vocabulary of semstrait: the plan tree, which holds semstrait-sql's expression tree over its own leaf, Parameter"
+
+[dependencies]
+semstrait-common = { workspace = true, features = ["serde"] }
+semstrait-sql = { workspace = true }
+# `FileFormat` on a scan's reader: ADR 0067 refuses a format roster of the plan's
+# own.
+semstrait-catalog = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

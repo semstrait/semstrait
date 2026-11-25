@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entries `s3://lake/orders/` and `s3://lake/orders/year=2026/` read one base path or one object, so the Dataset would read an object twice

@@ -1,0 +1,2 @@
+error: dataset `orders`: the `partition_def` entry for `order_year` names the key `year`, and storage entry `s3://lake/orders/` has the keys ["region"]
+  note: `orders` reads `s3://lake/orders/` as parquet

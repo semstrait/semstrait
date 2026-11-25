@@ -1,0 +1,20 @@
+tables:
+  - namespace: warehouse
+    name: by_campaign
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: bigint}
+      - {name: cost, type: bigint}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, 1, 100, 1500]
+  - namespace: warehouse
+    name: by_gender
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: bigint}
+      - {name: gender, type: string}
+      - {name: clicks, type: bigint}
+      - {name: impressions, type: bigint}
+    rows:
+      - [2024-01-01, 1, M, 1500, 15000]

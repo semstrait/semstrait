@@ -1,0 +1,75 @@
+# A model of candidates that tie on compositions and granularity fit, ranked by exposed semantics.
+semantic_model:
+  name: spend_all_clicks
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - name: campaign
+      data_type: string
+      type: categorical
+  measures:
+    - name: clicks
+      data_type: bigint
+      agg: sum
+    - name: budget
+      data_type: bigint
+      agg: sum
+  grainsets:
+    - name: spend
+      dimensions:
+        - ref: date
+          is_key: true
+        - ref: campaign
+          is_key: true
+      measures:
+        - ref: clicks
+        - ref: budget
+      datasets:
+        - name: spend_daily
+          extras:
+            storage:
+              tables: [warehouse.spend_daily]
+            semantic_mapping:
+              date: day
+              campaign: campaign_id
+              clicks: click_count
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+        - name: spend_monthly
+          extras:
+            storage:
+              tables: [warehouse.spend_monthly]
+            semantic_mapping:
+              date: month_start
+              campaign: campaign_id
+              budget: amount
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: month
+  unionsets:
+    - name: all_clicks
+      mode: all
+      dimensions:
+        - ref: date
+        - ref: campaign
+      measures:
+        - ref: clicks
+      datasets:
+        - name: web_clicks
+          extras:
+            storage:
+              tables: [warehouse.web_clicks]
+            semantic_mapping: {date: day, campaign: campaign_id, clicks: click_count}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: app_clicks
+          extras:
+            storage:
+              tables: [warehouse.app_clicks]
+            semantic_mapping: {date: day, campaign: campaign_id, clicks: click_count}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

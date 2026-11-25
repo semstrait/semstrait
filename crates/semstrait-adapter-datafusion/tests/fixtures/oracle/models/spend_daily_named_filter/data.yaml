@@ -1,0 +1,41 @@
+tables:
+  - namespace: warehouse
+    name: budget_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign, type: string}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-01, X, 100]
+      - [2026-03-01, Y, 50]
+      - [2026-03-01, Z, 30]
+  - namespace: warehouse
+    name: cost_daily
+    columns:
+      - {name: day, type: date}
+      - {name: campaign, type: string}
+      - {name: cost, type: bigint}
+    rows:
+      - [2026-03-01, X, 10]
+      - [2026-03-01, Z, 7]
+      - [2026-03-02, X, 4]
+  - namespace: warehouse
+    name: clicks_daily
+    columns:
+      - {name: day, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-01, Y, 5]
+      - [2026-03-01, Z, 2]
+      - [2026-03-02, Y, 3]
+  - namespace: warehouse
+    name: extra
+    columns:
+      - {name: day, type: date}
+      - {name: campaign, type: string}
+      - {name: cost, type: bigint}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-05, X, 1, 2]
+      - [2026-03-05, Y, 3, 4]

@@ -1,0 +1,64 @@
+# A Unionset over a Grainset and a Dataset, where the Grainset holds a Unionset of a Dataset and a Joinset.
+semantic_model:
+  name: spend_two_levels
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign_id, data_type: string, type: categorical}
+    - {name: region, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: integer, agg: sum}
+    - {name: budget, data_type: bigint, agg: sum}
+  unionsets:
+    - name: spend
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign_id}, {ref: region}]
+      measures: [{ref: clicks}, {ref: budget}]
+      datasets:
+        - name: spend_store
+          extras:
+            storage: {tables: [warehouse.spend_store]}
+            semantic_mapping: {date: day, campaign_id: campaign_id, region: region, clicks: clicks, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+      grainsets:
+        - name: spend_web
+          dimensions: [{ref: date, is_key: true}, {ref: campaign_id, is_key: true}, {ref: region}]
+          measures: [{ref: clicks}, {ref: budget}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: web_monthly
+              extras:
+                storage: {tables: [warehouse.web_monthly]}
+                semantic_mapping: {date: month_start, campaign_id: campaign_id, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+          unionsets:
+            - name: daily_u
+              mode: all
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+              datasets:
+                - name: web_daily
+                  extras:
+                    storage: {tables: [warehouse.web_daily]}
+                    semantic_mapping: {date: day, campaign_id: campaign_id, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+              joinsets:
+                - name: daily_j
+                  extras:
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                  datasets:
+                    - name: web_daily_b
+                      extras:
+                        storage: {tables: [warehouse.web_daily_b]}
+                        semantic_mapping: {date: day, campaign_id: campaign_id, clicks: clicks}
+                        temporal: {timeseries: {occurred_at: date}, granularity: day}
+                    - name: campaigns
+                      extras:
+                        storage: {tables: [warehouse.campaigns]}
+                        semantic_mapping: {campaign_id: campaign_id, region: region}
+                  relationships:
+                    - {name: b_to_campaigns, from: web_daily_b, to: campaigns, on: [campaign_id], cardinality: many_to_one, optional: none, integrity: assumed}

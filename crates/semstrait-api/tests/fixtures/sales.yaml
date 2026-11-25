@@ -1,0 +1,28 @@
+semantic_model:
+  name: sales
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables:
+            - warehouse.fact_rows
+        semantic_mapping: auto
+      dimensions:
+        - ref: region
+          is_key: true
+      keys:
+        primary:
+          fields: [region]
+    - name: returns
+      extras:
+        storage:
+          tables:
+            - warehouse.returns
+        semantic_mapping: auto
+      dimensions:
+        - ref: region
+          is_key: true

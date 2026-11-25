@@ -1,0 +1,27 @@
+tables:
+  - namespace: warehouse
+    name: g_daily
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-10, A, 5]
+      - [2026-03-20, A, 4]
+  - namespace: warehouse
+    name: g_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-01, A, 100]
+  - namespace: warehouse
+    name: spend_c
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: bigint}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-12, B, 7, 70]

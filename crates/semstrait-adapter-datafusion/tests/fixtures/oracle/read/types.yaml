@@ -1,0 +1,211 @@
+# A column's read type comes from its catalog, its declared semantics, or the widest of several.
+
+catalog_string_cast:
+  # max casts a catalog-reported string column to the declared integer type.
+  model: models/commerce
+  request:
+    from: codes
+    select: [top_code]
+  expect:
+    rows:
+      - [top_code]
+      - [10]
+  sql: SELECT max(CAST(code AS INTEGER)) AS top_code FROM warehouse.codes
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: max
+
+    === Plan
+    Root[top_code]
+      Aggregate[_ => max($0):i32?]
+        + Opt:Trace[scope_root='codes', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?]
+          Read[warehouse.codes => code:string?]
+            + Opt:Trace[semantic_source='codes', source_role=&Dataset, physical_source='codes']
+
+object_string_read_type:
+  # max reads a files object's string column at the read type that compile writes.
+  model: models/commerce
+  request:
+    from: code_files
+    select: [top_file_code]
+  expect:
+    rows:
+      - [top_file_code]
+      - [10]
+  sql: SELECT max(CAST(code AS INTEGER)) AS top_file_code FROM code_files
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: max
+
+    === Plan
+    Root[top_file_code]
+      Aggregate[_ => max($0):i32?]
+        + Opt:Trace[scope_root='code_files', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!i32?]
+          Read[!{ReadRel} => code:i32?]
+            + Opt:Trace[semantic_source='code_files', source_role=&Dataset, physical_source='code_files']
+
+projection_casts_to_declared:
+  # A read type that differs from the declared type is cast in the first projection.
+  model: models/commerce
+  request:
+    from: orders_daily
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 16.0]
+      - [us, 27.0]
+  sql: SELECT region, sum(CAST(amount AS DOUBLE)) AS revenue FROM orders_daily GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_daily', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!string?, ($1)::!fp64?]
+          Set[&UnionAll => $0, $1]
+            Read[!{ReadRel} => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders_daily']
+            Read[!{ReadRel} => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders_daily']
+
+count_only_column_type:
+  # A column that only a count maps is read as the count's own type.
+  model: models/commerce
+  request:
+    from: orders_daily
+    select: [order_count]
+  expect:
+    rows:
+      - [order_count]
+      - [5]
+  sql: SELECT count(order_id) AS order_count FROM orders_daily
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: count
+
+    === Plan
+    Root[order_count]
+      Aggregate[_ => count($0, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='orders_daily', compositions=0, granularity_fit=&NotSelected]
+        Project[$0]
+          Set[&UnionAll => $0]
+            Read[!{ReadRel} => order_id:i64?]
+              + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders_daily']
+            Read[!{ReadRel} => order_id:i64?]
+              + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders_daily']
+
+widest_declared_type:
+  # Two declared types on one column are read as the widest of them.
+  model: models/commerce_own_types
+  request:
+    from: orders_read_types
+    select: [order_date, order_ts, order_ref, order_count, tag, quantity]
+  expect:
+    rows:
+      - [order_date, order_ts, order_ref, order_count, tag, quantity]
+      - ['2026-01-01', '2026-01-01T10:00:00', A1, 2, '9', 19]
+      - ['2026-01-01', '2026-01-01T12:00:00', B2, 1, '4', 4]
+      - ['2026-01-02', '2026-01-02T08:30:00', C3, 1, '3', 3]
+  sql: >-
+    SELECT CAST(created_at AS DATE) AS order_date, created_at AS order_ts,
+    order_id AS order_ref, count(order_id) AS order_count,
+    max(CAST(qty AS VARCHAR)) AS tag, sum(qty) AS quantity
+    FROM orders GROUP BY 1, 2, 3
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:semstrait:semstrait
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: max
+      #  3 @  3: sum
+
+    === Plan
+    Root[order_date, order_ts, order_ref, order_count, tag, quantity]
+      Aggregate[$1, $3, $2 => $1, $3, $2, count($0, overflow⇒[ERROR]):i64, max($5):string?, sum($4, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders_read_types', compositions=0, granularity_fit=&NotSelected]
+        Project[$1, ($0)::!date?, ($1)::!string?, ($0)::!precisiontimestamp?<6>, ($2)::!i64?, ($2)::!string?]
+          Read[!{ReadRel} => created_at:precisiontimestamp?<6>, order_id:string?, qty:i64?]
+            + Opt:Trace[semantic_source='orders_read_types', source_role=&Dataset, physical_source='orders']
+
+agreeing_types_no_cast:
+  # Where the catalog and the semantics agree on a column's type, the first projection casts neither.
+  model: models/commerce
+  request:
+    from: orders_typed
+    select: [ordered_on, region]
+  input_data:
+    warehouse.orders:
+      - [null, null, eu, null, null, null, 2026-03-10, null, null]
+      - [null, null, eu, null, null, null, 2026-03-10, null, null]
+      - [null, null, us, null, null, null, 2026-03-11, null, null]
+  expect:
+    rows:
+      - [ordered_on, region]
+      - ["2026-03-10", eu]
+      - ["2026-03-11", us]
+  sql: SELECT DISTINCT ordered_on, region FROM warehouse.orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[ordered_on, region]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='orders_typed', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Read[warehouse.orders => ordered_on:date?, region:string?]
+            + Opt:Trace[semantic_source='orders_typed', source_role=&Dataset, physical_source='orders']
+
+catalog_type_cast:
+  # The first projection casts a column from the catalog's own type to the declared type.
+  model: models/commerce
+  request:
+    from: typed_orders
+    select: [ordered_on, region]
+  expect:
+    rows:
+      - [ordered_on, region]
+      - ["2026-03-10", eu]
+      - ["2026-03-11", us]
+  sql: >-
+    SELECT DISTINCT CAST(ordered_on AS DATE) AS ordered_on, region
+    FROM warehouse.typed_orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[ordered_on, region]
+      Aggregate[$0, $1 => $0, $1]
+        + Opt:Trace[scope_root='typed_orders', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!date?, $1]
+          Read[warehouse.typed_orders => ordered_on:precisiontimestamp?<6>, region:string?]
+            + Opt:Trace[semantic_source='typed_orders', source_role=&Dataset, physical_source='typed_orders']

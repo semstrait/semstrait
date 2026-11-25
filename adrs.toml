@@ -1,0 +1,18 @@
+adr_dir = "docs/adr"
+mode = "ng"
+no_edit = true
+default_status = "proposed"
+
+[templates]
+format = "madr"
+variant = "full"
+
+[generate]
+toc_prefix = "./"
+
+[export]
+
+[doctor]
+ignore = []
+warnings_as_errors = false
+ignore_path = []

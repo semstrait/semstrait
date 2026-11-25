@@ -1,0 +1,504 @@
+# Literal-folding a predicate walks through a composed branch, stopping where a join null-fills it.
+
+fold_stops_at_null_fill:
+  # The literal fold stops at a branch that a null-filling join fills, so the plan still reads that branch.
+  model: models/commerce
+  request:
+    from: all_orders
+    select: [customer_id, customer_rows]
+    where: {is_null: channel}
+  input_data:
+    warehouse.customers:
+      - [c1, null, null, null, null]
+      - [c2, null, null, null, null]
+      - [c9, null, null, null, null]
+  expect:
+    rows:
+      - [customer_id, customer_rows]
+      - [c9, 1]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  2: is_null
+      #  5 @  3: row_number
+      #  6 @  3: sum
+
+    === Plan
+    Root[customer_id, customer_rows]
+      Project[$0, coalesce($1, 0):i64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):i64?]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates, pruned=('all_orders.orders_store',)]
+              Project[$1, $2, $3, !{RexType}]
+                Filter[is_null($0):boolean => $0, $1, $2, $3]
+                  Project[$1, $2, coalesce($2, $0):string?, $3]
+                    Join[&Right, equal($0, $2):boolean? => $0, $1, $2, $3]
+                      + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                      Aggregate[$1, $0 => $1, $0]
+                        Project['web', $0]
+                          Read[warehouse.orders_web => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                        Project[$0, $0]
+                          Read[warehouse.customers => customer_id:string?]
+                            + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+
+fold_stops_regardless_of_predicate:
+  # Whatever the predicate, the fold stops at the same null-filled branch, so the plan reads it beside its sibling.
+  model: models/commerce
+  request:
+    from: all_orders
+    select: [customer_id, customer_rows]
+    where: {eq: [channel, {lit: store}]}
+  input_data:
+    warehouse.customers:
+      - [c1, null, null, null, null]
+      - [c2, null, null, null, null]
+      - [c9, null, null, null, null]
+  expect:
+    rows:
+      - [customer_id, customer_rows]
+      - [c3, 1]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: equal
+      #  3 @  2: coalesce
+      #  4 @  3: row_number
+      #  5 @  3: sum
+
+    === Plan
+    Root[customer_id, customer_rows]
+      Project[$0, coalesce($1, 0):i64]
+        + Opt:Trace[scope_root='all_orders', compositions=2, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+          Project[$0, $1]
+            Set[&UnionAll => $0, $1]
+              + Opt:Trace[semantic_source='all_orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):i64?]
+                Project[$1, $2, $3, !{RexType}]
+                  Filter[equal($0, 'store'):boolean? => $0, $1, $2, $3]
+                    Project[$1, $2, coalesce($2, $0):string?, $3]
+                      Join[&Right, equal($0, $2):boolean? => $0, $1, $2, $3]
+                        + Opt:Trace[semantic_source='all_orders.jw', source_role=&Joinset, originators=('all_orders',), cardinality=&ManyToOne]
+                        Aggregate[$1, $0 => $1, $0]
+                          Project['web', $0]
+                            Read[warehouse.orders_web => customer_id:string?]
+                              + Opt:Trace[semantic_source='all_orders.jw.orders_web', source_role=&Dataset, originators=('all_orders.jw',), physical_source='orders_web']
+                        Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                          Project[$0, $0]
+                            Read[warehouse.customers => customer_id:string?]
+                              + Opt:Trace[semantic_source='all_orders.jw.customers', source_role=&Dataset, originators=('all_orders.jw',), physical_source='customers']
+              Project[$0, $1]
+                Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64]
+                  Project[$1, $3, $2]
+                    Filter[equal($0, 'store'):boolean => $0, $1, $2, $3]
+                      Project['store', $0, true, $1]
+                        Read[warehouse.orders_store => customer_id:string?, order_id:string?]
+                          + Opt:Trace[semantic_source='all_orders.orders_store', source_role=&Dataset, originators=('all_orders',), physical_source='orders_store']
+
+fold_through_branch_operands:
+  # The fold reads on through a Unionset branch that is itself a join, down to its own operands.
+  model: models/commerce_own_tables
+  request:
+    from: all_sales
+    select: [revenue]
+    where: {eq: [channel, {lit: web}]}
+  expect:
+    rows:
+      - [revenue]
+      - [40.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='all_sales', compositions=2, granularity_fit=&NotSelected]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+            + Opt:Trace[semantic_source='all_sales', source_role=&Unionset, delivery=&PartialAggregates, pruned=('all_sales.store_sales',)]
+            Project[$2, $1]
+              Filter[equal($0, 'web'):boolean => $0, $1, $2]
+                Project['web', true, $0]
+                  Read[warehouse.web_sales => amount:fp64?]
+                    + Opt:Trace[semantic_source='all_sales.web_sales', source_role=&Dataset, originators=('all_sales',), physical_source='web_sales']
+
+branch_is_its_own_frame:
+  # A Unionset branch that is a Joinset is planned as its own frame, which may leave an operand out.
+  model: models/commerce_own_tables
+  request:
+    from: all_sales
+    select: [channel, revenue]
+  expect:
+    rows:
+      - [channel, revenue]
+      - [store, 20.0]
+      - [web, 40.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[channel, revenue]
+      Set[&UnionAll => $0, $1]
+        + Opt:Trace[scope_root='all_sales', compositions=2, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='all_sales', source_role=&Unionset, delivery=&FinalAggregates]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$0, $2, $1]
+            Project['store', true, $0]
+              + Opt:Trace[semantic_source='all_sales.store_sales', source_role=&Joinset, originators=('all_sales',), pruned=('all_sales.store_sales.stores',)]
+              Read[warehouse.store_orders => amount:fp64?]
+                + Opt:Trace[semantic_source='all_sales.store_sales.store_orders', source_role=&Dataset, originators=('all_sales.store_sales',), physical_source='store_orders']
+        Project[$0, $1]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $2, $1]
+              Project['web', true, $0]
+                Read[warehouse.web_sales => amount:fp64?]
+                  + Opt:Trace[semantic_source='all_sales.web_sales', source_role=&Dataset, originators=('all_sales',), physical_source='web_sales']
+
+neither_side_folds_literal:
+  # Where neither side of a condition gives one literal, the join beneath it is read with its join built.
+  model: models/commerce
+  request:
+    from: u1
+    select: [cost, revenue]
+    where:
+      or: [{is_null: x}, {is_null: y}]
+  expect:
+    rows:
+      - [cost, revenue]
+      - [37.0, 73.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: is_null
+      #  2 @  2: or
+      #  3 @  3: sum
+      #  4 @  1: equal
+
+    === Plan
+    Root[cost, revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='u1', compositions=2, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='u1', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+              Project[$1, $0, $3, $2]
+                Filter[or(is_null($4):boolean, is_null($5):boolean):boolean => $0, $1, $2, $3, $4, $5]
+                  Project[true, $0, true, $1, $2, $3]
+                    Read[warehouse.d1 => cost:fp64?, revenue:fp64?, x:string?, y:string?]
+                      + Opt:Trace[semantic_source='u1.d1', source_role=&Dataset, originators=('u1',), physical_source='d1']
+            Project[$0, $1]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?]
+                Project[$1, $3]
+                  Join[&Inner, equal($0, $2):boolean? => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='u1.j1', source_role=&Joinset, originators=('u1',), cardinality=&ManyToOne]
+                    Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+                      Filter[or(is_null($2):boolean, is_null($3):boolean):boolean => $0, $1, $2, $3]
+                        Project[$0, $1, 'a', null:string?]
+                          Read[warehouse.a1 => cost:fp64?, k:string?]
+                            + Opt:Trace[semantic_source='u1.j1.a1', source_role=&Dataset, originators=('u1.j1',), physical_source='a1']
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                      Filter[or(is_null($2):boolean, is_null($3):boolean):boolean => $0, $1, $2, $3]
+                        Project[$1, $0, null:string?, 'b']
+                          Read[warehouse.b1 => revenue:fp64?, k:string?]
+                            + Opt:Trace[semantic_source='u1.j1.b1', source_role=&Dataset, originators=('u1.j1',), physical_source='b1']
+
+one_side_folds_other_not:
+  # One operand's own literal lets the predicate fold on it, while the join is still read for the operand that gives none.
+  model: models/commerce
+  request:
+    from: u3
+    select: [revenue]
+    where: {eq: [source, {lit: stripe}]}
+  expect:
+    rows:
+      - [revenue]
+      - [3.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='u3', compositions=2, granularity_fit=&NotSelected]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+            + Opt:Trace[semantic_source='u3', source_role=&Unionset, delivery=&PartialAggregates, pruned=('u3.d3',)]
+            Project[$1, $0]
+              Filter[equal($2, 'stripe'):boolean => $0, $1, $2]
+                + Opt:Trace[semantic_source='u3.j3', source_role=&Joinset, originators=('u3',), pruned=('u3.j3.a3',)]
+                Project[true, $0, 'stripe']
+                  Read[warehouse.b3 => revenue:fp64?]
+                    + Opt:Trace[semantic_source='u3.j3.b3', source_role=&Dataset, originators=('u3.j3',), physical_source='b3']
+
+both_sides_same_literal:
+  # Both operands of a join give the same literal, so the predicate folds there and the join is not read.
+  model: models/commerce
+  request:
+    from: u10
+    select: [clicks]
+    where: {eq: [platform, {lit: google}]}
+  expect:
+    rows:
+      - [clicks]
+      - [6]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[clicks]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='u10', compositions=3, granularity_fit=&NotSelected]
+        Project[$0]
+          Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+            + Opt:Trace[semantic_source='u10', source_role=&Unionset, delivery=&PartialAggregates, pruned=('u10.jf',)]
+            Project[$1, $0]
+              Filter[equal($2, 'google'):boolean => $0, $1, $2]
+                + Opt:Trace[semantic_source='u10.jg', source_role=&Joinset, originators=('u10',), pruned=('u10.jg.gc',)]
+                Project[true, $0, 'google']
+                  Read[warehouse.gs => clicks:i64?]
+                    + Opt:Trace[semantic_source='u10.jg.gs', source_role=&Dataset, originators=('u10.jg',), physical_source='gs']
+
+excluded_branch_prunes_both_children:
+  # An excluded branch prunes both children of the Unionset it drives, giving an empty read beneath the join.
+  model: models/commerce
+  request:
+    from: u0
+    select: [region_name, revenue]
+    where: {eq: [channel, {lit: c}]}
+  input_data:
+    warehouse.regions:
+      - [null, eu, r1]
+      - [null, us, r2]
+  expect:
+    rows:
+      - [region_name, revenue]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+
+    === Plan
+    Root[region_name, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='u0', compositions=3, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            + Opt:Trace[semantic_source='u0', source_role=&Unionset, delivery=&PartialAggregates, pruned=('u0.d10',)]
+            Project[$2, $1]
+              Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='u0.j', source_role=&Joinset, originators=('u0',), cardinality=&ManyToOne]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                  Project[$0, $1]
+                    Read:Virtual[_ => "ssu109.region_id":string?, "ssu109.revenue":fp64?]
+                      + Opt:Trace[semantic_source='u0.j.u3', source_role=&Unionset, originators=('u0.j',), delivery=&PartialAggregates, pruned=('u0.j.u3.e7', 'u0.j.u3.e8')]
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.regions => region_name:string?, region_id:string?]
+                      + Opt:Trace[semantic_source='u0.j.regions', source_role=&Dataset, originators=('u0.j',), physical_source='regions']
+
+no_literal_keeps_branch_read:
+  # A branch whose children give different literals folds no literal, so the branch is read and joined.
+  model: models/commerce
+  request:
+    from: u0
+    select: [region_name, revenue]
+    where: {eq: [channel, {lit: a}]}
+  input_data:
+    warehouse.regions:
+      - [null, eu, r1]
+      - [null, us, r2]
+  expect:
+    rows:
+      - [region_name, revenue]
+      - [eu, 10.0]
+      - [us, 30.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region_name, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='u0', compositions=3, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            + Opt:Trace[semantic_source='u0', source_role=&Unionset, delivery=&PartialAggregates, pruned=('u0.d10',)]
+            Project[$2, $1]
+              Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='u0.j', source_role=&Joinset, originators=('u0',), cardinality=&ManyToOne]
+                Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                  Project[$0, $1]
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                      + Opt:Trace[semantic_source='u0.j.u3', source_role=&Unionset, originators=('u0.j',), delivery=&PartialAggregates, pruned=('u0.j.u3.e8',)]
+                      Project[$1, $3, $2]
+                        Filter[equal($0, 'a'):boolean => $0, $1, $2, $3]
+                          Project['a', $1, true, $0]
+                            Read[warehouse.e7 => amount:fp64?, region_id:string?]
+                              + Opt:Trace[semantic_source='u0.j.u3.e7', source_role=&Dataset, originators=('u0.j.u3',), physical_source='e7']
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.regions => region_name:string?, region_id:string?]
+                      + Opt:Trace[semantic_source='u0.j.regions', source_role=&Dataset, originators=('u0.j',), physical_source='regions']
+
+renamed_branch_reads_first:
+  # Renaming a Dataset to come first in name order changes which branch of the Unionset the driver reads.
+  model: models/commerce
+  request:
+    from: empty_first_union
+    select: [region_name, revenue]
+    where: {eq: [channel, {lit: c}]}
+  input_data:
+    warehouse.regions:
+      - [null, eu, r1]
+      - [null, us, r2]
+  expect:
+    rows:
+      - [region_name, revenue]
+      - [null, 70.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+
+    === Plan
+    Root[region_name, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='empty_first_union', compositions=3, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='empty_first_union', source_role=&Unionset, delivery=&PartialAggregates]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+              Project[$2, $1]
+                Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+                  + Opt:Trace[semantic_source='empty_first_union.j', source_role=&Joinset, originators=('empty_first_union',), cardinality=&ManyToOne]
+                  Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                    Project[$0, $1]
+                      Read:Virtual[_ => "ssu120.region_id":string?, "ssu120.revenue":fp64?]
+                        + Opt:Trace[semantic_source='empty_first_union.j.u3', source_role=&Unionset, originators=('empty_first_union.j',), delivery=&PartialAggregates, pruned=('empty_first_union.j.u3.e7', 'empty_first_union.j.u3.e8')]
+                  Aggregate[$1, $0 => $1, $0]
+                    Project[$1, $0]
+                      Read[warehouse.regions => region_name:string?, region_id:string?]
+                        + Opt:Trace[semantic_source='empty_first_union.j.regions', source_role=&Dataset, originators=('empty_first_union.j',), physical_source='regions']
+            Project[$0, $1]
+              Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+                Project[$1, $3, $2]
+                  Filter[equal($0, 'c'):boolean => $0, $1, $2, $3]
+                    Project['c', null:string?, true, $0]
+                      Read[warehouse.z10 => amount:fp64?]
+                        + Opt:Trace[semantic_source='empty_first_union.z10', source_role=&Dataset, originators=('empty_first_union',), physical_source='z10']
+
+reduced_leaves_not_disjoint:
+  # An Implicit Unionset's reduction leaves give no single literal, so its branches are not disjoint and both give rows.
+  model: models/commerce_own_union
+  request:
+    from: u1
+    select: [channel, avg_amount]
+  expect:
+    rows:
+      - [channel, avg_amount]
+      - [a, 20.0]
+      - [c, 70.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: avg
+
+    === Plan
+    Root[channel, avg_amount]
+      Aggregate[$2 => $2, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='u1', compositions=2, granularity_fit=&NotSelected]
+        Project[$1, $0, $2]
+          Set[&UnionAll => $0, $1, $2]
+            + Opt:Trace[semantic_source='u1', source_role=&Unionset, delivery=&Rows]
+            Project[true, ($0)::!fp64?, 'c']
+              Read[!{ReadRel} => amount:fp64?]
+                + Opt:Trace[semantic_source='u1.d9', source_role=&Dataset, originators=('u1',), physical_source='returns']
+            Project[$0, $1, $2]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='u1.u2', source_role=&Unionset, originators=('u1',), delivery=&Rows]
+                Project[true, ($0)::!fp64?, 'a']
+                  Read[!{ReadRel} => amount:fp64?]
+                    + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']
+                Project[true, ($0)::!fp64?, 'c']
+                  Read[!{ReadRel} => amount:fp64?]
+                    + Opt:Trace[semantic_source='u1.u2_orders', source_role=&Dataset, originators=('u1.u2',), physical_source='orders']

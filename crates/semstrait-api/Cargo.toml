@@ -1,0 +1,44 @@
+[package]
+name = "semstrait-api"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "The semstrait orchestrator: compile, validate, explain and plan through one Semstrait"
+
+[dependencies]
+semstrait-common = { workspace = true, features = ["serde"] }
+semstrait-model = { workspace = true }
+semstrait-manifest = { workspace = true }
+semstrait-catalog = { workspace = true }
+semstrait-ir = { workspace = true, optional = true }
+semstrait-planner = { workspace = true }
+semstrait-adapter = { workspace = true }
+semstrait-adapter-datafusion = { workspace = true, optional = true }
+substrait = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+bytes = { workspace = true }
+tower = { workspace = true }
+http-body-util = { workspace = true }
+tempfile = { workspace = true }
+
+[features]
+default = []
+datafusion = ["dep:semstrait-adapter-datafusion"]
+iceberg = ["semstrait-catalog/iceberg"]
+aws = ["iceberg", "semstrait-catalog/aws", "semstrait-common/io-aws"]
+rest = ["dep:axum", "dep:semstrait-ir"]
+cli = ["dep:clap", "rest"]
+
+[[bin]]
+name = "semstrait"
+path = "src/main.rs"
+required-features = ["cli"]

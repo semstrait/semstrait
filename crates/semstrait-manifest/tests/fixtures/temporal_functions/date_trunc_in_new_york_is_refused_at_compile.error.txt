@@ -1,0 +1,1 @@
+error: `reading_hour`: `date_trunc` truncates in the timezone 'America/New_York', and a semantic model's `date_trunc` takes 'UTC' only

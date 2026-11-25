@@ -1,0 +1,17 @@
+tables:
+  - namespace: warehouse
+    name: facebook
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, brand, 1]
+      - [2024-01-01, generic, 2]
+  - namespace: warehouse
+    name: tiktok
+    columns:
+      - {name: date, type: date}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, 10]

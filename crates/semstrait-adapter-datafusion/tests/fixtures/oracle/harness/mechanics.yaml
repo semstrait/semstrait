@@ -1,0 +1,133 @@
+# The harness model's table and files reads, hand-built and planned, and its plan-stage refusal.
+
+table_read:
+  # A hand-built plan reads each region's revenue from the orders table, the last region first.
+  model: harness/harness
+  request:
+    select: [region, revenue]
+    order_by: [{name: region, direction: desc}]
+  expect:
+    rows:
+      - [region, revenue]
+      - [us, 20.0]
+      - [eu, 15.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region ORDER BY region DESC
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Sort[($0, &DescNullsFirst) => $0, $1]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          + Opt:Trace[semantic_source='orders', source_role=&Dataset]
+          Project[$0, $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+
+files_read:
+  # A hand-built plan reads each channel's clicks from the objects of the events folder, in no order.
+  model: harness/harness
+  request:
+    select: [channel, clicks]
+  expect:
+    rows:
+      - [channel, clicks]
+      - [app, 4]
+      - [web, 8]
+  sql: SELECT channel, sum(clicks) AS clicks FROM events GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[channel, clicks]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[semantic_source='events', source_role=&Dataset]
+        Project[$0, $1]
+          Read[!{ReadRel} => channel:string?, clicks:i64?]
+
+plan_refusal:
+  # A Dataset Strategy that refuses every frame gives a constructed plan-stage error, compared by its stage, variant and fields.
+  model: harness/harness
+  request:
+    select: [region, revenue]
+  expect:
+    error:
+      stage: plan
+      variant: NoSignature
+      fields:
+        path: [orders]
+        semantic_source: orders
+        semantics: region
+  message: |-
+    error: at `orders`: the semantic source `orders` has no signature for `region`
+
+table_read_planned:
+  # The planner gives the same rows as the hand-built table read, ordered by region descending.
+  model: harness/harness
+  request:
+    from: orders
+    select: [region, revenue]
+    order_by: [{name: region, direction: desc}]
+  expect:
+    rows:
+      - [region, revenue]
+      - [us, 20.0]
+      - [eu, 15.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region ORDER BY region DESC
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Sort[($0, &DescNullsFirst) => $0, $1]
+        + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+
+files_read_planned:
+  # The planner gives the same rows as the hand-built files read, through its own plan.
+  model: harness/harness
+  request:
+    from: events
+    select: [channel, clicks]
+  expect:
+    rows:
+      - [channel, clicks]
+      - [app, 4]
+      - [web, 8]
+  sql: SELECT channel, sum(clicks) AS clicks FROM events GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[channel, clicks]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='events', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!string?, ($1)::!i64?]
+          Read[!{ReadRel} => channel:string?, clicks:i64?]
+            + Opt:Trace[semantic_source='events', source_role=&Dataset, physical_source='events']

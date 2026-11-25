@@ -1,0 +1,6 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: channel, type: string}
+      - {name: region, type: string}

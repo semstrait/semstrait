@@ -1,0 +1,128 @@
+# The data declaration of `comprehensive_ecommerce.yaml`: one object in each Parquet
+# folder that a Dataset reads, with the columns that each Dataset reading the folder
+# maps, each of the type the model gives it. No rows: the corpus compile gate reads
+# none.
+objects:
+  - uri: s3://semstrait-e2e/warehouse/orders/daily/part-0.parquet
+    columns:
+      - {name: order_date, type: date}
+      - {name: region, type: string}
+      - {name: customer_id, type: string}
+      - {name: product_id, type: string}
+      - {name: category, type: string}
+      - {name: status, type: string}
+      - {name: is_premium, type: boolean}
+      - {name: price_bucket, type: string}
+      - {name: revenue, type: double}
+      - {name: order_count, type: bigint}
+      - {name: cost, type: double}
+      - {name: unique_customers, type: bigint}
+      - {name: min_order_amount, type: double}
+      - {name: max_order_amount, type: double}
+      - {name: created_at, type: date}
+      - {name: region_code, type: string}
+      - {name: product_category, type: string}
+      - {name: order_status, type: string}
+      - {name: amount, type: double}
+      - {name: order_id, type: bigint}
+      - {name: cogs_amount, type: double}
+  - uri: s3://semstrait-e2e/warehouse/orders/monthly/part-0.parquet
+    columns:
+      - {name: order_date, type: date}
+      - {name: region, type: string}
+      - {name: status, type: string}
+      - {name: revenue, type: double}
+      - {name: order_count, type: bigint}
+      - {name: cost, type: double}
+      - {name: month_start, type: date}
+      - {name: region_code, type: string}
+      - {name: order_status, type: string}
+      - {name: total_revenue, type: double}
+      - {name: total_orders, type: bigint}
+      - {name: total_cogs, type: double}
+  - uri: s3://semstrait-e2e/warehouse/customers/part-0.parquet
+    columns:
+      - {name: customer_id, type: string}
+      - {name: customer_name, type: string}
+      - {name: customer_tier, type: string}
+      - {name: signup_date, type: date}
+      - {name: customer_region, type: string}
+      - {name: effective_date, type: date}
+      - {name: expiry_date, type: date}
+      - {name: customer_count, type: bigint}
+      - {name: full_name, type: string}
+      - {name: tier, type: string}
+  - uri: s3://semstrait-e2e/warehouse/products/part-0.parquet
+    columns:
+      - {name: product_id, type: string}
+      - {name: product_name, type: string}
+      - {name: product_category, type: string}
+      - {name: brand, type: string}
+      - {name: product_count, type: bigint}
+      - {name: name, type: string}
+      - {name: category, type: string}
+  - uri: s3://semstrait-e2e/warehouse/inventory/snapshots/part-0.parquet
+    columns:
+      - {name: snapshot_date, type: date}
+      - {name: warehouse_id, type: string}
+      - {name: sku, type: string}
+      - {name: inventory_balance, type: bigint}
+      - {name: units_received, type: bigint}
+      - {name: units_shipped, type: bigint}
+      - {name: snap_date, type: date}
+      - {name: wh_id, type: string}
+      - {name: product_sku, type: string}
+      - {name: qty_on_hand, type: bigint}
+      - {name: qty_received, type: bigint}
+      - {name: qty_shipped, type: bigint}
+  - uri: s3://semstrait-e2e/warehouse/inventory/monthly/part-0.parquet
+    columns:
+      - {name: snap_month, type: date}
+      - {name: wh_id, type: string}
+      - {name: product_sku, type: string}
+      - {name: qty_on_hand, type: bigint}
+      - {name: qty_received, type: bigint}
+      - {name: qty_shipped, type: bigint}
+  - uri: s3://semstrait-e2e/traffic/web/2024/part-0.parquet
+    columns:
+      - {name: click_date, type: date}
+      - {name: page_type, type: string}
+      - {name: clicks, type: bigint}
+      - {name: sessions, type: bigint}
+      - {name: conversions, type: bigint}
+      - {name: click_revenue, type: double}
+      - {name: campaign_id, type: string}
+      - {name: event_date, type: date}
+      - {name: page_category, type: string}
+      - {name: click_id, type: bigint}
+      - {name: session_id, type: bigint}
+      - {name: conversion_count, type: bigint}
+      - {name: attributed_revenue, type: double}
+  - uri: s3://semstrait-e2e/traffic/mobile/2024/part-0.parquet
+    columns:
+      - {name: click_date, type: date}
+      - {name: page_type, type: string}
+      - {name: clicks, type: bigint}
+      - {name: sessions, type: bigint}
+      - {name: conversions, type: bigint}
+      - {name: event_date, type: date}
+      - {name: screen_name, type: string}
+      - {name: tap_id, type: bigint}
+      - {name: session_id, type: bigint}
+      - {name: conversion_count, type: bigint}
+  - uri: s3://semstrait-e2e/traffic/email/2024/part-0.parquet
+    columns:
+      - {name: click_date, type: date}
+      - {name: clicks, type: bigint}
+      - {name: event_date, type: date}
+      - {name: click_id, type: bigint}
+  - uri: s3://semstrait-e2e/warehouse/campaigns/part-0.parquet
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: campaign_name, type: string}
+      - {name: campaign_channel, type: string}
+      - {name: campaign_status, type: string}
+      - {name: campaign_budget, type: double}
+      - {name: name, type: string}
+      - {name: channel, type: string}
+      - {name: budget_amount, type: double}

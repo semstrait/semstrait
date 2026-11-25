@@ -1,0 +1,2 @@
+error: dataset `orders`: the `partition_def` entry for `order_year` names a Dimension that maps no column directly
+  note: `orders` reads `s3://lake/orders/` as parquet

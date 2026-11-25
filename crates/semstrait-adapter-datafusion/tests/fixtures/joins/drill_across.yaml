@@ -1,0 +1,179 @@
+# A Grainset's drill-across Full-joins its children left-deep on the NULL-safe campaign (ADR 0084).
+
+one_row_children:
+  # Two one-row Grainset children crossed give one row.
+  request:
+    select: [clicks, budget]
+  expect:
+    rows:
+      - [clicks, budget]
+      - [100, 250]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[clicks, budget]
+      Project[$1, $0]
+        Project[$0, $1]
+          Cross[$0, $1]
+            + Opt:Trace[semantic_source='ssg2', source_role=&Grainset, cardinality=&OneToOne]
+            Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+              Project[$2, $1, $0]
+                Read:Virtual[('2026-01-01':date, 'A', 200), ('2026-01-01':date, 'B', 50) => date:date?, campaign:string?, budget:i64?]
+            Aggregate[_ => sum($1, overflow⇒[ERROR]):i64?]
+              Project[$1, $2, $0]
+                Read:Virtual[
+                  - ('2026-03-01':date, 'A', 10),
+                  - ('2026-03-02':date, 'A', 20),
+                  - ('2026-04-01':date, 'A', 30),
+                  - ('2026-03-15':date, 'B', 40)
+                  - => date:date?, campaign:string?, clicks:i64?]
+
+by_campaign:
+  # A drill-across join by campaign null-fills a child that has no matching group.
+  request:
+    select: [campaign, clicks, budget]
+  expect:
+    rows:
+      - [campaign, clicks, budget]
+      - [A, 60, 200]
+      - [B, 40, 50]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_not_distinct_from
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[campaign, clicks, budget]
+      Project[$1, $2, $0]
+        Project[$1, coalesce($0, $2):string?, $3]
+          Join[&Outer, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='ssg2', source_role=&Grainset, cardinality=&OneToOne]
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+              Project[$2, $1, $0]
+                Read:Virtual[
+                  - ('2026-03-01':date, 'A', 100),
+                  - ('2026-04-01':date, 'A', 100),
+                  - ('2026-03-01':date, 'B', 50)
+                  - => date:date?, campaign:string?, budget:i64?]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$1, $2, $0]
+                Read:Virtual[
+                  - ('2026-03-01':date, 'A', 10),
+                  - ('2026-03-02':date, 'A', 20),
+                  - ('2026-04-01':date, 'A', 30),
+                  - ('2026-03-15':date, 'B', 40)
+                  - => date:date?, campaign:string?, clicks:i64?]
+
+null_campaign_group:
+  # A NULL campaign group on both children joins once on the NULL-safe key, with each child's value.
+  request:
+    select: [campaign, clicks, budget]
+  expect:
+    rows:
+      - [campaign, clicks, budget]
+      - [A, 60, 200]
+      - [B, 40, 50]
+      - [null, 10, 20]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_not_distinct_from
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[campaign, clicks, budget]
+      Project[$1, $2, $0]
+        Project[$1, coalesce($0, $2):string?, $3]
+          Join[&Outer, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='ssg2', source_role=&Grainset, cardinality=&OneToOne]
+            Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+              Project[$2, $1, $0]
+                Read:Virtual[
+                  - ('2026-03-01':date, 'A', 100),
+                  - ('2026-04-01':date, 'A', 100),
+                  - ('2026-03-01':date, 'B', 50),
+                  - ('2026-03-01':date, null:string?, 20)
+                  - => date:date?, campaign:string?, budget:i64?]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$1, $2, $0]
+                Read:Virtual[
+                  - ('2026-03-01':date, 'A', 10),
+                  - ('2026-03-02':date, 'A', 20),
+                  - ('2026-04-01':date, 'A', 30),
+                  - ('2026-03-15':date, 'B', 40),
+                  - ('2026-03-01':date, null:string?, 10)
+                  - => date:date?, campaign:string?, clicks:i64?]
+
+left_deep_chain:
+  # A left-deep chain of Full joins keeps every group, with each child's value or NULL.
+  request:
+    select: [campaign, budget, impressions, clicks]
+  expect:
+    rows:
+      - [campaign, budget, impressions, clicks]
+      - [A, 200, 1000, 60]
+      - [B, 50, null, 40]
+      - [C, 30, 300, null]
+      - [D, null, 70, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: is_not_distinct_from
+      #  3 @  2: coalesce
+
+    === Plan
+    Root[campaign, budget, impressions, clicks]
+      Project[$1, $0, $3, $2]
+        Project[$1, coalesce($0, $2, $4):string?, $5, $3]
+          Join[&Outer, is_not_distinct_from(coalesce($0, $2):string?, $4):boolean => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='ssg3', source_role=&Grainset, cardinality=&OneToOne]
+            Join[&Outer, is_not_distinct_from($0, $2):boolean => $0, $1, $2, $3]
+              + Opt:Trace[semantic_source='ssg3', source_role=&Grainset, cardinality=&OneToOne]
+              Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+                Project[$2, $1, $0]
+                  Read:Virtual[
+                    - ('2026-01-01':date, 'A', 200),
+                    - ('2026-01-01':date, 'B', 50),
+                    - ('2026-01-01':date, 'C', 30)
+                    - => date:date?, campaign:string?, budget:i64?]
+              Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?]
+                Project[$1, $0, $2]
+                  Read:Virtual[
+                    - ('2026-03-01':date, 'A', 1000),
+                    - ('2026-03-01':date, 'C', 300),
+                    - ('2026-03-01':date, 'D', 70)
+                    - => date:date?, campaign:string?, impressions:i64?]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$1, $2, $0]
+                Read:Virtual[
+                  - ('2026-03-01':date, 'A', 10),
+                  - ('2026-03-02':date, 'A', 20),
+                  - ('2026-04-01':date, 'A', 30),
+                  - ('2026-03-15':date, 'B', 40)
+                  - => date:date?, campaign:string?, clicks:i64?]

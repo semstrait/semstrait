@@ -1,0 +1,2 @@
+error: dataset `orders`: a `partition_def` entry names `order_month`, which is no Dimension of the Dataset
+  note: `orders` reads `s3://lake/orders/` as parquet

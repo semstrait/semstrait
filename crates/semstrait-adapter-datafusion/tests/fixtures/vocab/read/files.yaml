@@ -1,0 +1,75 @@
+# A files read over one path, or an empty folder, with or without grouping.
+
+one_path_no_union:
+  # One file path is one uri_file read, with no union.
+  model: models/reads
+  request:
+    select: [region]
+  types: [string]
+  expect:
+    rows:
+      - [region]
+      - [eu]
+      - [us]
+      - [latam]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[region]
+      Aggregate[$0 => $0]
+        Project[$0]
+          Read[!{ReadRel} => region:string?]
+
+empty_read_ungrouped:
+  # An empty read with no grouping gives one row, its count zero and its sum NULL.
+  model: models/reads
+  request:
+    select: [n, total]
+  types: [bigint, bigint]
+  expect:
+    rows:
+      - [n, total]
+      - [0, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+
+    === Plan
+    Root[n, total]
+      Aggregate[_ => count($0, overflow⇒[ERROR]):i64, sum($0, overflow⇒[ERROR]):i64?]
+        Project[$0]
+          Read:Virtual[_ => amount:i64?]
+
+empty_read_grouped:
+  # An empty read grouped by a column gives no row at all.
+  model: models/reads
+  request:
+    select: [region, n, total]
+  types: [string, bigint, bigint]
+  expect:
+    rows:
+      - [region, n, total]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+
+    === Plan
+    Root[region, n, total]
+      Aggregate[$0 => $0, count($1, overflow⇒[ERROR]):i64, sum($1, overflow⇒[ERROR]):i64?]
+        Project[$0, $1]
+          Read:Virtual[_ => region:string?, amount:i64?]

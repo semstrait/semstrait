@@ -1,0 +1,1 @@
+error: at `orders`: the column `price` of `s3://lake/orders/` has no type: no catalog observed one, and no semantics with a type maps it

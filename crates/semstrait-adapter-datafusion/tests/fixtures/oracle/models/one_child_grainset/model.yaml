@@ -1,0 +1,35 @@
+# A Grainset with one child over a non-additive reach Measure, and a second root that states a time axis with no granularity.
+semantic_model:
+  name: one_child_grainset
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+  measures:
+    - name: reach
+      data_type: bigint
+      agg: sum
+      additivity: non
+  grainsets:
+    - name: ads
+      dimensions: [{ref: date}]
+      measures: [{ref: reach}]
+      datasets:
+        - name: daily
+          extras:
+            storage: {tables: [warehouse.daily]}
+            semantic_mapping: {date: date, reach: reach}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: ads_stated
+      extras:
+        temporal: {timeseries: {occurred_at: date}}
+      dimensions: [{ref: date}]
+      measures: [{ref: reach}]
+      datasets:
+        - name: daily_stated
+          extras:
+            storage: {tables: [warehouse.daily]}
+            semantic_mapping: {date: date, reach: reach}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

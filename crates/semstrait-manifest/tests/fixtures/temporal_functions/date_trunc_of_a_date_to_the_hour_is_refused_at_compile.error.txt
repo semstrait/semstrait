@@ -1,0 +1,1 @@
+error: type error at `d_hour`: `date_trunc`'s `granularity` takes no 'hour' beside date

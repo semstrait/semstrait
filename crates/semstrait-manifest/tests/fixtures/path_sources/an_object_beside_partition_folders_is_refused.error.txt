@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `s3://lake/orders/` holds the object `s3://lake/orders/a.parquet` beside partition folders

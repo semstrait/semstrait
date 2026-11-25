@@ -1,0 +1,28 @@
+tables:
+  - namespace: warehouse
+    name: d
+    columns:
+      - {name: day, type: date}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-09-12, web, 1000]
+      - [2026-10-05, app, 2000]
+  - namespace: warehouse
+    name: east
+    columns:
+      - {name: month_start, type: date}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-09-01, web, 40]
+      - [2026-10-01, app, 200]
+  - namespace: warehouse
+    name: west
+    columns:
+      - {name: month_start, type: date}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-10-01, web, 150]
+      - [2026-10-01, null, 10]

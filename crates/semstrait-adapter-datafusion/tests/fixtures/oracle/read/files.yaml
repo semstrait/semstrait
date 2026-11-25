@@ -1,0 +1,119 @@
+# An empty folder read and a Uris read of one or two objects.
+
+empty_folder_grouped:
+  # Each region's revenue over an empty folder read groups no row, so none comes back.
+  model: models/commerce_empty_folder
+  request:
+    from: orders_daily
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+  sql: SELECT region, sum(CAST(amount AS DOUBLE)) AS revenue FROM orders_daily GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_daily', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!string?, ($1)::!fp64?]
+          Read:Virtual[_ => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders_daily']
+
+empty_folder_totals:
+  # Over an empty folder read, Count gives 0 and Sum gives NULL.
+  model: models/commerce_empty_folder
+  request:
+    from: orders_daily
+    select: [order_count, revenue]
+  expect:
+    rows:
+      - [order_count, revenue]
+      - [0, null]
+  sql: SELECT count(order_id) AS order_count, sum(CAST(amount AS DOUBLE)) AS revenue FROM orders_daily
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+
+    === Plan
+    Root[order_count, revenue]
+      Aggregate[_ => count($0, overflow⇒[ERROR]):i64, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_daily', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, ($1)::!fp64?]
+          Read:Virtual[_ => order_id:i64?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders_daily']
+
+one_uri_file:
+  # A Uris of one object is one uri_file read, with no union.
+  model: models/commerce_own_uris
+  request:
+    from: orders_daily
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 10.0]
+      - [us, 20.0]
+  sql: SELECT region, sum(CAST(amount AS DOUBLE)) AS revenue FROM orders_daily GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_daily', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!string?, ($1)::!fp64?]
+          Read[!{ReadRel} => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_daily', source_role=&Dataset, physical_source='orders']
+
+two_uri_files:
+  # A Uris of two objects is one uri_file read of each, under one UNION_ALL.
+  model: models/commerce_own_uris
+  request:
+    from: orders_daily_two_uris
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 15.0]
+      - [us, 27.0]
+  sql: SELECT region, sum(CAST(amount AS DOUBLE)) AS revenue FROM orders_daily GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_daily_two_uris', compositions=0, granularity_fit=&NotSelected]
+        Project[($0)::!string?, ($1)::!fp64?]
+          Set[&UnionAll => $0, $1]
+            Read[!{ReadRel} => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_daily_two_uris', source_role=&Dataset, physical_source='orders']
+            Read[!{ReadRel} => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_daily_two_uris', source_role=&Dataset, physical_source='orders']

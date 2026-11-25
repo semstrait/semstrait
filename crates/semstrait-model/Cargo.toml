@@ -1,0 +1,41 @@
+[package]
+name = "semstrait-model"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "The semstrait YAML authoring model and parsing"
+
+[dependencies]
+# `io` brings the `Persistable` persistence boundary
+# (`crate::repository`) this crate implements unconditionally.
+semstrait-common = { workspace = true, features = ["io", "serde"] }
+semstrait-sql = { workspace = true }
+# `Bytes`, the payload type of `Persistable`, which `SemanticModel` implements.
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bon = { workspace = true }
+indexmap = { workspace = true }
+uuid = { workspace = true }
+# The `Fingerprintable` preimage (ADR 0041) is `serde_json::to_vec` over the
+# id-nulled model, so JSON is a non-optional dependency of the model crate even
+# though YAML is its own wire codec.
+serde_json = { workspace = true }
+regex-syntax = { workspace = true }
+schemars = { workspace = true, optional = true }
+
+[features]
+# OFF-by-default JSON-Schema codegen for the authoring YAML model. Purely
+# additive: gates the `JsonSchema` derives/impls on the authoring graph
+# rooted at `YamlRoot` plus the `schema` module. Default builds/tests are
+# byte-for-byte unaffected. `serde_json` is pulled in (non-dev) only here
+# because the manual `JsonSchema` impls build schemas as JSON values.
+schemars = ["dep:schemars", "semstrait-sql/schemars", "semstrait-common/schemars"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+jsonschema = { workspace = true }
+tempfile = { workspace = true }

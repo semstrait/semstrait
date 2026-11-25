@@ -1,0 +1,34 @@
+[package]
+name = "semstrait-common"
+version.workspace = true
+edition = "2021"
+rust-version = "1.79"
+license = "Apache-2.0"
+description = "Shared primitives for semstrait: diagnostics, ids and io helpers"
+
+[dependencies]
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+serde = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+# The `Fingerprintable` digest (ADR 0041) lives beside `Persistable` in the
+# repository module, so it rides the same feature.
+sha2 = { workspace = true, optional = true }
+object_store = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+
+[features]
+default  = ["io"]
+serde    = ["dep:serde"]
+schemars = ["dep:schemars", "serde"]
+io       = ["dep:tokio", "dep:bytes", "dep:object_store", "dep:async-trait", "dep:futures-util", "dep:sha2", "object_store/fs"]
+io-aws   = ["io", "object_store/aws"]

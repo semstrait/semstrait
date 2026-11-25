@@ -1,0 +1,26 @@
+# A Grainset with one child at Day and one child that maps no time axis.
+semantic_model:
+  name: grainset_mixed_time_axis
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+  grainsets:
+    - name: ads
+      dimensions: [{ref: date}, {ref: campaign}]
+      measures: [{ref: clicks}]
+      datasets:
+        - name: daily
+          extras:
+            storage: {tables: [warehouse.daily]}
+            semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: by_campaign_total
+          extras:
+            storage: {tables: [warehouse.by_campaign_total]}
+            semantic_mapping: {campaign: campaign, clicks: clicks}

@@ -1,0 +1,124 @@
+# The data declaration of `e2e_full_coverage.yaml`: each catalog table, and one object
+# in each Parquet folder that a Dataset reads, with the columns that each Dataset
+# reading it maps, each of the type the model gives it. The transactions object sits
+# under its `partition_region=` folder, whose key no column holds (ADR 0081). No rows:
+# the corpus compile gate reads none.
+tables:
+  - namespace: catalog
+    name: products
+    columns:
+      - {name: product_id, type: string}
+      - {name: product_name, type: string}
+      - {name: category, type: string}
+      - {name: brand, type: string}
+      - {name: launch_date, type: date}
+      - {name: product_count, type: bigint}
+      - {name: unit_price, type: "decimal(10,2)"}
+      - {name: name, type: string}
+      - {name: warehouse_code, type: string}
+      - {name: price, type: "decimal(10,2)"}
+  - namespace: catalog
+    name: regions
+    columns:
+      - {name: region_id, type: string}
+      - {name: region_name, type: string}
+      - {name: continent, type: string}
+      - {name: region_count, type: bigint}
+objects:
+  - uri: s3://semstrait-e2e/data/transactions/daily/2024/partition_region=eu/part-0.parquet
+    columns:
+      - {name: event_date, type: date}
+      - {name: country, type: string}
+      - {name: account_id, type: string}
+      - {name: product_id, type: string}
+      - {name: txn_type, type: string}
+      - {name: is_fraud, type: boolean}
+      - {name: amount_tier, type: string}
+      - {name: location, type: string}
+      - {name: revenue, type: double}
+      - {name: quantity, type: integer}
+      - {name: order_count, type: bigint}
+      - {name: priority_level, type: tinyint}
+      - {name: item_count, type: smallint}
+      - {name: discount_rate, type: real}
+      - {name: precise_amount, type: "decimal(18,4)"}
+      - {name: unique_accounts, type: bigint}
+      - {name: min_amount, type: double}
+      - {name: max_amount, type: double}
+      - {name: avg_amount, type: double}
+      - {name: purchase_revenue, type: double}
+      - {name: constrained_revenue, type: double}
+      - {name: created_at, type: date}
+      - {name: country_code, type: string}
+      - {name: transaction_type, type: string}
+      - {name: amount, type: double}
+      - {name: txn_id, type: bigint}
+      - {name: qty, type: integer}
+  - uri: s3://semstrait-e2e/data/transactions/monthly/2024/part-0.parquet
+    columns:
+      - {name: event_date, type: date}
+      - {name: country, type: string}
+      - {name: revenue, type: double}
+      - {name: order_count, type: bigint}
+      - {name: month_start, type: date}
+      - {name: country_code, type: string}
+      - {name: total_revenue, type: double}
+      - {name: total_orders, type: bigint}
+  - uri: s3://semstrait-e2e/data/accounts/part-0.parquet
+    columns:
+      - {name: account_id, type: string}
+      - {name: region_id, type: string}
+      - {name: account_name, type: string}
+      - {name: account_status, type: string}
+      - {name: account_created, type: date}
+      - {name: effective_from, type: date}
+      - {name: effective_to, type: date}
+      - {name: account_count, type: bigint}
+      - {name: name, type: string}
+      - {name: status, type: string}
+      - {name: device_id, type: string}
+  - uri: s3://semstrait-e2e/data/account_changelog/part-0.parquet
+    columns:
+      - {name: account_id, type: string}
+      - {name: changed_field, type: string}
+      - {name: valid_from, type: date}
+      - {name: valid_to, type: date}
+      - {name: change_count, type: bigint}
+      - {name: change_date, type: date}
+      - {name: region_code, type: string}
+      - {name: change_id, type: bigint}
+  - uri: s3://semstrait-e2e/data/sensors/readings/part-0.parquet
+    columns:
+      - {name: reading_ts, type: timestamp}
+      - {name: sensor_id, type: string}
+      - {name: sensor_type, type: string}
+      - {name: reading_value, type: double}
+      - {name: reading_count, type: bigint}
+      - {name: min_reading, type: double}
+      - {name: max_reading, type: double}
+      - {name: event_timestamp, type: timestamp}
+      - {name: device_id, type: string}
+      - {name: reading_id, type: bigint}
+  - uri: s3://semstrait-e2e/data/sensors/hourly/part-0.parquet
+    columns:
+      - {name: hour_start, type: timestamp}
+      - {name: device_id, type: string}
+      - {name: avg_value, type: double}
+      - {name: reading_total, type: bigint}
+  - uri: s3://semstrait-e2e/data/devices/events/part-0.parquet
+    columns:
+      - {name: event_timestamp, type: timestamp}
+      - {name: device_type, type: string}
+      - {name: event_id, type: bigint}
+  - uri: s3://semstrait-e2e/data/inventory/snapshots/part-0.parquet
+    columns:
+      - {name: snap_date, type: date}
+      - {name: warehouse, type: string}
+      - {name: sku, type: string}
+      - {name: stock_balance, type: bigint}
+      - {name: stock_received, type: bigint}
+      - {name: stock_shipped, type: bigint}
+      - {name: product_sku, type: string}
+      - {name: warehouse_id, type: string}
+      - {name: snapshot_date, type: date}
+      - {name: qty_on_hand, type: bigint}

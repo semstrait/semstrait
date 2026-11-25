@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `gs://lake/orders/` has the scheme `gs`, which compile does not read

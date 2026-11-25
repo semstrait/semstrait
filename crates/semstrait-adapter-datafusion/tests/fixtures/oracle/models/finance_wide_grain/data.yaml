@@ -1,0 +1,33 @@
+tables:
+  - namespace: warehouse
+    name: daily
+    columns:
+      - {name: account, type: string}
+      - {name: region, type: string}
+      - {name: date, type: date}
+      - {name: a, type: double}
+      - {name: b, type: double}
+      - {name: cost, type: integer}
+      - {name: usr, type: string}
+    rows:
+      - [X, eu, 2026-10-15, 4.0, 10.0, 1, u1]
+      - [X, eu, 2026-10-31, 6.0, 12.0, 2, u1]
+      - [X, us, 2026-10-31, 4.0, 8.0, 3, u2]
+      - [Y, eu, 2026-10-31, 30.0, 40.0, 4, u3]
+      - [Y, us, 2026-10-20, 1.0, 1.0, 5, u3]
+      - [Y, eu, 2026-09-30, 2.0, 4.0, 6, u4]
+      - [X, null, 2026-09-30, 3.0, 3.0, 7, u5]
+  - namespace: warehouse
+    name: ledger
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: loaded_at, type: timestamp(6)}
+      - {name: balance, type: bigint}
+      - {name: fees, type: bigint}
+    rows:
+      - [X, 2026-10-30, 2026-10-30 08:00:00, 100, 1]
+      - [X, 2026-10-31, 2026-10-31 08:00:00, 110, 2]
+      - [X, 2026-10-31, 2026-10-31 20:00:00, 115, 0]
+      - [Y, 2026-10-20, 2026-10-20 09:00:00, 190, 4]
+      - [Y, 2026-10-31, 2026-10-31 09:00:00, 200, 3]

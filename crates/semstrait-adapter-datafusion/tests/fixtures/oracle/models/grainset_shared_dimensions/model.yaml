@@ -1,0 +1,33 @@
+# A Grainset whose two children share Day and differ by Dimensions.
+semantic_model:
+  name: grainset_shared_dimensions
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: campaign, data_type: bigint, type: categorical}
+    - {name: gender, data_type: string, type: categorical}
+  measures:
+    - {name: cost, data_type: bigint, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: impressions, data_type: bigint, agg: sum}
+  grainsets:
+    - name: ads
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+        - {ref: gender}
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}]
+      datasets:
+        - name: by_campaign
+          extras:
+            storage: {tables: [warehouse.by_campaign]}
+            semantic_mapping: {date: date, campaign: campaign, cost: cost, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: by_gender
+          extras:
+            storage: {tables: [warehouse.by_gender]}
+            semantic_mapping: {date: date, campaign: campaign, gender: gender, clicks: clicks, impressions: impressions}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

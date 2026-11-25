@@ -1,0 +1,1 @@
+error: semantic source `stacked.b2` exposes `balance`, but does not serve its axis `snap_date`

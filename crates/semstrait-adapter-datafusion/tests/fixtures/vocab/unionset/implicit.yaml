@@ -1,0 +1,44 @@
+# A files Dataset over one or two paths reads with or without a union.
+
+two_paths_union:
+  # Two file paths are two uri_file reads stacked under one UNION ALL.
+  model: models/reads
+  request:
+    select: [region, total, paid, unpaid]
+    order_by: [{name: paid, direction: asc}]
+  types: [string, bigint, bigint, bigint]
+  expect:
+    rows:
+      - [region, total, paid, unpaid]
+      - [eu, 60, 40, 20]
+      - [apac, 40, null, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: not_equal
+      #  3 @  2: sum
+      #  4 @  2: subtract
+      #  5 @  1: gt
+
+    === Plan
+    Root[region, total, paid, unpaid]
+      Fetch[limit=2, offset=1 => $0, $1, $2, $3]
+        Sort[($2, &AscNullsLast) => $0, $1, $2, $3]
+          Project[$0, $1, $2, $3]
+            Filter[gt($1, 10):boolean? => $0, $1, $2, $3]
+              Project[$0, $1, $2, subtract($1, $2, overflow⇒[ERROR]):i64?]
+                Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+                  + Opt:Trace[scope_root='orders', compositions=0, granularity_fit=&NotSelected]
+                  Filter[not_equal($1, 'cancelled'):boolean? => $0, $1, $2, $3]
+                    Project[$1, $2, $3, equal($2, 'paid'):boolean?]
+                      Set[&UnionAll => $0, $1, $2, $3]
+                        Read[!{ReadRel} => id:i64?, region:string?, status:string?, amount:i64?]
+                          + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']
+                        Read[!{ReadRel} => id:i64?, region:string?, status:string?, amount:i64?]
+                          + Opt:Trace[semantic_source='orders', source_role=&Dataset, physical_source='orders']

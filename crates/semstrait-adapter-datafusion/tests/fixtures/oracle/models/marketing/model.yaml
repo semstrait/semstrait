@@ -1,0 +1,575 @@
+# The marketing domain's main model: campaigns, spend and bookings and their joins and unions.
+semantic_model:
+  name: marketing
+  dimensions:
+    - name: campaign_id
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+    - name: channel
+      data_type: string
+      type: categorical
+    - {name: campaign_name, data_type: string, type: categorical}
+    - name: campaign
+      data_type: string
+      type: categorical
+    - name: tag
+      data_type: string
+      type: categorical
+  measures:
+    - name: cost
+      data_type: bigint
+      agg: sum
+    - name: avg_cost
+      data_type: double
+      agg: avg
+    - name: revenue
+      data_type: bigint
+      agg: sum
+    - name: late_revenue
+      data_type: bigint
+      agg: sum
+      filter:
+        gt_eq: [date, {lit: {date: "2026-03-15"}}]
+    - {name: budget, data_type: bigint, agg: sum}
+    - name: avg_cpc
+      data_type: double
+      agg: avg
+  datasets:
+    - name: spend
+      extras:
+        storage:
+          tables: [warehouse.spend]
+        semantic_mapping:
+          campaign_id: campaign_id
+          date: date
+          cost: cost
+          avg_cost: cost
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: campaign_id
+          is_key: true
+        - ref: date
+          is_key: true
+      measures:
+        - ref: cost
+        - ref: avg_cost
+    - name: cpc_daily
+      extras:
+        storage:
+          tables: [warehouse.cpc_daily]
+        semantic_mapping:
+          campaign: campaign
+          date: date
+          avg_cpc: cpc
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: campaign
+          is_key: true
+        - ref: date
+          is_key: true
+      measures:
+        - ref: avg_cpc
+    - name: campaigns
+      extras:
+        storage:
+          tables: [warehouse.campaigns]
+        semantic_mapping:
+          campaign_id: campaign_id
+          campaign_name: campaign_name
+          budget: budget
+      dimensions:
+        - ref: campaign_id
+          is_key: true
+        - ref: campaign_name
+      measures:
+        - ref: budget
+  joinsets:
+    - name: spend_bookings
+      extras: {}
+      dimensions:
+        - ref: campaign_id
+        - ref: date
+        - ref: channel
+      measures:
+        - ref: cost
+        - ref: avg_cost
+        - ref: revenue
+      datasets:
+        - name: spend_j
+          extras:
+            storage:
+              tables: [warehouse.spend]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+              avg_cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost
+            - ref: avg_cost
+        - name: bookings_j
+          extras:
+            storage:
+              tables: [warehouse.bookings]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              channel: channel
+              revenue: revenue
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+            - ref: channel
+          measures:
+            - ref: revenue
+      relationships:
+        - name: spend_j_to_bookings_j
+          from: spend_j
+          to: bookings_j
+          on: [campaign_id, date]
+          cardinality: one_to_one
+          integrity: assumed
+          optional: none
+          cross_filter: both
+    - name: spend_bookings_late
+      extras: {}
+      dimensions:
+        - ref: campaign_id
+        - ref: date
+        - ref: channel
+      measures:
+        - ref: cost
+        - ref: avg_cost
+        - ref: revenue
+        - ref: late_revenue
+      datasets:
+        - name: spend_j
+          extras:
+            storage:
+              tables: [warehouse.spend]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+              avg_cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost
+            - ref: avg_cost
+        - name: bookings_j
+          extras:
+            storage:
+              tables: [warehouse.bookings]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              channel: channel
+              revenue: revenue
+              late_revenue: revenue
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+            - ref: channel
+          measures:
+            - ref: revenue
+            - ref: late_revenue
+      filters:
+        - name: late
+          expr:
+            gt_eq: [date, {lit: {date: "2026-03-15"}}]
+      relationships:
+        - name: spend_j_to_bookings_j
+          from: spend_j
+          to: bookings_j
+          on: [campaign_id, date]
+          cardinality: one_to_one
+          integrity: assumed
+          optional: none
+          cross_filter: both
+    - name: campaigns_spend_all
+      dimensions: [{ref: campaign_id}, {ref: campaign_name}, {ref: channel}]
+      measures: [{ref: budget}, {ref: cost}, {ref: avg_cost}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+      unionsets:
+        - name: spend_all
+          mode: all
+          datasets:
+            - name: web
+              extras:
+                storage: {tables: [warehouse.spend_web]}
+                semantic_mapping:
+                  {campaign_id: campaign_id, channel: {lit: web}, cost: cost, avg_cost: cost}
+            - name: app
+              extras:
+                storage: {tables: [warehouse.spend_app]}
+                semantic_mapping:
+                  {campaign_id: campaign_id, channel: {lit: app}, cost: cost, avg_cost: cost}
+      relationships:
+        - name: campaigns_to_spend
+          from: campaigns
+          to: spend_all
+          on: [campaign_id]
+          cardinality: one_to_many
+          optional: none
+          integrity: assumed
+    - name: campaigns_spend
+      dimensions:
+        - ref: campaign_id
+        - ref: campaign_name
+        - ref: date
+      measures:
+        - ref: budget
+        - ref: cost
+      datasets:
+        - name: campaigns
+          extras:
+            storage:
+              tables: [warehouse.campaigns]
+            semantic_mapping:
+              campaign_id: campaign_id
+              campaign_name: campaign_name
+              budget: budget
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: campaign_name
+          measures:
+            - ref: budget
+        - name: spend
+          extras:
+            storage:
+              tables: [warehouse.spend]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost
+      relationships:
+        - name: campaigns_to_spend
+          from: campaigns
+          to: spend
+          on: [campaign_id]
+          cardinality: one_to_many
+          integrity: assumed
+          optional: none
+    - name: spend_bookings_filter
+      extras: {}
+      dimensions:
+        - ref: campaign_id
+        - ref: date
+        - ref: channel
+      measures:
+        - ref: cost
+        - ref: avg_cost
+        - ref: revenue
+      datasets:
+        - name: spend_j
+          extras:
+            storage:
+              tables: [warehouse.spend]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+              avg_cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost
+            - ref: avg_cost
+        - name: bookings_j
+          extras:
+            storage:
+              tables: [warehouse.bookings]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              channel: channel
+              revenue: revenue
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+            - ref: channel
+          measures:
+            - ref: revenue
+      relationships:
+        - name: spend_j_to_bookings_j
+          from: spend_j
+          to: bookings_j
+          on: [campaign_id, date]
+          cardinality: one_to_one
+          integrity: assumed
+          optional: none
+          cross_filter: both
+          filter:
+            gt_eq: [date, {lit: {date: "2026-03-15"}}]
+    - name: spend_bookings_left
+      extras: {}
+      dimensions:
+        - ref: campaign_id
+        - ref: date
+        - ref: channel
+      measures:
+        - ref: cost
+        - ref: avg_cost
+        - ref: revenue
+      datasets:
+        - name: spend_j
+          extras:
+            storage:
+              tables: [warehouse.spend]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+              avg_cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost
+            - ref: avg_cost
+        - name: bookings_j
+          extras:
+            storage:
+              tables: [warehouse.bookings]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              channel: channel
+              revenue: revenue
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+            - ref: channel
+          measures:
+            - ref: revenue
+      relationships:
+        - name: spend_j_to_bookings_j
+          from: spend_j
+          to: bookings_j
+          on: [campaign_id, date]
+          cardinality: one_to_one
+          integrity: assumed
+          optional: left
+          cross_filter: both
+    - name: tags_spend2
+      dimensions:
+        - ref: campaign_id
+        - ref: tag
+        - ref: date
+      measures:
+        - ref: cost
+      datasets:
+        - name: tags
+          extras:
+            storage:
+              tables: [warehouse.tags]
+            semantic_mapping:
+              campaign_id: campaign_id
+              tag: tag
+          dimensions:
+            - ref: campaign_id
+            - ref: tag
+        - name: spend2
+          extras:
+            storage:
+              tables: [warehouse.spend2]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+          dimensions:
+            - ref: campaign_id
+            - ref: date
+          measures:
+            - ref: cost
+      relationships:
+        - name: tags_to_spend2
+          from: tags
+          to: spend2
+          on: [campaign_id]
+          cardinality: many_to_many
+          integrity: assumed
+          optional: none
+          cross_filter: both
+  unionsets:
+    - name: spend_all
+      extras: {}
+      mode: all
+      dimensions:
+        - ref: campaign_id
+        - ref: date
+        - ref: channel
+      measures:
+        - ref: cost
+        - ref: avg_cost
+      datasets:
+        - name: web
+          extras:
+            storage:
+              tables: [warehouse.spend_web]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              channel: {lit: web}
+              cost: cost
+              avg_cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+            - ref: date
+            - ref: channel
+          measures:
+            - ref: cost
+            - ref: avg_cost
+        - name: app
+          extras:
+            storage:
+              tables: [warehouse.spend_app]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              channel: {lit: app}
+              cost: cost
+              avg_cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+            - ref: date
+            - ref: channel
+          measures:
+            - ref: cost
+            - ref: avg_cost
+    - name: spend_all_unique
+      mode: unique
+      dimensions:
+        - ref: campaign_id
+          is_key: true
+        - ref: date
+          is_key: true
+      measures:
+        - ref: cost
+      datasets:
+        - name: web
+          extras:
+            storage:
+              tables: [warehouse.spend_web]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost
+        - name: app
+          extras:
+            storage:
+              tables: [warehouse.spend_app]
+            semantic_mapping:
+              campaign_id: campaign_id
+              date: date
+              cost: cost
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+          dimensions:
+            - ref: campaign_id
+              is_key: true
+            - ref: date
+              is_key: true
+          measures:
+            - ref: cost

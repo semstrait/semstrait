@@ -1,0 +1,98 @@
+# A Joinset leaves out an operand its request does not read.
+
+left_join_prunes_other_side:
+  # Selecting only the preserved side's names lets the Joinset leave out its other operand.
+  model: models/commerce_own_types
+  request:
+    from: orders_customers
+    select: [region, revenue]
+  input_data:
+    warehouse.orders:
+      - [null, 100, 1, EU]
+      - [null, 50, 1, EU]
+      - [null, 70, 2, EU]
+      - [null, 30, 3, US]
+      - [null, 20, 9, US]
+      - [null, 40, 2, null]
+      - [null, 10, null, APAC]
+      - [null, 25, 4, US]
+  expect:
+    rows:
+      - [region, revenue]
+      - [EU, 220]
+      - [US, 75]
+      - [null, 40]
+      - [APAC, 10]
+  sql: >-
+    SELECT region_code AS region, sum(amount) AS revenue FROM warehouse.orders
+    GROUP BY region_code
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='orders_customers', compositions=1, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, pruned=('orders_customers.customers',)]
+        Project[$0, $1]
+          Read[warehouse.orders => region_code:string?, amount:i64?]
+            + Opt:Trace[semantic_source='orders_customers.orders', source_role=&Dataset, originators=('orders_customers',), physical_source='orders']
+
+bypassed_middle_operand:
+  # Selecting only the names the outer operands map bypasses the Joinset's middle operand entirely.
+  model: models/commerce_own_types
+  request:
+    from: sales
+    select: [region_name, revenue]
+  input_data:
+    warehouse.orders:
+      - [null, 100, 1, EU]
+      - [null, 50, 1, EU]
+      - [null, 70, 2, EU]
+      - [null, 30, 3, US]
+      - [null, 20, 9, US]
+      - [null, 40, 2, null]
+      - [null, 10, null, APAC]
+      - [null, 25, 4, US]
+  expect:
+    rows:
+      - [region_name, revenue]
+      - [Europe, 220]
+      - [United States, 75]
+      - [Asia Pacific, 10]
+  sql: >-
+    SELECT r.region_name, sum(o.amount) AS revenue FROM warehouse.orders o
+    JOIN warehouse.regions r ON o.region_code = r.reg GROUP BY r.region_name
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+
+    === Plan
+    Root[region_name, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='sales', compositions=2, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='sales', source_role=&Joinset, answered_by='sales.r2']
+        Project[$2, $1]
+          Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='sales.r2', source_role=&Joinset, originators=('sales',), cardinality=&ManyToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):i64?]
+              Project[$1, $0]
+                Read[warehouse.orders => amount:i64?, region_code:string?]
+                  + Opt:Trace[semantic_source='sales.orders', source_role=&Dataset, originators=('sales',), physical_source='orders']
+            Aggregate[$1, $0 => $1, $0]
+              Project[$1, $0]
+                Read[warehouse.regions => region_name:string?, reg:string?]
+                  + Opt:Trace[semantic_source='sales.regions', source_role=&Dataset, originators=('sales',), physical_source='regions']

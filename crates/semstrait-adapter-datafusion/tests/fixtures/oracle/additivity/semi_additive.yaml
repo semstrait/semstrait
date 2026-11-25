@@ -1,0 +1,589 @@
+# A semi-additive Measure's strategy keeps the latest or earliest rows, by axes and by, and a Metric reads it at its marker.
+
+latest_no_axes:
+  # A semi-additive Measure with no axes keeps the latest date across every account.
+  model: models/finance_balances
+  request:
+    from: balances
+    select: [{dimension: date, granularity: month}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 130]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='balances', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Read[warehouse.balances => date:date?, balance:i64?]
+                + Opt:Trace[semantic_source='balances', source_role=&Dataset, physical_source='balances']
+
+predicate_reads_finished:
+  # A predicate on a semi-additive Measure reads its finished value, not the sum of its rows.
+  model: models/finance_latest_by_date
+  request:
+    from: balances
+    select: [{dimension: date, granularity: month}, balance]
+    where:
+      gt: [balance, {lit: 50}]
+  expect:
+    rows:
+      - [date, balance]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  3: gt
+
+    === Plan
+    Root[date, balance]
+      Filter[gt($1, 50):boolean? => $0, $1]
+        + Opt:Trace[scope_root='balances', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+          Project[$0, !{RexType}, $1, $2]
+            Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+              Project[$1, $0]
+                Read[warehouse.balances => date:date?, balance:i64?]
+                  + Opt:Trace[semantic_source='balances', source_role=&Dataset, physical_source='balances']
+
+latest_per_account:
+  # A semi-additive Measure with axes: [account] keeps the latest date inside each account.
+  model: models/finance_account_axes
+  request:
+    from: balances
+    select: [{dimension: date, granularity: month}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 360]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$4 => $4, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='balances', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$2, $1, $0]
+              Read[warehouse.balances => date:date?, balance:i64?, account:string?]
+                + Opt:Trace[semantic_source='balances', source_role=&Dataset, physical_source='balances']
+
+earliest_per_account:
+  # A semi-additive Measure with strategy earliest keeps the earliest date inside each account.
+  model: models/finance_account_axes
+  request:
+    from: balances
+    select: [{dimension: date, granularity: month}, opening_balance]
+  expect:
+    rows:
+      - [date, opening_balance]
+      - [2026-10-01, 350]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, opening_balance]
+      Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='balances', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, $2, $3, !{RexType}]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?, $2]
+            Project[$2, $0, $1]
+              Read[warehouse.balances => date:date?, balance:i64?, account:string?]
+                + Opt:Trace[semantic_source='balances', source_role=&Dataset, physical_source='balances']
+
+quotient_at_marker:
+  # A quotient Metric over final aggregates reads each Measure at its own marker.
+  model: models/finance_wide_grain
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, m]
+  expect:
+    rows:
+      - [date, m]
+      - [2026-09-01, 0.7142857142857143]
+      - [2026-10-01, 0.6666666666666666]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: divide
+
+    === Plan
+    Root[date, m]
+      Project[$0, divide($1, $2, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):fp64?, sum($4, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}, !{RexType}]
+            Project[$0, $1, (date_trunc('month', $1):date?)::!date?, $2, $3]
+              Project[$3, $0, $1, $2]
+                Read[warehouse.daily => date:date?, a:fp64?, b:fp64?, account:string?]
+                  + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+linear_at_marker:
+  # A linear Metric over final aggregates reads each Measure at its own marker.
+  model: models/finance_wide_grain
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, m_lin]
+  expect:
+    rows:
+      - [date, m_lin]
+      - [2026-09-01, -2.0]
+      - [2026-10-01, -20.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: subtract
+
+    === Plan
+    Root[date, m_lin]
+      Project[$0, subtract($1, $2):fp64?]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):fp64?, sum($4, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}, !{RexType}]
+            Project[$0, $1, (date_trunc('month', $1):date?)::!date?, $2, $3]
+              Project[$3, $0, $1, $2]
+                Read[warehouse.daily => date:date?, a:fp64?, b:fp64?, account:string?]
+                  + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+marker_beside_neighbours:
+  # A marked Measure sits beside neighbours that read every row, not just the marker's.
+  model: models/finance_wide_grain
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, m, cost, avg_cost, users]
+  expect:
+    rows:
+      - [date, m, cost, avg_cost, users]
+      - [2026-09-01, 0.7142857142857143, 13, 6.5, 2]
+      - [2026-10-01, 0.6666666666666666, 15, 3.0, 3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+      @  4: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: avg
+      #  6 @  4: count
+      #  7 @  2: divide
+
+    === Plan
+    Root[date, m, cost, avg_cost, users]
+      Project[$2, $3, $1, $0, $4]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&NotSelected]
+        Project[$4, ($3)::!i32?, $0, divide($1, $2, on_division_by_zero⇒[ERROR]):fp64?, $5]
+          Aggregate[$4 => $4, sum($5, overflow⇒[ERROR]):fp64?, sum($6, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):i64?, avg($1, overflow⇒[ERROR]):fp64?, count($9, overflow⇒[ERROR]):i64]
+            Project[$0, $1, $2, $3, $4, $5, $6, !{RexType}, !{RexType}, $7]
+              Project[$0, $1, $2, $3, (date_trunc('month', $3):date?)::!date?, $4, $5, $6]
+                Project[$5, ($3)::!fp64?, $3, $0, $1, $2, $4]
+                  Read[warehouse.daily => date:date?, a:fp64?, b:fp64?, cost:i32?, usr:string?, account:string?]
+                    + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+metric_output_predicate:
+  # A predicate on a Metric reads its finished value over the semi-additive strategy's output.
+  model: models/finance_wide_grain
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, m_lin]
+    where:
+      gt: [m_lin, {lit: -10}]
+  expect:
+    rows:
+      - [date, m_lin]
+      - [2026-09-01, -2.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: subtract
+      #  6 @  3: gt
+
+    === Plan
+    Root[date, m_lin]
+      Filter[gt($1, -10):boolean? => $0, $1]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, subtract($1, $2):fp64?]
+          Aggregate[$2 => $2, sum($3, overflow⇒[ERROR]):fp64?, sum($4, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1, $2, $3, $4, !{RexType}, !{RexType}]
+              Project[$0, $1, (date_trunc('month', $1):date?)::!date?, $2, $3]
+                Project[$3, $0, $1, $2]
+                  Read[warehouse.daily => date:date?, a:fp64?, b:fp64?, account:string?]
+                    + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+latest_across_accounts:
+  # With axes: [], a semi-additive Measure keeps the latest date across every account, not per account.
+  model: models/finance_account_axes
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, m]
+  expect:
+    rows:
+      - [date, m]
+      - [2026-09-01, 0.7142857142857143]
+      - [2026-10-01, 0.6666666666666666]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: divide
+
+    === Plan
+    Root[date, m]
+      Project[$0, divide($1, $2, on_division_by_zero⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):fp64?, sum($3, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $2, $3, !{RexType}, !{RexType}]
+            Project[$0, (date_trunc('month', $0):date?)::!date?, $1, $2]
+              Project[$0, $1, $2]
+                Read[warehouse.daily => date:date?, a:fp64?, b:fp64?]
+                  + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+balance_and_cost_differ:
+  # In one aggregate step, a semi-additive Measure reads its marker and a plain Measure reads every row.
+  model: models/finance_added_cost
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, balance, cost]
+  expect:
+    rows:
+      - [date, balance, cost]
+      - [2024-09-01, 320, 10]
+      - [2024-10-01, 130, 26]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance, cost]
+      Aggregate[$4 => $4, sum($0, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $2):date?)::!date?]
+            Project[$1, $2, $0]
+              Read[warehouse.daily => date:date?, balance:i64?, cost:i64?]
+                + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+account_latest_full_cost:
+  # A semi-additive Measure with axes: [account] keeps the latest date per account, beside a Measure that reads every row.
+  model: models/finance_balance_axes
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, balance, cost]
+  expect:
+    rows:
+      - [date, balance, cost]
+      - [2024-09-01, 320, 10]
+      - [2024-10-01, 360, 26]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance, cost]
+      Aggregate[$5 => $5, sum($1, overflow⇒[ERROR]):i64?, sum($3, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='daily', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, $1, !{RexType}, $2, $3, $4]
+          Project[$0, $1, $2, $3, (date_trunc('month', $3):date?)::!date?]
+            Project[$3, $1, $2, $0]
+              Read[warehouse.daily => date:date?, balance:i64?, cost:i64?, account:string?]
+                + Opt:Trace[semantic_source='daily', source_role=&Dataset, physical_source='daily']
+
+latest_non_null_or_all:
+  # A semi-additive Measure keeps each group's latest non-NULL date, or every row where the date is NULL throughout.
+  model: models/finance
+  request:
+    from: f4
+    select: [g, v]
+  expect:
+    rows:
+      - [g, v]
+      - [a, 2]
+      - [b, 9]
+      - [null, 13]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: rank
+      #  2 @  1: sum
+      #  3 @  2: equal
+
+    === Plan
+    Root[g, v]
+      Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='f4', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1, $2, !{RexType}]
+          Project[$2, $0, $1]
+            Read[warehouse.f4 => g:string?, v:i64?, d:date?]
+              + Opt:Trace[semantic_source='f4', source_role=&Dataset, physical_source='f4']
+
+net_marker_difference:
+  # A Metric difference over final aggregates reads each side at its own Measure's marker.
+  model: models/finance_wide_grain
+  request:
+    from: ledger
+    select: [{dimension: date, granularity: month}, balance, fees, net]
+  expect:
+    rows:
+      - [date, balance, fees, net]
+      - [2026-10-01, 315, 10, 305]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: subtract
+
+    === Plan
+    Root[date, balance, fees, net]
+      Project[$1, $0, $2, $3]
+        + Opt:Trace[scope_root='ledger', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$1, $0, $2, subtract($3, $4, overflow⇒[ERROR]):i64?]
+          Aggregate[$3 => $3, sum($1, overflow⇒[ERROR]):i64?, sum($4, overflow⇒[ERROR]):i64?, sum($6, overflow⇒[ERROR]):i64?, sum($7, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, !{RexType}, $2, $3, $4, $5, $6, !{RexType}]
+              Project[$0, $1, (date_trunc('month', $2):date?)::!date?, $3, $4, $5, $6]
+                Project[$4, $1, $0, $2, $3, $1, $2]
+                  Read[warehouse.ledger => date:date?, balance:i64?, fees:i64?, loaded_at:precisiontimestamp?<6>, account:string?]
+                    + Opt:Trace[semantic_source='ledger', source_role=&Dataset, physical_source='ledger']
+
+net_by_day_latest:
+  # Dropping the semi-additive Measure's own by reads each day's latest load inside its account.
+  model: models/finance_wide_grain
+  request:
+    from: ledger
+    select: [date, net]
+  expect:
+    rows:
+      - [date, net]
+      - [2026-10-20, 186]
+      - [2026-10-30, 99]
+      - [2026-10-31, 310]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: rank
+      #  2 @  1: sum
+      #  3 @  2: equal
+      #  4 @  1: subtract
+
+    === Plan
+    Root[date, net]
+      Project[$0, subtract($1, $2, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='ledger', compositions=0, granularity_fit=&Selected, granularity=&Day]
+        Aggregate[$1 => $1, sum($3, overflow⇒[ERROR]):i64?, sum($4, overflow⇒[ERROR]):i64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}]
+            Project[$4, $0, $3, $1, $2]
+              Read[warehouse.ledger => date:date?, balance:i64?, fees:i64?, loaded_at:precisiontimestamp?<6>, account:string?]
+                + Opt:Trace[semantic_source='ledger', source_role=&Dataset, physical_source='ledger']
+
+closing_net_marker:
+  # Each node of a Metric's formula reads its own Measure's marker.
+  model: models/finance_wide_grain
+  request:
+    from: ledger
+    select: [{dimension: date, granularity: month}, closing_net]
+  expect:
+    rows:
+      - [date, closing_net]
+      - [2026-10-01, 310]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: rank
+      #  3 @  2: sum
+      #  4 @  3: equal
+      #  5 @  2: subtract
+
+    === Plan
+    Root[date, closing_net]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='ledger', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[subtract($1, $2, overflow⇒[ERROR]):i64?, $0]
+          Aggregate[$6 => $6, sum($1, overflow⇒[ERROR]):i64?, sum($2, overflow⇒[ERROR]):i64?]
+            Project[$0, $1, $2, !{RexType}, !{RexType}, $3, $4, $5]
+              Project[$0, $1, $2, $3, (date_trunc('month', $3):date?)::!date?, $4]
+                Project[$4, $1, $2, $0, $3]
+                  Read[warehouse.ledger => date:date?, balance:i64?, fees:i64?, loaded_at:precisiontimestamp?<6>, account:string?]
+                    + Opt:Trace[semantic_source='ledger', source_role=&Dataset, physical_source='ledger']
+
+latest_per_account_through_joinset:
+  # A semi-additive Measure with axes: [account], read through a Joinset, keeps each account's own latest date.
+  model: models/finance_joinset_axis
+  request:
+    from: holdings
+    select: [{dimension: date, granularity: month}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 380]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  3: and
+      #  4 @  2: coalesce
+      #  5 @  4: date_trunc
+      #  6 @  1: rank
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$4 => $4, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='holdings', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        Project[$0, $1, !{RexType}, $2, $3]
+          Project[$0, $1, $2, (date_trunc('month', $3):date?)::!date?]
+            Project[$3, $4, $2, coalesce($0, $2):date?]
+              Join[&Left, and(equal($1, $3):boolean?, equal($0, $2):boolean?):boolean? => $0, $1, $2, $3, $4]
+                + Opt:Trace[semantic_source='holdings', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.orders => booked_on:date?, account:string?]
+                      + Opt:Trace[semantic_source='holdings.orders', source_role=&Dataset, originators=('holdings',), physical_source='orders']
+                Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                  Project[$2, $1, $0]
+                    Read[warehouse.balances => snap_date:date?, balance:i64?, account:string?]
+                      + Opt:Trace[semantic_source='holdings.balances', source_role=&Dataset, originators=('holdings',), physical_source='balances']

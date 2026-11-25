@@ -1,0 +1,135 @@
+# A finance variant whose date declares a wider grain, with its own additivity shape.
+semantic_model:
+  name: finance_wide_grain
+  dimensions:
+    - name: account
+      data_type: string
+      type: categorical
+    - name: region
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+    - name: loaded_at
+      data_type: timestamp
+      type:
+        temporal:
+          granularities: [hour]
+  measures:
+    - name: a
+      data_type: double
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          by: date
+          strategy: latest
+    - name: b
+      data_type: double
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          by: date
+          strategy: latest
+    - name: cost
+      data_type: integer
+      agg: sum
+    - name: avg_cost
+      data_type: double
+      agg: avg
+    - name: users
+      data_type: bigint
+      agg: count_distinct
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          by: loaded_at
+          strategy: latest
+    - name: fees
+      data_type: bigint
+      agg: sum
+    - name: fees_closing
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          by: date
+          strategy: latest
+  metrics:
+    - name: m
+      data_type: double
+      expr:
+        divide: [a, b]
+    - name: m_lin
+      data_type: double
+      expr:
+        subtract: [a, b]
+    - name: net
+      data_type: bigint
+      expr:
+        subtract: [balance, fees]
+    - name: closing_net
+      data_type: bigint
+      expr:
+        subtract: [balance, fees_closing]
+  datasets:
+    - name: daily
+      extras:
+        storage:
+          tables: [warehouse.daily]
+        semantic_mapping:
+          account: account
+          region: region
+          date: date
+          a: a
+          b: b
+          cost: cost
+          avg_cost: cost
+          users: usr
+      dimensions:
+        - ref: account
+        - ref: region
+        - ref: date
+      measures:
+        - ref: a
+        - ref: b
+        - ref: cost
+        - ref: avg_cost
+        - ref: users
+      metrics:
+        - ref: m
+        - ref: m_lin
+    - name: ledger
+      extras:
+        storage:
+          tables: [warehouse.ledger]
+        semantic_mapping:
+          account: account
+          date: date
+          loaded_at: loaded_at
+          balance: balance
+          fees: fees
+          fees_closing: fees
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: account
+        - ref: date
+        - ref: loaded_at
+      measures:
+        - ref: balance
+        - ref: fees
+        - ref: fees_closing
+      metrics:
+        - ref: net
+        - ref: closing_net

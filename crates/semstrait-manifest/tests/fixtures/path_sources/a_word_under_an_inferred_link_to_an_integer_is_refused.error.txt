@@ -1,0 +1,2 @@
+error: dataset `orders`: storage entry `s3://lake/orders/` holds the value `abc` of the key that `order_year` maps, which does not read as `integer`, its type
+  note: `orders` reads `s3://lake/orders/` as parquet

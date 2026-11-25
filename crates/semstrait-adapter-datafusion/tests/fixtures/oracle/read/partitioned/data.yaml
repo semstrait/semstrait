@@ -1,0 +1,12 @@
+objects:
+  - uri: s3://semstrait-e2e/orders/year=2025/part-0.parquet
+    columns:
+      - {name: amount, type: bigint}
+    rows:
+      - [10]
+  - uri: s3://semstrait-e2e/orders/year=2026/part-0.parquet
+    columns:
+      - {name: amount, type: bigint}
+    rows:
+      - [20]
+      - [5]

@@ -1,0 +1,55 @@
+# A row_number marker counts each order once beside its joined lines.
+
+marker_per_order:
+  # A row_number marker counts each order once, beside an average that reads every line.
+  request:
+    select: [region, shipping_cost, price]
+  expect:
+    rows:
+      - [region, shipping_cost, price]
+      - [eu, 15.0, 2.5]
+      - [us, 6.0, 6.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: row_number
+      #  2 @  1: avg
+      #  3 @  2: equal
+
+    === Plan
+    Root[region, shipping_cost, price]
+      Project[$0, $1, $2]
+        Aggregate[$1 => $1, avg(($2)::!fp64?, overflow⇒[ERROR]):fp64?, avg(($4)::!fp64?, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $2, $3, $4, !{RexType}]
+            Project[$0, $1, $2, $3, $4]
+              Read[sales.order_rows => order_id:i64?, region:string?, shipping_cost:i64?, line_id:i64?, price:i64?]
+
+no_marker_control:
+  # With no marker, the same average counts each order once per line, not once per order.
+  request:
+    select: [region, shipping_cost, price]
+  expect:
+    rows:
+      - [region, shipping_cost, price]
+      - [eu, 12.5, 2.5]
+      - [us, 5.666666666666667, 6.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: avg
+
+    === Plan
+    Root[region, shipping_cost, price]
+      Project[$0, $1, $2]
+        Aggregate[$1 => $1, avg(($2)::!fp64?, overflow⇒[ERROR]):fp64?, avg(($4)::!fp64?, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $2, $3, $4]
+            Read[sales.order_rows => order_id:i64?, region:string?, shipping_cost:i64?, line_id:i64?, price:i64?]

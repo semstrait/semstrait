@@ -1,0 +1,1 @@
+error: physical source bf575591-d8c6-59c7-b3aa-5fbdf5673b12: column `channel` is read by an expression but absent from the observed schema

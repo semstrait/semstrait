@@ -1,0 +1,232 @@
+# A built join's own field, a relationship filter, or a declared keyset extends a unique union's distinct.
+
+join_field_extends_distinct:
+  # A built join's own field extends the unique union's distinct beneath it.
+  model: models/commerce
+  request:
+    from: sales_customers
+    select: [revenue]
+  input_data:
+    warehouse.customers:
+      - [c1, null, null, null, eu]
+      - [c2, null, null, null, us]
+    warehouse.store_sales:
+      - [st1, 10.0, c2, null]
+    warehouse.web_sales:
+      - [w1, 10.0, c1, null]
+  expect:
+    rows:
+      - [revenue]
+      - [20.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales_customers', compositions=2, granularity_fit=&NotSelected]
+        Project[$1]
+          Join[&Inner, equal($0, $2):boolean? => $0, $1, $2]
+            + Opt:Trace[semantic_source='sales_customers', source_role=&Joinset, cardinality=&ManyToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+              Project[$0, $2, $1]
+                Set[&UnionDistinct => $0, $1, $2]
+                  + Opt:Trace[semantic_source='sales_customers.all_sales', source_role=&Unionset, originators=('sales_customers',), delivery=&Rows]
+                  Project[$1, true, $0]
+                    Read[warehouse.store_sales => amount:fp64?, customer_id:string?]
+                      + Opt:Trace[semantic_source='sales_customers.all_sales.store_sales', source_role=&Dataset, originators=('sales_customers.all_sales',), physical_source='store_sales']
+                  Project[$1, true, $0]
+                    Read[warehouse.web_sales => amount:fp64?, customer_id:string?]
+                      + Opt:Trace[semantic_source='sales_customers.all_sales.web_sales', source_role=&Dataset, originators=('sales_customers.all_sales',), physical_source='web_sales']
+            Aggregate[$0 => $0]
+              Project[$0]
+                Read[warehouse.customers => customer_id:string?]
+                  + Opt:Trace[semantic_source='sales_customers.customers', source_role=&Dataset, originators=('sales_customers',), physical_source='customers']
+
+unbuilt_join_no_extension:
+  # Where integrity lets the Joinset leave an operand out, no join is built, so the union's distinct is not extended.
+  model: models/commerce
+  request:
+    from: sales_customers_assumed
+    select: [revenue]
+  input_data:
+    warehouse.store_sales:
+      - [st1, 10.0, c2, null]
+    warehouse.web_sales:
+      - [w1, 10.0, c1, null]
+  expect:
+    rows:
+      - [revenue]
+      - [10.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales_customers_assumed', compositions=2, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='sales_customers_assumed', source_role=&Joinset, pruned=('sales_customers_assumed.customers',)]
+        Project[$1, $0]
+          Set[&UnionDistinct => $0, $1]
+            + Opt:Trace[semantic_source='sales_customers_assumed.all_sales', source_role=&Unionset, originators=('sales_customers_assumed',), delivery=&Rows]
+            Project[true, $0]
+              Read[warehouse.store_sales => amount:fp64?]
+                + Opt:Trace[semantic_source='sales_customers_assumed.all_sales.store_sales', source_role=&Dataset, originators=('sales_customers_assumed.all_sales',), physical_source='store_sales']
+            Project[true, $0]
+              Read[warehouse.web_sales => amount:fp64?]
+                + Opt:Trace[semantic_source='sales_customers_assumed.all_sales.web_sales', source_role=&Dataset, originators=('sales_customers_assumed.all_sales',), physical_source='web_sales']
+
+filter_prunes_to_one_branch:
+  # A predicate that folds false on one branch prunes the Unionset to its other branch alone, below the built join.
+  model: models/commerce
+  request:
+    from: sales_customers
+    select: [revenue]
+    where: {eq: [channel, {lit: web}]}
+  input_data:
+    warehouse.customers:
+      - [c1, null, null, null, eu]
+      - [c2, null, null, null, us]
+      - [c3, null, null, null, us]
+    warehouse.web_sales:
+      - [w1, 10.0, c1, null]
+      - [w2, 5.0, c2, null]
+  expect:
+    rows:
+      - [revenue]
+      - [15.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales_customers', compositions=2, granularity_fit=&NotSelected]
+        Project[$1]
+          Join[&Inner, equal($0, $2):boolean? => $0, $1, $2]
+            + Opt:Trace[semantic_source='sales_customers', source_role=&Joinset, cardinality=&ManyToOne]
+            Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+              Project[$1, $3, $2]
+                Aggregate[$0, $1, $2, $3 => $0, $1, $2, $3]
+                  + Opt:Trace[semantic_source='sales_customers.all_sales', source_role=&Unionset, originators=('sales_customers',), delivery=&Rows, pruned=('sales_customers.all_sales.store_sales',)]
+                  Filter[equal($0, 'web'):boolean => $0, $1, $2, $3]
+                    Project['web', $1, true, $0]
+                      Read[warehouse.web_sales => amount:fp64?, customer_id:string?]
+                        + Opt:Trace[semantic_source='sales_customers.all_sales.web_sales', source_role=&Dataset, originators=('sales_customers.all_sales',), physical_source='web_sales']
+            Aggregate[$0 => $0]
+              Project[$0]
+                Read[warehouse.customers => customer_id:string?]
+                  + Opt:Trace[semantic_source='sales_customers.customers', source_role=&Dataset, originators=('sales_customers',), physical_source='customers']
+
+relationship_filter_extends_distinct:
+  # A relationship filter's own field extends the unique union's distinct beneath the join.
+  model: models/commerce
+  request:
+    from: sales_customers_filtered
+    select: [revenue]
+  input_data:
+    warehouse.customers:
+      - [c1, null, null, null, eu]
+    warehouse.store_sales:
+      - [st1, 10.0, c1, 30]
+    warehouse.web_sales:
+      - [w1, 10.0, c1, 20]
+  expect:
+    rows:
+      - [revenue]
+      - [20.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  2: gt
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales_customers_filtered', compositions=2, granularity_fit=&NotSelected]
+        Project[$2]
+          Filter[gt($1, 10):boolean? => $0, $1, $2, $3]
+            Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+              + Opt:Trace[semantic_source='sales_customers_filtered', source_role=&Joinset, cardinality=&ManyToOne]
+              Aggregate[$0, $1 => $0, $1, sum($2, overflow⇒[ERROR]):fp64?]
+                Project[$0, $1, $3, $2]
+                  Set[&UnionDistinct => $0, $1, $2, $3]
+                    + Opt:Trace[semantic_source='sales_customers_filtered.all_sales', source_role=&Unionset, originators=('sales_customers_filtered',), delivery=&Rows]
+                    Project[$1, $2, true, $0]
+                      Read[warehouse.store_sales => amount:fp64?, customer_id:string?, d:i64?]
+                        + Opt:Trace[semantic_source='sales_customers_filtered.all_sales.store_sales', source_role=&Dataset, originators=('sales_customers_filtered.all_sales',), physical_source='store_sales']
+                    Project[$1, $2, true, $0]
+                      Read[warehouse.web_sales => amount:fp64?, customer_id:string?, d:i64?]
+                        + Opt:Trace[semantic_source='sales_customers_filtered.all_sales.web_sales', source_role=&Dataset, originators=('sales_customers_filtered.all_sales',), physical_source='web_sales']
+              Aggregate[$0 => $0]
+                Project[$0]
+                  Read[warehouse.customers => customer_id:string?]
+                    + Opt:Trace[semantic_source='sales_customers_filtered.customers', source_role=&Dataset, originators=('sales_customers_filtered',), physical_source='customers']
+
+keyset_extends_distinct:
+  # With no join built, the unique union's distinct compares its own declared keyset.
+  model: models/commerce
+  request:
+    from: sales_customers_keyed
+    select: [revenue]
+  input_data:
+    warehouse.store_sales:
+      - [s2, 10.0, c2, null]
+    warehouse.web_sales:
+      - [s1, 10.0, c1, null]
+  expect:
+    rows:
+      - [revenue]
+      - [20.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales_customers_keyed', compositions=2, granularity_fit=&NotSelected]
+        + Opt:Trace[semantic_source='sales_customers_keyed', source_role=&Joinset, pruned=('sales_customers_keyed.customers',)]
+        Project[$1, $0]
+          Set[&UnionDistinct => $0, $1, $2]
+            + Opt:Trace[semantic_source='sales_customers_keyed.all_sales', source_role=&Unionset, originators=('sales_customers_keyed',), delivery=&Rows]
+            Project[true, $0, $1]
+              Read[warehouse.store_sales => amount:fp64?, sale_id:string?]
+                + Opt:Trace[semantic_source='sales_customers_keyed.all_sales.store_sales', source_role=&Dataset, originators=('sales_customers_keyed.all_sales',), physical_source='store_sales']
+            Project[true, $0, $1]
+              Read[warehouse.web_sales => amount:fp64?, sale_id:string?]
+                + Opt:Trace[semantic_source='sales_customers_keyed.all_sales.web_sales', source_role=&Dataset, originators=('sales_customers_keyed.all_sales',), physical_source='web_sales']

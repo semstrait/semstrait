@@ -1,0 +1,75 @@
+# A finance variant whose semi-additive Measure declares axes: [account], read through a Joinset.
+semantic_model:
+  name: finance_joinset_axis
+  dimensions:
+    - name: account
+      data_type: string
+      type: categorical
+    - name: order_date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+  measures:
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: [account]
+          by: date
+          strategy: latest
+  joinsets:
+    - name: holdings
+      dimensions:
+        - ref: account
+        - ref: order_date
+        - ref: date
+      measures:
+        - ref: balance
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              account: account
+              order_date: order_date
+              date: booked_on
+            temporal:
+              events:
+                event_time: order_date
+              granularity: day
+          dimensions:
+            - ref: account
+            - ref: order_date
+            - ref: date
+        - name: balances
+          extras:
+            storage:
+              tables: [warehouse.balances]
+            semantic_mapping:
+              account: account
+              date: snap_date
+              balance: balance
+            temporal:
+              snapshot:
+                snapshotted_at: date
+              granularity: day
+          dimensions:
+            - ref: account
+            - ref: date
+          measures:
+            - ref: balance
+      relationships:
+        - name: held
+          from: orders
+          to: balances
+          on: [account, date]
+          cardinality: many_to_one
+          optional: left

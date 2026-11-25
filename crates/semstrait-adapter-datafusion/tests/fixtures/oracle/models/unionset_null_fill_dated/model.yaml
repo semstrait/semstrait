@@ -1,0 +1,34 @@
+# The null-fill Unionset with a branch that has rows after the 15th.
+semantic_model:
+  name: unionset_null_fill_dated
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: campaign, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+  unionsets:
+    - name: ads
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign}]
+      measures: [{ref: clicks}]
+      filters:
+        - name: brand_or_late
+          expr:
+            or:
+              - {eq: [campaign, {lit: brand}]}
+              - {gt: [date, {lit: '2024-01-15'}]}
+      datasets:
+        - name: facebook
+          extras:
+            storage: {tables: [warehouse.facebook]}
+            semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: tiktok
+          extras:
+            storage: {tables: [warehouse.tiktok]}
+            semantic_mapping: {date: date, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

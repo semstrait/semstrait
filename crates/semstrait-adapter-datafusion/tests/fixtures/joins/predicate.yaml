@@ -1,0 +1,117 @@
+# A request predicate and a relationship filter place differently around a left join.
+
+request_predicate:
+  # A request predicate above a left join under an inner join gives the revenue by region and segment.
+  request:
+    select: [region_name, segment, revenue]
+  expect:
+    rows:
+      - [region_name, segment, revenue]
+      - [Europe, SMB, 220]
+      - [United States, SMB, 25]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: coalesce
+      #  3 @  2: sum
+
+    === Plan
+    Root[region_name, segment, revenue]
+      Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+        Project[$0, coalesce($2, $4):string?, $5, $3]
+          Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='sales', source_role=&Joinset, cardinality=&ManyToOne]
+            Project[$0, $3, coalesce($3, $5):string?, $6]
+              Filter[equal($6, 'SMB'):boolean? => $0, $1, $2, $3, $4, $5, $6]
+                Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4, $5, $6]
+                  + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, cardinality=&ManyToOne]
+                  Project[$3, $1, $0, $2]
+                    Read:Virtual[
+                      - (1, 1, 'EU', 100),
+                      - (2, 1, 'EU', 50),
+                      - (3, 2, 'EU', 70),
+                      - (4, 3, 'US', 30),
+                      - (5, 9, 'US', 20),
+                      - (6, 2, null:string?, 40),
+                      - (7, null:i64?, 'APAC', 10),
+                      - (8, 4, 'US', 25)
+                      - => order_id:i64?, cust_key:i64?, region_code:string?, amount:i64?]
+                  Project[$0, $2, $1]
+                    Read:Virtual[
+                      - (1, 'SMB', 'EU'),
+                      - (2, 'SMB', 'US'),
+                      - (3, 'ENT', 'US'),
+                      - (4, 'SMB', null:string?),
+                      - (5, 'ENT', 'APAC')
+                      - => customer_id:i64?, segment:string?, region:string?]
+            Project[$0, $1]
+              Read:Virtual[
+                - ('EU', 'Europe'),
+                - ('US', 'United States'),
+                - ('APAC', 'Asia Pacific'),
+                - ('LATAM', 'Latin America')
+                - => reg:string?, region_name:string?]
+
+relationship_filter:
+  # A relationship filter in the left join gives the same rows as the request predicate does.
+  request:
+    select: [region_name, segment, revenue]
+  expect:
+    rows:
+      - [region_name, segment, revenue]
+      - [Europe, SMB, 220]
+      - [United States, SMB, 25]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  1: coalesce
+      #  3 @  2: sum
+
+    === Plan
+    Root[region_name, segment, revenue]
+      Aggregate[$2, $3 => $2, $3, sum($0, overflow⇒[ERROR]):i64?]
+        Project[$0, coalesce($2, $4):string?, $5, $3]
+          Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='sales', source_role=&Joinset, cardinality=&ManyToOne]
+            Project[$0, $3, coalesce($3, $5):string?, $6]
+              Filter[equal($6, 'SMB'):boolean? => $0, $1, $2, $3, $4, $5, $6]
+                Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4, $5, $6]
+                  + Opt:Trace[semantic_source='orders_customers', source_role=&Joinset, cardinality=&ManyToOne]
+                  Project[$3, $1, $0, $2]
+                    Read:Virtual[
+                      - (1, 1, 'EU', 100),
+                      - (2, 1, 'EU', 50),
+                      - (3, 2, 'EU', 70),
+                      - (4, 3, 'US', 30),
+                      - (5, 9, 'US', 20),
+                      - (6, 2, null:string?, 40),
+                      - (7, null:i64?, 'APAC', 10),
+                      - (8, 4, 'US', 25)
+                      - => order_id:i64?, cust_key:i64?, region_code:string?, amount:i64?]
+                  Project[$0, $2, $1]
+                    Read:Virtual[
+                      - (1, 'SMB', 'EU'),
+                      - (2, 'SMB', 'US'),
+                      - (3, 'ENT', 'US'),
+                      - (4, 'SMB', null:string?),
+                      - (5, 'ENT', 'APAC')
+                      - => customer_id:i64?, segment:string?, region:string?]
+            Project[$0, $1]
+              Read:Virtual[
+                - ('EU', 'Europe'),
+                - ('US', 'United States'),
+                - ('APAC', 'Asia Pacific'),
+                - ('LATAM', 'Latin America')
+                - => reg:string?, region_name:string?]

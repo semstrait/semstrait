@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  checks:
+    name: Lint, Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain (rustfmt, clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # --- fmt ---
+      - name: fmt - check formatting
+        run: cargo fmt --all -- --check
+
+      # --- lint ---
+      - name: lint - clippy (all targets, all features, deny warnings)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      # --- build ---
+      - name: build - compile (all features)
+        run: cargo build --all-features --verbose
+
+      # --- test ---
+      - name: test - run test suite (all features)
+        run: cargo test --all-features --verbose
+
+  adr:
+    name: ADR format and links
+    runs-on: ubuntu-latest
+    env:
+      ADRS_VERSION: "0.12.1"
+      ADRS_SHA256: "1e0dda183f38eeff44a6dd82d688df4a0f3a655396fcc72cdbc31de753d88419"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install adrs
+        run: |
+          archive="adrs-x86_64-unknown-linux-gnu.tar.xz"
+          curl -fsSLO "https://github.com/joshrotenberg/adrs/releases/download/v${ADRS_VERSION}/${archive}"
+          echo "${ADRS_SHA256}  ${archive}" | sha256sum --check
+          tar -xJf "${archive}"
+          sudo install -m 0755 adrs-x86_64-unknown-linux-gnu/adrs /usr/local/bin/adrs
+          adrs --version
+
+      # Repo-wide form of adr-toolkit's per-edit integrity hook (doctor errors,
+      # frontmatter, dangling links), plus the repo's link and callout rules.
+      # --- doctor: MADR sections, frontmatter, numbering, broken links ---
+      - name: adr - doctor
+        run: adrs doctor
+
+      # --- links: inverse links, superseded status, callouts, citations ---
+      - name: adr - links and callouts
+        run: python3 .github/scripts/check_adrs.py
+
+  # TODO: Re-enable once workspace includes binary crates
+  # The current workspace only builds library crates
+  # build-release:
+  #   name: Build Release
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   needs: checks
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  #
+  #     - name: Install Rust toolchain
+  #       uses: dtolnay/rust-toolchain@stable
+  #
+  #     - name: Install protobuf compiler
+  #       run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+  #
+  #     - name: Setup Rust cache
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         cache-on-failure: true
+  #
+  #     - name: Build release binaries
+  #       run: cargo build -p semstrait-api --release --verbose
+  #
+  #     - name: Upload artifacts
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: semstrait-binaries
+  #         path: target/release/semstrait
+  #         retention-days: 7

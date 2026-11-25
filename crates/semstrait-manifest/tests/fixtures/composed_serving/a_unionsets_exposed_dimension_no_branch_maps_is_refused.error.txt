@@ -1,0 +1,1 @@
+error: semantic source `stacked` exposes `channel`, but no operand or child maps it

@@ -1,0 +1,15 @@
+tables:
+  - namespace: warehouse
+    name: yearly
+    columns:
+      - {name: date, type: date}
+      - {name: bal, type: bigint}
+      - {name: reach, type: bigint}
+    rows: [[2024-01-01, 999, 99]]
+  - namespace: warehouse
+    name: daily
+    columns:
+      - {name: date, type: date}
+      - {name: bal, type: bigint}
+      - {name: reach, type: bigint}
+    rows: [[2024-01-05, 100, 1], [2024-01-20, 150, 2], [2024-02-03, 160, 3], [2024-02-28, 40, 4]]

@@ -1,0 +1,15 @@
+objects:
+  - uri: s3://semstrait-e2e/orders/a.parquet
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: bigint, read: double}
+    rows:
+      - [eu, 10]
+      - [us, 20]
+  - uri: s3://semstrait-e2e/orders/b.parquet
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: bigint, read: double}
+    rows:
+      - [eu, 5]
+      - [us, 7]

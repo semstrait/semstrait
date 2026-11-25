@@ -1,0 +1,25 @@
+tables:
+  - namespace: warehouse
+    name: sales_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: region, type: string}
+      - {name: amount, type: bigint}
+      - {name: target, type: bigint}
+    rows:
+      - [2026-03-01, US, 22, 100]
+      - [2026-03-01, DE, 4, 50]
+      - [2026-04-01, US, 3, 40]
+  - namespace: warehouse
+    name: sales_daily
+    columns:
+      - {name: day, type: date}
+      - {name: region, type: string}
+      - {name: channel, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [2026-03-02, US, web, 10]
+      - [2026-03-03, US, store, 5]
+      - [2026-03-10, US, web, 7]
+      - [2026-03-04, DE, store, 4]
+      - [2026-04-01, US, web, 3]

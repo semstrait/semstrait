@@ -1,0 +1,88 @@
+# A marketing variant whose date keeps its own temporal shape.
+semantic_model:
+  name: marketing_own_shape
+  dimensions:
+    - name: date
+      data_type: timestamp
+      type:
+        temporal:
+          granularities: [hour, day, month]
+    - {name: campaign_id, data_type: string, type: categorical}
+    - {name: src, data_type: string, type: categorical}
+    - name: country
+      data_type: string
+      type: categorical
+    - name: market
+      data_type: string
+      type: categorical
+    - name: traffic_source
+      data_type: string
+      type: categorical
+    - name: day
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+  measures:
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi: {axes: [], by: date, strategy: latest}
+    - name: cost
+      data_type: double
+      agg: sum
+  unionsets:
+    - name: u_snap_src
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign_id}, {ref: src}]
+      measures: [{ref: balance}]
+      datasets:
+        - name: snap_raw
+          extras:
+            storage: {tables: [warehouse.snap_raw]}
+            semantic_mapping: {date: ts, campaign_id: campaign_id, src: {lit: raw}, balance: balance}
+        - name: snap_daily
+          extras:
+            storage: {tables: [warehouse.snap_daily]}
+            semantic_mapping: {date: ts, campaign_id: campaign_id, src: {lit: daily}, balance: balance}
+            temporal: {snapshot: {snapshotted_at: date}, granularity: day}
+    - name: ad_platforms
+      mode: all
+      dimensions:
+        - ref: country
+        - ref: market
+        - ref: traffic_source
+        - ref: day
+      measures:
+        - ref: cost
+      datasets:
+        - name: adwords
+          extras:
+            storage:
+              tables: [polaris.adwords]
+            semantic_mapping:
+              traffic_source: {lit: {string: Google}}
+              day: {lit: {date: "2026-05-19"}}
+              country: country
+              market: market
+              cost: cost
+        - name: bing
+          extras:
+            storage:
+              tables: [polaris.bing]
+            semantic_mapping:
+              traffic_source: {lit: {string: Bing}}
+              market: campaign
+              day: day
+              cost: cost
+        - name: facebook
+          extras:
+            storage:
+              tables: [polaris.facebook]
+            semantic_mapping:
+              traffic_source: {lit: {string: Facebook}}
+              day: {lit: {date: "2026-05-18"}}
+              country: country
+              market: market
+              cost: cost

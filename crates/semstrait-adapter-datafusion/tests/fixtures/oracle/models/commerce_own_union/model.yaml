@@ -1,0 +1,98 @@
+# A commerce variant with a bigint customer key and a second Uris source over one physical source.
+semantic_model:
+  name: commerce_own_union
+  dimensions:
+    - {name: customer_id, data_type: bigint, type: categorical}
+    - {name: region, data_type: string, type: categorical}
+    - {name: segment, data_type: string, type: categorical}
+    - {name: channel, data_type: string, type: {metadata: {source: {path: {token: 1}}}}}
+  measures:
+    - {name: revenue, data_type: double, agg: sum}
+    - name: total_amount
+      data_type: double
+      agg: sum
+    - {name: avg_amount, data_type: double, agg: avg}
+  metrics:
+    - name: vip_weighted_revenue
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [segment, {lit: vip}]}
+              then: {multiply: [revenue, {lit: 2.0}]}
+          else: revenue
+    - name: bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when: {eq: [segment, {lit: vip}]}
+                  then: {lit: 100.0}
+                - when: {eq: [region, {lit: us}]}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - revenue
+  datasets:
+    - name: sales
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_year: year
+          total_amount: amount
+      dimensions:
+        - name: order_year
+          data_type: integer
+          type: categorical
+      measures:
+        - ref: total_amount
+    - name: sales_file
+      extras:
+        storage:
+          format: parquet
+          paths: ['s3://semstrait-e2e/orders/_meta.parquet']
+        semantic_mapping:
+          file_year: year
+      dimensions:
+        - name: file_year
+          data_type: integer
+          type: categorical
+  joinsets:
+    - name: union_customers
+      dimensions: [{ref: customer_id}, {ref: region}, {ref: segment}]
+      measures: [{ref: revenue}]
+      metrics: [{ref: vip_weighted_revenue}, {ref: bonus}]
+      unionsets:
+        - name: orders_u
+          mode: all
+          datasets:
+            - name: orders_eu
+              extras:
+                storage: {tables: [warehouse.orders_eu]}
+                semantic_mapping: {customer_id: cust_key, region: region_code, revenue: amount}
+            - name: orders_us
+              extras:
+                storage: {tables: [warehouse.orders_us]}
+                semantic_mapping: {customer_id: cust_key, region: region_code, revenue: amount}
+      datasets:
+        - name: customers
+          extras:
+            storage: {tables: [warehouse.customers]}
+      relationships:
+        - {name: orders_to_customers, from: orders_u, to: customers, on: [customer_id], cardinality: many_to_one, optional: left}
+  unionsets:
+    - name: u1
+      mode: all
+      dimensions: [{ref: channel}]
+      measures: [{ref: avg_amount}]
+      datasets:
+        - name: d9
+          extras:
+            storage: {format: parquet, paths: ['s3://semstrait-e2e/c/returns/']}
+            semantic_mapping: {avg_amount: amount}
+        - name: u2
+          extras:
+            storage: {format: parquet, paths: ['s3://semstrait-e2e/a/orders/', 's3://semstrait-e2e/c/orders/']}
+            semantic_mapping: {avg_amount: amount}

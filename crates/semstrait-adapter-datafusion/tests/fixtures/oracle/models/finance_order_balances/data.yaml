@@ -1,0 +1,40 @@
+tables:
+  - namespace: warehouse
+    name: day_30
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [X, 2026-10-30, 120]
+  - namespace: warehouse
+    name: day_31
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [X, 2026-10-31, 130]
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: account, type: string}
+      - {name: order_date, type: date}
+      - {name: booked_on, type: date}
+    rows:
+      - [A, 2026-10-21, 2026-10-20]
+      - [A, 2026-10-22, 2026-10-20]
+      - [B, 2026-10-21, 2026-10-20]
+      - [A, 2026-10-28, 2026-10-27]
+      - [B, 2026-10-28, 2026-10-27]
+  - namespace: warehouse
+    name: balances
+    columns:
+      - {name: account, type: string}
+      - {name: snap_date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [A, 2026-10-20, 120]
+      - [B, 2026-10-20, 210]
+      - [A, 2026-10-27, 150]
+      - [B, 2026-10-27, 230]

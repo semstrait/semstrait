@@ -1,0 +1,11 @@
+dialect: iceberg
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: created_at, type: timestamp, native: timestamptz, zone: UTC}
+      - {name: amount, type: bigint, native: long}
+    rows:
+      - ["2026-01-31 23:30:00", 10]
+      - ["2026-02-01 00:30:00", 20]
+      - ["2026-02-15 12:00:00", 30]

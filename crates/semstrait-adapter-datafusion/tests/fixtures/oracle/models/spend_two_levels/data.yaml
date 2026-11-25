@@ -1,0 +1,47 @@
+tables:
+  - namespace: warehouse
+    name: web_daily
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: integer}
+    rows:
+      - [2026-03-10, A, 5]
+      - [2026-03-20, A, 4]
+      - [2026-04-02, A, 3]
+  - namespace: warehouse
+    name: web_daily_b
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: clicks, type: integer}
+    rows:
+      - [2026-03-15, B, 7]
+      - [2026-03-16, B, 2147483647]
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: campaign_id, type: string}
+      - {name: region, type: string}
+    rows:
+      - [B, us]
+  - namespace: warehouse
+    name: web_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign_id, type: string}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-01, A, 100]
+      - [2026-04-01, A, 80]
+  - namespace: warehouse
+    name: spend_store
+    columns:
+      - {name: day, type: date}
+      - {name: campaign_id, type: string}
+      - {name: region, type: string}
+      - {name: clicks, type: integer}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-05, S, us, -2147483647, 10]
+      - [2026-03-06, S, null, 1, 5]

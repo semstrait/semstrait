@@ -1,0 +1,20 @@
+[package]
+name = "semstrait-adapter"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "The Substrait format adapter: SubstraitProducer, SubstraitRules and explain"
+
+# No engine, a dev-dependency included (ADR 0068, *The node-common block on the
+# wire, and trace*).
+[dependencies]
+semstrait-common = { workspace = true }
+semstrait-sql = { workspace = true }
+semstrait-ir = { workspace = true }
+# `FileFormat` on a scan's reader (ADR 0067).
+semstrait-catalog = { workspace = true }
+substrait = { workspace = true }
+substrait-explain = { workspace = true }
+# The message of the explain copy's trace (ADR 0068).
+prost = { workspace = true }
+thiserror = { workspace = true }

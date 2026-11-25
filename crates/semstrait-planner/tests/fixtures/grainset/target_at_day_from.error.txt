@@ -1,0 +1,1 @@
+error: at `txn_by_grain`: the semantic source `txn_by_grain` cannot serve the requested granularity `day`; nearest: `txn_by_grain.txn_monthly_agg` lacks `quantity`; `txn_by_grain.txn_weekly_agg` lacks `revenue_target`; `txn_by_grain.transactions` lacks `revenue_target`

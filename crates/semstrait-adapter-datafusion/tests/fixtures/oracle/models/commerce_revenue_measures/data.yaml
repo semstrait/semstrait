@@ -1,0 +1,28 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: region, type: string}
+      - {name: date, type: date}
+      - {name: amount, type: double}
+    rows:
+      - [eu, 2026-10-05, 100.0]
+      - [eu, 2026-10-20, 50.0]
+      - [us, 2026-10-10, 200.0]
+      - [us, 2026-10-25, 10.0]
+  - namespace: warehouse
+    name: north
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [eu, 10.0]
+      - [us, 20.0]
+  - namespace: warehouse
+    name: south
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [eu, 30.0]
+      - [apac, 40.0]

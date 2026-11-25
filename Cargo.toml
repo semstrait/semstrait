@@ -1,0 +1,105 @@
+[workspace]
+members = [
+    "crates/semstrait-common",
+    "crates/semstrait-sql",
+    "crates/semstrait-ir",
+    "crates/semstrait-model",
+    "crates/semstrait-manifest",
+    "crates/semstrait-catalog",
+    "crates/semstrait-planner",
+    "crates/semstrait-adapter",
+    "crates/semstrait-adapter-datafusion",
+    "crates/semstrait-api",
+    "crates/semstrait",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.2-pre"
+description = "Semantic data pipeline abstractions"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+# `preserve_order`: a `serde_json::Value` keeps its keys in insertion order (an
+# Iceberg nested type's native spelling keeps the catalog's order). `substrait`
+# enabled it for the whole workspace until `semstrait-ir` dropped that
+# dependency (ADR 0068, *Artifacts*); it is stated here so the order stays.
+# `float_roundtrip`: a float reads back from JSON as the float that wrote it,
+# so a `double` or a `real` literal keeps every digit (ADR 0085, rule 5).
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde_yaml = "0.9"
+prost = "0.14"
+
+# The format artifact: crate 0.63 writes Substrait spec v0.85.0 (ADR 0068, *The
+# release gap is the producer's*).
+substrait = "0.63"
+# `serde`: the `Any` carrier of `substrait`'s own `serde` feature, which
+# `datafusion-substrait` turns on (ADR 0068, *The node-common block on the wire,
+# and trace*).
+substrait-explain = { version = "0.9", default-features = false, features = ["serde"] }
+# The engine and its Substrait consumer: dev-dependencies of
+# `semstrait-adapter-datafusion` only (ADR 0068, *The node-common block on the
+# wire, and trace*). DataFusion's default features but `compression`: every
+# source is Parquet (ADR 0070), so the compressed CSV/JSON readers stay out.
+datafusion = { version = "55", default-features = false, features = [
+    "nested_expressions", "crypto_expressions", "datetime_expressions", "encoding_expressions",
+    "regex_expressions", "string_expressions", "unicode_expressions",
+    "parquet", "recursive_protection", "sql",
+] }
+datafusion-substrait = "55"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1.92"  # 0.1.92 stops emitting the #[must_use] that clippy 1.99 rejects (double_must_use)
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# AWS (optional, behind aws feature)
+aws-config = { version = "1.8.18", default-features = false, features = ["default-https-client", "rt-tokio", "sso"] }
+aws-credential-types = { version = "1.2.14" }
+aws-sdk-secretsmanager = { version = "1.107.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+
+# Utilities
+# v5 only: an entity id is derived from its name (ADR 0051), so a time- or
+# RNG-based generator has no legal call site. Dropping the features makes
+# reintroducing one a compile error rather than a review catch.
+uuid = { version = "1", features = ["v5"] }
+indexmap = { version = "2", features = ["serde"] }
+thiserror = "2"
+tracing = "0.1"
+# The compiled-in IANA table that a request's timezone is checked against.
+chrono-tz = "0.10"
+sha2 = "0.11"
+bon = "3"
+jsonschema = { version = "0.46", default-features = false }
+bytes = "1"
+object_store = { version = "0.13", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+schemars = { version = "1.2", features = ["indexmap2"] }
+tempfile = "3"
+# The parser of DataFusion's pattern language, by which parse counts the groups of
+# a literal `regexp_extract` pattern (ADR 0087, rule 12).
+regex-syntax = "0.8"
+# The decoder DataFusion reads a `key=value` partition folder with, by which compile
+# decodes one (ADR 0070, *The listing and its partitions*).
+percent-encoding = "2"
+
+# API (optional)
+axum = { version = "0.8" }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+clap = { version = "4", features = ["derive"] }
+
+# Internal workspace crates
+semstrait-common = { path = "crates/semstrait-common", version = "=0.1.2-pre", default-features = true }
+semstrait-sql = { path = "crates/semstrait-sql", version = "=0.1.2-pre" }
+semstrait-ir = { path = "crates/semstrait-ir", version = "=0.1.2-pre" }
+semstrait-model = { path = "crates/semstrait-model", version = "=0.1.2-pre" }
+semstrait-catalog = { path = "crates/semstrait-catalog", version = "=0.1.2-pre" }
+semstrait-manifest = { path = "crates/semstrait-manifest", version = "=0.1.2-pre" }
+semstrait-adapter = { path = "crates/semstrait-adapter", version = "=0.1.2-pre" }
+semstrait-adapter-datafusion = { path = "crates/semstrait-adapter-datafusion", version = "=0.1.2-pre" }
+semstrait-planner = { path = "crates/semstrait-planner", version = "=0.1.2-pre" }
+semstrait-api = { path = "crates/semstrait-api", version = "=0.1.2-pre" }

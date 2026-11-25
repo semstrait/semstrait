@@ -1,0 +1,903 @@
+{
+  "manifest_version": 4,
+  "created_at": {
+    "secs_since_epoch": 1700000000,
+    "nanos_since_epoch": 0
+  },
+  "updated_at": {
+    "secs_since_epoch": 1700000000,
+    "nanos_since_epoch": 0
+  },
+  "model_hash": [
+    148,
+    201,
+    210,
+    241,
+    29,
+    119,
+    219,
+    85,
+    218,
+    70,
+    16,
+    117,
+    42,
+    75,
+    57,
+    222,
+    186,
+    114,
+    10,
+    239,
+    108,
+    128,
+    228,
+    202,
+    39,
+    38,
+    177,
+    49,
+    93,
+    76,
+    126,
+    160
+  ],
+  "model_id": "b7a312ed-42a1-53eb-bc1c-e8350517673d",
+  "dialect": "canonical",
+  "semantic_definitions": {
+    "entries": {
+      "0884afea-9d89-50fc-b4ff-7ddd02f44901": {
+        "id": "0884afea-9d89-50fc-b4ff-7ddd02f44901",
+        "name": "billing_period",
+        "data_type": "interval",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 0
+      },
+      "11afc168-ae9c-5888-b56b-08dbbd229fef": {
+        "id": "11afc168-ae9c-5888-b56b-08dbbd229fef",
+        "name": "tiny_count",
+        "data_type": "tinyint",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "count",
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 1
+      },
+      "2e634337-a933-5b89-a70b-c656c0ace65d": {
+        "id": "2e634337-a933-5b89-a70b-c656c0ace65d",
+        "name": "avg_basket",
+        "data_type": "double",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "avg",
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 2
+      },
+      "300e7c46-dc6a-5ff2-b76f-4c9b7a6c984b": {
+        "id": "300e7c46-dc6a-5ff2-b76f-4c9b7a6c984b",
+        "name": "is_active",
+        "data_type": "boolean",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 3
+      },
+      "4b4363a4-d5f0-5a99-99ed-72f8edd67489": {
+        "id": "4b4363a4-d5f0-5a99-99ed-72f8edd67489",
+        "name": "conversion_rate",
+        "data_type": "real",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "avg",
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 4
+      },
+      "8c9464c0-ab89-5355-8d95-bdec2f24350f": {
+        "id": "8c9464c0-ab89-5355-8d95-bdec2f24350f",
+        "name": "created_at",
+        "data_type": "timestamp(6)",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 5
+      },
+      "8f708fd5-4f35-5a6f-84ae-16489cc00dcd": {
+        "id": "8f708fd5-4f35-5a6f-84ae-16489cc00dcd",
+        "name": "order_time",
+        "data_type": "time(3)",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 6
+      },
+      "9d1ebe29-5362-5bc6-a33c-8346ab211ad9": {
+        "id": "9d1ebe29-5362-5bc6-a33c-8346ab211ad9",
+        "name": "row_count",
+        "data_type": "bigint",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "count",
+            "distinct": true,
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 7
+      },
+      "b329389e-9648-54c8-8729-3d31610c3d90": {
+        "id": "b329389e-9648-54c8-8729-3d31610c3d90",
+        "name": "revenue",
+        "data_type": "decimal(18,2)",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "sum",
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 8
+      },
+      "bd2f4671-79c8-5728-9bbf-7c84abf15893": {
+        "id": "bd2f4671-79c8-5728-9bbf-7c84abf15893",
+        "name": "item_count",
+        "data_type": "integer",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "sum",
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 9
+      },
+      "ce421f9d-0851-5f78-826b-096cdfe0201a": {
+        "id": "ce421f9d-0851-5f78-826b-096cdfe0201a",
+        "name": "payload",
+        "data_type": "binary",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 10
+      },
+      "e0ea8835-0796-5f5a-a80c-d7f4d42e6450": {
+        "id": "e0ea8835-0796-5f5a-a80c-d7f4d42e6450",
+        "name": "short_tally",
+        "data_type": "smallint",
+        "role_definition": {
+          "type": "measure",
+          "content": {
+            "aggregation": "sum",
+            "additivity": null
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 11
+      },
+      "e7797390-5e65-5c43-9a22-6d31b85bb20f": {
+        "id": "e7797390-5e65-5c43-9a22-6d31b85bb20f",
+        "name": "order_date",
+        "data_type": "date",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 12
+      },
+      "f65ecd2b-c70b-5bec-8016-535387ea2ce5": {
+        "id": "f65ecd2b-c70b-5bec-8016-535387ea2ce5",
+        "name": "region",
+        "data_type": "string",
+        "role_definition": {
+          "type": "dimension",
+          "content": {
+            "category": "categorical"
+          }
+        },
+        "description": null,
+        "ai_context": null,
+        "bit_position": 13
+      }
+    }
+  },
+  "semantic_signatures": {
+    "0fa2b6ca-45ef-5b60-a8ea-a300d670d6f1": {
+      "id": "0fa2b6ca-45ef-5b60-a8ea-a300d670d6f1",
+      "definition_id": "9d1ebe29-5362-5bc6-a33c-8346ab211ad9",
+      "expression_id": "507cd76b-a88f-53f2-83c6-220574643b23",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "19b993be-cd44-5c20-92d8-a825f196d01b": {
+      "id": "19b993be-cd44-5c20-92d8-a825f196d01b",
+      "definition_id": "e7797390-5e65-5c43-9a22-6d31b85bb20f",
+      "expression_id": "00af491e-6dab-5e6e-a7fa-19779d729738",
+      "filter_expr_id": null,
+      "keysets": [
+        "8bc1ac55-8491-5681-80e2-f8064df53272",
+        "eb0981bb-f751-5a05-91a3-5f4efd293709"
+      ]
+    },
+    "2147ff70-826e-545d-bf02-09d9bf52cab9": {
+      "id": "2147ff70-826e-545d-bf02-09d9bf52cab9",
+      "definition_id": "bd2f4671-79c8-5728-9bbf-7c84abf15893",
+      "expression_id": "15184182-69e5-55a9-9292-b09b5731f128",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "22f315c3-e5a1-599d-81f1-a293c24bd628": {
+      "id": "22f315c3-e5a1-599d-81f1-a293c24bd628",
+      "definition_id": "ce421f9d-0851-5f78-826b-096cdfe0201a",
+      "expression_id": "dd526da0-ba92-51dd-9ae0-a26a07e28418",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "393c8b97-2f6b-5f64-95a2-397c723e324b": {
+      "id": "393c8b97-2f6b-5f64-95a2-397c723e324b",
+      "definition_id": "f65ecd2b-c70b-5bec-8016-535387ea2ce5",
+      "expression_id": "cb8b6c6b-b311-5484-9a64-5966edb7851d",
+      "filter_expr_id": null,
+      "keysets": [
+        "8bc1ac55-8491-5681-80e2-f8064df53272"
+      ]
+    },
+    "4189ceb4-b4c5-5efe-83a5-df0ec91c66ee": {
+      "id": "4189ceb4-b4c5-5efe-83a5-df0ec91c66ee",
+      "definition_id": "0884afea-9d89-50fc-b4ff-7ddd02f44901",
+      "expression_id": "c2fe449f-1e9d-56a2-9b98-879267991f61",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "88d12c7b-16c9-570c-8bc3-ca37eacd221a": {
+      "id": "88d12c7b-16c9-570c-8bc3-ca37eacd221a",
+      "definition_id": "e0ea8835-0796-5f5a-a80c-d7f4d42e6450",
+      "expression_id": "09712050-49b8-534f-98f1-34d64cf76e3c",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "a3fdd2e7-f267-5680-a717-758b074481db": {
+      "id": "a3fdd2e7-f267-5680-a717-758b074481db",
+      "definition_id": "8f708fd5-4f35-5a6f-84ae-16489cc00dcd",
+      "expression_id": "5fa1d86b-c874-50a2-b852-89fd581dee44",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "aedcb4d1-26c9-503a-8935-cfcc5a5ec70b": {
+      "id": "aedcb4d1-26c9-503a-8935-cfcc5a5ec70b",
+      "definition_id": "2e634337-a933-5b89-a70b-c656c0ace65d",
+      "expression_id": "d670d049-b81f-5ed2-bb4e-9d6a27e1bca9",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "ba72a17c-153a-5c49-aa8b-0c92819e52f4": {
+      "id": "ba72a17c-153a-5c49-aa8b-0c92819e52f4",
+      "definition_id": "4b4363a4-d5f0-5a99-99ed-72f8edd67489",
+      "expression_id": "480b41bc-99c9-51fa-a1ae-1293c2a411dd",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "cc2ebad2-649d-5ef6-8d87-e64b6e911518": {
+      "id": "cc2ebad2-649d-5ef6-8d87-e64b6e911518",
+      "definition_id": "b329389e-9648-54c8-8729-3d31610c3d90",
+      "expression_id": "253641c7-819a-5b60-a3dc-c276bfceb36d",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "d4b716a3-b351-54c0-b259-3348d204c9da": {
+      "id": "d4b716a3-b351-54c0-b259-3348d204c9da",
+      "definition_id": "300e7c46-dc6a-5ff2-b76f-4c9b7a6c984b",
+      "expression_id": "3f5f7dff-3ab8-50e4-968d-c918baf08c49",
+      "filter_expr_id": null,
+      "keysets": [
+        "a848d49e-8997-54ec-9b93-46e70d5b3885"
+      ]
+    },
+    "dfbce250-5c08-5109-8a7f-00561926aeaf": {
+      "id": "dfbce250-5c08-5109-8a7f-00561926aeaf",
+      "definition_id": "11afc168-ae9c-5888-b56b-08dbbd229fef",
+      "expression_id": "5faad8cb-bf9c-51c9-bd62-2714b0bf571e",
+      "filter_expr_id": null,
+      "keysets": []
+    },
+    "ede94033-6c3b-54af-83e3-91b165de132f": {
+      "id": "ede94033-6c3b-54af-83e3-91b165de132f",
+      "definition_id": "8c9464c0-ab89-5355-8d95-bdec2f24350f",
+      "expression_id": "180562bd-7d77-5b9c-8fe7-5b8985aabc3d",
+      "filter_expr_id": null,
+      "keysets": []
+    }
+  },
+  "semantic_sources": {
+    "cd3e4c16-3f42-5527-9ebf-35556686870a": {
+      "id": "cd3e4c16-3f42-5527-9ebf-35556686870a",
+      "name": "orders",
+      "alias": "ssd0",
+      "public": true,
+      "semantic_bitmask": {
+        "words": [
+          16383
+        ]
+      },
+      "temporal": null,
+      "role_definition": {
+        "type": "dataset",
+        "content": {
+          "source_id": "bf575591-d8c6-59c7-b3aa-5fbdf5673b12",
+          "selector": {
+            "type": "table"
+          }
+        }
+      },
+      "originators": [],
+      "semantic_signature_ids": [
+        "0fa2b6ca-45ef-5b60-a8ea-a300d670d6f1",
+        "19b993be-cd44-5c20-92d8-a825f196d01b",
+        "2147ff70-826e-545d-bf02-09d9bf52cab9",
+        "22f315c3-e5a1-599d-81f1-a293c24bd628",
+        "393c8b97-2f6b-5f64-95a2-397c723e324b",
+        "4189ceb4-b4c5-5efe-83a5-df0ec91c66ee",
+        "88d12c7b-16c9-570c-8bc3-ca37eacd221a",
+        "a3fdd2e7-f267-5680-a717-758b074481db",
+        "aedcb4d1-26c9-503a-8935-cfcc5a5ec70b",
+        "ba72a17c-153a-5c49-aa8b-0c92819e52f4",
+        "cc2ebad2-649d-5ef6-8d87-e64b6e911518",
+        "d4b716a3-b351-54c0-b259-3348d204c9da",
+        "dfbce250-5c08-5109-8a7f-00561926aeaf",
+        "ede94033-6c3b-54af-83e3-91b165de132f"
+      ]
+    }
+  },
+  "sources": {
+    "bf575591-d8c6-59c7-b3aa-5fbdf5673b12": {
+      "id": "bf575591-d8c6-59c7-b3aa-5fbdf5673b12",
+      "name": "orders",
+      "alias": "ps0",
+      "storage": {
+        "target": {
+          "type": "table",
+          "content": {
+            "table": {
+              "catalog": null,
+              "namespace": {
+                "parts": [
+                  "warehouse"
+                ]
+              },
+              "name": "orders"
+            },
+            "location": null
+          }
+        },
+        "format": null,
+        "partitions": []
+      },
+      "schema_provenance": {
+        "type": "model_fed",
+        "content": {
+          "schema": {
+            "columns": [
+              {
+                "name": "avg_basket",
+                "data_type": "double",
+                "nullable": null
+              },
+              {
+                "name": "billing_period",
+                "data_type": "interval",
+                "nullable": null
+              },
+              {
+                "name": "conversion_rate",
+                "data_type": "real",
+                "nullable": null
+              },
+              {
+                "name": "created_at",
+                "data_type": "timestamp(6)",
+                "nullable": null
+              },
+              {
+                "name": "is_active",
+                "data_type": "boolean",
+                "nullable": null
+              },
+              {
+                "name": "item_count",
+                "data_type": "integer",
+                "nullable": null
+              },
+              {
+                "name": "order_date",
+                "data_type": "date",
+                "nullable": null
+              },
+              {
+                "name": "order_time",
+                "data_type": "time(3)",
+                "nullable": null
+              },
+              {
+                "name": "payload",
+                "data_type": "binary",
+                "nullable": null
+              },
+              {
+                "name": "region",
+                "data_type": "string",
+                "nullable": null
+              },
+              {
+                "name": "revenue",
+                "data_type": "decimal(18,2)",
+                "nullable": null
+              },
+              {
+                "name": "row_count",
+                "data_type": "bigint",
+                "nullable": null
+              },
+              {
+                "name": "short_tally",
+                "data_type": "smallint",
+                "nullable": null
+              },
+              {
+                "name": "tiny_count",
+                "data_type": "tinyint",
+                "nullable": null
+              }
+            ]
+          }
+        }
+      },
+      "schema_id": "d8f28eb1f5d5dd770c9ffba605570dffafb75ec3eeafc48b8bafe57e7b9bdb3a"
+    }
+  },
+  "expressions": {
+    "physical": {
+      "00af491e-6dab-5e6e-a7fa-19779d729738": {
+        "id": "00af491e-6dab-5e6e-a7fa-19779d729738",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "order_date"
+              ]
+            },
+            "target": "date",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "09712050-49b8-534f-98f1-34d64cf76e3c": {
+        "id": "09712050-49b8-534f-98f1-34d64cf76e3c",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "aggregate",
+              "content": {
+                "name": "sum",
+                "args": [
+                  {
+                    "type": "cast",
+                    "content": {
+                      "input": {
+                        "type": "column",
+                        "content": [
+                          "ps0",
+                          "short_tally"
+                        ]
+                      },
+                      "target": "smallint",
+                      "on_failure": "error"
+                    }
+                  }
+                ]
+              }
+            },
+            "target": "smallint",
+            "on_failure": "error"
+          }
+        },
+        "layer": "post_aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "15184182-69e5-55a9-9292-b09b5731f128": {
+        "id": "15184182-69e5-55a9-9292-b09b5731f128",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "aggregate",
+              "content": {
+                "name": "sum",
+                "args": [
+                  {
+                    "type": "cast",
+                    "content": {
+                      "input": {
+                        "type": "column",
+                        "content": [
+                          "ps0",
+                          "item_count"
+                        ]
+                      },
+                      "target": "integer",
+                      "on_failure": "error"
+                    }
+                  }
+                ]
+              }
+            },
+            "target": "integer",
+            "on_failure": "error"
+          }
+        },
+        "layer": "post_aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "180562bd-7d77-5b9c-8fe7-5b8985aabc3d": {
+        "id": "180562bd-7d77-5b9c-8fe7-5b8985aabc3d",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "created_at"
+              ]
+            },
+            "target": "timestamp(6)",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "253641c7-819a-5b60-a3dc-c276bfceb36d": {
+        "id": "253641c7-819a-5b60-a3dc-c276bfceb36d",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "aggregate",
+              "content": {
+                "name": "sum",
+                "args": [
+                  {
+                    "type": "cast",
+                    "content": {
+                      "input": {
+                        "type": "column",
+                        "content": [
+                          "ps0",
+                          "revenue"
+                        ]
+                      },
+                      "target": "decimal(18,2)",
+                      "on_failure": "error"
+                    }
+                  }
+                ]
+              }
+            },
+            "target": "decimal(18,2)",
+            "on_failure": "error"
+          }
+        },
+        "layer": "post_aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "3f5f7dff-3ab8-50e4-968d-c918baf08c49": {
+        "id": "3f5f7dff-3ab8-50e4-968d-c918baf08c49",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "is_active"
+              ]
+            },
+            "target": "boolean",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "480b41bc-99c9-51fa-a1ae-1293c2a411dd": {
+        "id": "480b41bc-99c9-51fa-a1ae-1293c2a411dd",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "aggregate",
+              "content": {
+                "name": "avg",
+                "args": [
+                  {
+                    "type": "cast",
+                    "content": {
+                      "input": {
+                        "type": "column",
+                        "content": [
+                          "ps0",
+                          "conversion_rate"
+                        ]
+                      },
+                      "target": "real",
+                      "on_failure": "error"
+                    }
+                  }
+                ]
+              }
+            },
+            "target": "real",
+            "on_failure": "error"
+          }
+        },
+        "layer": "post_aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "507cd76b-a88f-53f2-83c6-220574643b23": {
+        "id": "507cd76b-a88f-53f2-83c6-220574643b23",
+        "expr": {
+          "type": "aggregate",
+          "content": {
+            "name": "count",
+            "args": [
+              {
+                "type": "column",
+                "content": [
+                  "ps0",
+                  "row_count"
+                ]
+              }
+            ],
+            "distinct": true
+          }
+        },
+        "layer": "aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "5fa1d86b-c874-50a2-b852-89fd581dee44": {
+        "id": "5fa1d86b-c874-50a2-b852-89fd581dee44",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "order_time"
+              ]
+            },
+            "target": "time(3)",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "5faad8cb-bf9c-51c9-bd62-2714b0bf571e": {
+        "id": "5faad8cb-bf9c-51c9-bd62-2714b0bf571e",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "aggregate",
+              "content": {
+                "name": "count",
+                "args": [
+                  {
+                    "type": "column",
+                    "content": [
+                      "ps0",
+                      "tiny_count"
+                    ]
+                  }
+                ]
+              }
+            },
+            "target": "tinyint",
+            "on_failure": "error"
+          }
+        },
+        "layer": "post_aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "c2fe449f-1e9d-56a2-9b98-879267991f61": {
+        "id": "c2fe449f-1e9d-56a2-9b98-879267991f61",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "billing_period"
+              ]
+            },
+            "target": "interval",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "cb8b6c6b-b311-5484-9a64-5966edb7851d": {
+        "id": "cb8b6c6b-b311-5484-9a64-5966edb7851d",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "region"
+              ]
+            },
+            "target": "string",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "d670d049-b81f-5ed2-bb4e-9d6a27e1bca9": {
+        "id": "d670d049-b81f-5ed2-bb4e-9d6a27e1bca9",
+        "expr": {
+          "type": "aggregate",
+          "content": {
+            "name": "avg",
+            "args": [
+              {
+                "type": "cast",
+                "content": {
+                  "input": {
+                    "type": "column",
+                    "content": [
+                      "ps0",
+                      "avg_basket"
+                    ]
+                  },
+                  "target": "double",
+                  "on_failure": "error"
+                }
+              }
+            ]
+          }
+        },
+        "layer": "aggregate",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      },
+      "dd526da0-ba92-51dd-9ae0-a26a07e28418": {
+        "id": "dd526da0-ba92-51dd-9ae0-a26a07e28418",
+        "expr": {
+          "type": "cast",
+          "content": {
+            "input": {
+              "type": "column",
+              "content": [
+                "ps0",
+                "payload"
+              ]
+            },
+            "target": "binary",
+            "on_failure": "error"
+          }
+        },
+        "layer": "scalar",
+        "physical_sources": [
+          "bf575591-d8c6-59c7-b3aa-5fbdf5673b12"
+        ]
+      }
+    }
+  },
+  "keysets": {
+    "8bc1ac55-8491-5681-80e2-f8064df53272": {
+      "id": "8bc1ac55-8491-5681-80e2-f8064df53272",
+      "name": "natural"
+    },
+    "a848d49e-8997-54ec-9b93-46e70d5b3885": {
+      "id": "a848d49e-8997-54ec-9b93-46e70d5b3885",
+      "name": "default"
+    },
+    "eb0981bb-f751-5a05-91a3-5f4efd293709": {
+      "id": "eb0981bb-f751-5a05-91a3-5f4efd293709",
+      "name": "surrogate"
+    }
+  },
+  "metadata": {
+    "semstrait_version": "0.1.2-pre",
+    "source_model_uri": "sales",
+    "annotations": {}
+  }
+}

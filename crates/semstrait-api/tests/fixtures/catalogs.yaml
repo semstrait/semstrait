@@ -1,0 +1,15 @@
+# Catalog connections — referenced by alias from dataset extras.catalog
+catalogs:
+  polaris:
+    type: polaris
+    name: example_warehouse
+    url: https://polaris.example.com/api/catalog
+    realm: POLARIS
+    auth:
+      method: aws_secrets
+      secret_arn: ""
+      region: eu-west-1
+      scope: "PRINCIPAL_ROLE:ALL"
+      aws_access_key_id: ""
+      aws_secret_access_key: ""
+      aws_session_token: ""

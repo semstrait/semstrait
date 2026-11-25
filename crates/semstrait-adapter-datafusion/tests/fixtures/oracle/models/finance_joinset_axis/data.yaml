@@ -1,0 +1,21 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: account, type: string}
+      - {name: order_date, type: date}
+      - {name: booked_on, type: date}
+    rows:
+      - [A, 2026-10-20, 2026-10-20]
+      - [A, 2026-10-27, 2026-10-27]
+      - [B, 2026-10-13, 2026-10-13]
+  - namespace: warehouse
+    name: balances
+    columns:
+      - {name: account, type: string}
+      - {name: snap_date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [A, 2026-10-20, 120]
+      - [A, 2026-10-27, 150]
+      - [B, 2026-10-13, 230]

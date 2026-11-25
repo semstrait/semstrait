@@ -1,0 +1,30 @@
+# A Grainset whose two children share a grain and differ by coverage mask.
+semantic_model:
+  name: grainset_shared_grain_masks
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: campaign, data_type: bigint, type: categorical}
+  measures:
+    - {name: spend, data_type: bigint, agg: sum}
+    - {name: conversions, data_type: bigint, agg: sum}
+  grainsets:
+    - name: ads
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: spend}, {ref: conversions}]
+      datasets:
+        - name: first
+          extras:
+            storage: {tables: [warehouse.first]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: second
+          extras:
+            storage: {tables: [warehouse.second]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend, conversions: conversions}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

@@ -1,0 +1,46 @@
+tables:
+  - namespace: warehouse
+    name: facebook_totals
+    columns:
+      - {name: date, type: date}
+      - {name: clicks, type: bigint}
+      - {name: spend, type: bigint}
+    rows:
+      - [2024-01-01, 100, 10]
+  - namespace: warehouse
+    name: facebook_by_campaign
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+      - {name: spend, type: bigint}
+    rows:
+      - [2024-01-01, spring, 40, 4]
+      - [2024-01-01, search, 60, 6]
+  - namespace: warehouse
+    name: facebook_by_gender
+    columns:
+      - {name: date, type: date}
+      - {name: gender, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, f, 30]
+      - [2024-01-01, m, 70]
+  - namespace: warehouse
+    name: facebook_by_age
+    columns:
+      - {name: date, type: date}
+      - {name: age, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, young, 20]
+      - [2024-01-01, old, 80]
+  - namespace: warehouse
+    name: google_by_campaign
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-01, spring, 5]
+      - [2024-01-01, search, 6]

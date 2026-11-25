@@ -1,0 +1,29 @@
+tables:
+  - namespace: warehouse
+    name: balances
+    columns:
+      - {name: account, type: string}
+      - {name: date, type: date}
+      - {name: balance, type: bigint}
+    rows:
+      - [A, 2026-10-30, 120]
+      - [A, 2026-10-31, 130]
+      - [B, 2026-10-30, 230]
+  - namespace: warehouse
+    name: daily
+    columns:
+      - {name: account, type: string}
+      - {name: region, type: string}
+      - {name: date, type: date}
+      - {name: a, type: double}
+      - {name: b, type: double}
+      - {name: cost, type: integer}
+      - {name: usr, type: string}
+    rows:
+      - [X, eu, 2026-10-15, 4.0, 10.0, 1, u1]
+      - [X, eu, 2026-10-31, 6.0, 12.0, 2, u1]
+      - [X, us, 2026-10-31, 4.0, 8.0, 3, u2]
+      - [Y, eu, 2026-10-31, 30.0, 40.0, 4, u3]
+      - [Y, us, 2026-10-20, 1.0, 1.0, 5, u3]
+      - [Y, eu, 2026-09-30, 2.0, 4.0, 6, u4]
+      - [X, null, 2026-09-30, 3.0, 3.0, 7, u5]

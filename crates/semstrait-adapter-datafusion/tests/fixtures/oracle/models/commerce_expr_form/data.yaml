@@ -1,0 +1,33 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: region, type: string}
+      - {name: channel, type: string}
+      - {name: amount, type: double}
+      - {name: ordered_at, type: date}
+    rows:
+      - [o1, c1, eu, web, 100.0, 2026-10-05]
+      - [o2, c1, eu, app, 50.0, 2026-10-20]
+      - [o3, c1, us, web, 200.0, 2026-10-10]
+      - [o4, c2, us, null, 10.0, 2026-10-25]
+objects:
+  - uri: s3://semstrait-e2e/orders/year=2025/month=12/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [10.0]
+      - [2.5]
+  - uri: s3://semstrait-e2e/orders/year=2026/month=01/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [20.0]
+  - uri: s3://semstrait-e2e/orders/year=2026/month=02/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [5.0]
+      - [1.5]

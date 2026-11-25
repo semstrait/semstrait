@@ -1,0 +1,1 @@
+error: the request predicate reads the Dimension `channel` beside `revenue`, which is read after aggregation

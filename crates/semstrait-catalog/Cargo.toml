@@ -1,0 +1,32 @@
+[package]
+name = "semstrait-catalog"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "Catalog and provider integration for semstrait"
+
+[dependencies]
+semstrait-common = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+tracing = { workspace = true }
+
+# Feature-gated deps
+reqwest = { workspace = true, optional = true }
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+aws-sdk-secretsmanager = { workspace = true, optional = true }
+
+[features]
+default = []
+iceberg = ["reqwest", "serde_json"]
+unity = ["reqwest", "serde_json"]
+aws = ["iceberg", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-secretsmanager"]
+
+[dev-dependencies]
+# `serde_json` is an *optional* runtime dep (provider features only); the
+# feature-independent serde round-trip tests in `types.rs` / `error.rs` need it
+# unconditionally, so it is also a dev-dependency.
+serde_json = { workspace = true }

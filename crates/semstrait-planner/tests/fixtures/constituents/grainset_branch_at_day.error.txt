@@ -1,0 +1,1 @@
+error: at `all_spend / all_spend.spend_gs`: the semantic source `all_spend.spend_gs` at `month` cannot serve the requested granularity `day`; nearest: `all_spend.spend_gs.spend_daily` lacks no name; `all_spend.spend_gs.spend_monthly` lacks no name

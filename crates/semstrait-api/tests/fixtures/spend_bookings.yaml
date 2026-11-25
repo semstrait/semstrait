@@ -1,0 +1,51 @@
+semantic_model:
+  name: spend_bookings
+  dimensions:
+    - name: campaign_id
+      data_type: string
+      type: categorical
+  measures:
+    - name: cost
+      data_type: bigint
+      agg: sum
+    - name: revenue
+      data_type: bigint
+      agg: sum
+  metrics:
+    - name: return_on_spend
+      data_type: double
+      expr: {divide: [revenue, cost]}
+  joinsets:
+    - name: spend_bookings
+      dimensions:
+        - ref: campaign_id
+      measures:
+        - ref: cost
+        - ref: revenue
+      metrics:
+        - ref: return_on_spend
+      datasets:
+        - name: spend
+          extras:
+            storage:
+              tables: [warehouse.spend]
+            semantic_mapping:
+              campaign_id: campaign_id
+              cost: cost
+        - name: bookings
+          extras:
+            storage:
+              tables: [warehouse.bookings]
+            semantic_mapping:
+              campaign_id: campaign_id
+              revenue: revenue
+      relationships:
+        - name: spend_to_bookings
+          from: spend
+          to: bookings
+          on: [campaign_id]
+          cardinality: one_to_one
+          optional: none
+          cross_filter: both
+          filter:
+            not_eq: [campaign_id, {lit: house}]

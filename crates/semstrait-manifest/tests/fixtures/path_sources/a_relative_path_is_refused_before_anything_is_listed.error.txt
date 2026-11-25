@@ -1,0 +1,1 @@
+error: dataset `orders`: storage entry `orders/a.parquet` is a relative path; write an absolute path or a URI

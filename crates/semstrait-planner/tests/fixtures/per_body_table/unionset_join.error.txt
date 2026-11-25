@@ -1,0 +1,1 @@
+error: at `all_orders`: the body of `all_orders` may not use the combine `join`

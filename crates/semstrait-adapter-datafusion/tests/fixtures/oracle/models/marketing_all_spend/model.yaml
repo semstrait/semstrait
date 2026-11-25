@@ -1,0 +1,819 @@
+# A marketing variant of spend Grainsets and Unionsets at their own grain; ads sends each name to its rank-first child, and ads_no_keyset, which declares no keyset, answers from the one child that serves the whole demand; campaign_ads and ads_by_channel hold one more ads Grainset, over tables with groups that only some children hold, as a Joinset operand and as a Unionset branch, each with a users child keyed by gender, campaign_ads with a female filter and ads_by_channel with a campaign_a and a female filter; channel_ads holds a copy of ads_by_channel as a Joinset operand, with a female filter; all_clicks holds a copy of spend_eu, whose children declare no keyset, as a Unionset branch; ads_over_union holds a one-branch Unionset ads_union whose branch is an ads Grainset that maps cost and clicks in separate children, beside a users child, and computes cpi_pct_per_user_of_a, filtered to campaign A, over ads_union's campaign_cpi_avg_pct, which links campaign_cpi_avg, and the users child; ads_union maps whole campaign_cpi_avg_pct_of_a, the same percentage under its own filter to campaign A. campaign_avg_split and all_avg_split hold a copy of avg_split that declares month, as a Joinset operand and as the one Unionset branch, and child_avg_split holds a copy of all_avg_split as its one child, the nearest a Grainset comes to a Grainset child; ads_over_union also computes channel_cost_per_user, whose part key reads channel, which the cost child and the users child map, and campaign_over_union holds a copy of ads_over_union as a Joinset operand beside campaigns, and computes campaign_cpi_avg, campaign_cpi_avg_pct and cpi_pct_per_user_of_a over it; its ads_union also maps whole campaign_cpi_avg_pct_of_a, as ads_over_union's does. ads_over_union carries the named Filter campaign_a, which every child maps. ads_by_channel computes gender_cost_per_user, and ads_by_channel and channel_ads compute gender_cost_per_user_or_click, which divides by clicks outside female, each on its parts, whose part key reads gender, which by_gender and users_by_gender map beside cost, clicks and users; ads_union maps whole campaign_cpc, and ads_over_union computes campaign_cpu, each on its parts, whose part key reads campaign. ads_by_channel computes cpi_avg_per_cpc_avg, which divides campaign_cpi_avg by gender_cpc_avg, and channel_ads computes campaign_cpi_avg2 and gender_cpc_avg. campaign_ads also computes nest_cpi_max, the two gender parts Metrics, gender_cpu_avg, an avg of cost / users that reads gender, gender_cpu_max, a max over gender_cpu_avg, and groups by campaign_label, a row-level Metric over campaign; channel_ads's by_channel holds a third branch, ads_app, whose table holds no rows unless a case gives them. ads_by_channel, channel_ads and ads_union, which ads_over_union reads it from, compute cost_per_cpi_max, a max over campaigns of cost divided by campaign_cpi_avg, which reads its own aggregate beside an own-agg link. region_budget_split is region_split, keyed by date and campaign only, with region_budget, a Month child that gives budget and maps no region, and it computes region_cpc_avg and region_cpc, with no agg:, which reads region outside an aggregate, as region_daily maps it whole; all_region_budget_split holds a copy of region_budget_split that declares month as its one Unionset branch, and campaign_region_budget_split holds the same copy as a Joinset operand beside campaigns, which maps campaign only.
+semantic_model:
+  name: marketing_all_spend
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign, data_type: string, type: categorical}
+    - {name: channel, data_type: string, type: categorical}
+    - {name: gender, data_type: string, type: categorical}
+    - {name: region, data_type: string, type: categorical}
+    - {name: click_id, data_type: string, type: categorical}
+  measures:
+    - {name: cost, data_type: bigint, agg: sum}
+    - {name: budget, data_type: bigint, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: orders, data_type: bigint, agg: count}
+    - {name: impressions, data_type: bigint, agg: sum}
+    - {name: click_count, data_type: bigint, agg: count, expr: click_id}
+    - {name: users, data_type: bigint, agg: count_distinct}
+  metrics:
+    - name: web_click_days
+      data_type: bigint
+      agg: count
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: click_count
+    - {name: cpc, data_type: double, expr: {safe_divide: [{cast: {input: cost, target: double}}, clicks]}}
+    - {name: cpm, data_type: double, expr: {multiply: [cpc, {lit: 1000}]}}
+    - {name: cpi, data_type: double, expr: {safe_divide: [{cast: {input: cost, target: double}}, impressions]}}
+    - {name: cpim, data_type: double, expr: {multiply: [cpi, {lit: 1000}]}}
+    - {name: avg_cpi, data_type: double, agg: avg, expr: {divide: [{cast: {input: cost, target: double}}, impressions]}}
+    - {name: cpi_of_a, data_type: double, expr: {safe_divide: [{cast: {input: cost, target: double}}, impressions]}, filter: {eq: [campaign, {lit: A}]}}
+    - name: campaign_cpi_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, impressions]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, impressions]}
+    - {name: campaign_cpi_avg2, data_type: double, expr: {multiply: [campaign_cpi_avg, 2.0]}}
+    - {name: cost_over_cpi_avg, data_type: double, expr: {divide: [{cast: {input: cost, target: double}}, campaign_cpi_avg]}}
+    - name: gender_cpc_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [gender, {lit: f}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, clicks]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, clicks]}
+    - {name: cost_per_user, data_type: double, expr: {divide: [{cast: {input: cost, target: double}}, users]}}
+    - name: channel_cost_per_user
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, users]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, users]}
+    - name: users_per_cost
+      data_type: double
+      expr: {divide: [{cast: {input: users, target: double}}, cost]}
+      filter: {in: {value: gender, list: [{lit: f}, {lit: m}]}}
+    - {name: avg_cpc, data_type: double, agg: avg, expr: {divide: [{cast: {input: cost, target: double}}, clicks]}}
+    - name: region_cpc_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, clicks]}, 1.2]}
+          else: {divide: [{cast: {input: cost, target: double}}, clicks]}
+    - {name: avg_cpc2, data_type: double, expr: {multiply: [avg_cpc, 2.0]}}
+    - {name: avg_cpc2_a, data_type: double, expr: {multiply: [avg_cpc, 2.0]}, filter: {eq: [campaign, {lit: A}]}}
+    - {name: region_cpc_avg2, data_type: double, expr: {multiply: [region_cpc_avg, 2.0]}}
+    - {name: region_cpc_max, data_type: double, agg: max, expr: {multiply: [region_cpc_avg, 2.0]}}
+    - {name: region_cpc_max_eu, data_type: double, expr: {multiply: [region_cpc_max, 2.0]}, filter: {eq: [region, {lit: eu}]}}
+    - name: early_cpc_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {lt: [date, {lit: {date: 2026-03-02}}]}
+              then: {divide: [{cast: {input: cost, target: double}}, clicks]}
+          else: {multiply: [{divide: [{cast: {input: cost, target: double}}, clicks]}, 2.0]}
+    - name: early_max_cpc
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {lt: [date, {lit: {date: 2026-03-02}}]}
+              then: avg_cpc
+          else: 0.0
+    - {name: campaign_cpi_avg_pct, data_type: double, expr: {multiply: [campaign_cpi_avg, 100.0]}}
+    - name: cpi_pct_per_user_of_a
+      data_type: double
+      expr: {safe_divide: [campaign_cpi_avg_pct, users]}
+      filter: {eq: [campaign, {lit: A}]}
+    - name: campaign_cpi_avg_pct_of_a
+      data_type: double
+      expr: {multiply: [campaign_cpi_avg, 100.0]}
+      filter: {eq: [campaign, {lit: A}]}
+    - name: nest_cpi_max
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: campaign_cpi_avg
+          else: {multiply: [campaign_cpi_avg, 0.5]}
+    - name: cost_per_cpi_max
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {divide: [{cast: {input: cost, target: double}}, campaign_cpi_avg]}
+          else: {multiply: [{divide: [{cast: {input: cost, target: double}}, campaign_cpi_avg]}, 0.5]}
+    - name: campaign_cpc_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, clicks]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, clicks]}
+    - {name: campaign_cpc_avg2, data_type: double, expr: {multiply: [campaign_cpc_avg, 2.0]}}
+    - name: campaign_cpu_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, users]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, users]}
+    - {name: cpu_k, data_type: double, expr: {multiply: [cost_per_user, {lit: 1000}]}}
+    - name: nest_cpc_max
+      data_type: double
+      agg: max
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: campaign_cpc_avg
+          else: {multiply: [campaign_cpc_avg, 0.5]}
+    - name: gender_cost_per_user
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [gender, {lit: f}]}
+              then: {multiply: [{safe_divide: [{cast: {input: cost, target: double}}, users]}, 2.0]}
+          else: {safe_divide: [{cast: {input: cost, target: double}}, users]}
+    - name: gender_cost_per_user_or_click
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [gender, {lit: f}]}
+              then: {safe_divide: [{cast: {input: cost, target: double}}, users]}
+          else: {safe_divide: [{cast: {input: cost, target: double}}, clicks]}
+    - name: campaign_cpc
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, clicks]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, clicks]}
+    - name: campaign_cpu
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, users]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, users]}
+    - {name: cpi_avg_per_cpc_avg, data_type: double, expr: {divide: [campaign_cpi_avg, gender_cpc_avg]}}
+    - name: gender_cpu_avg
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {eq: [gender, {lit: f}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, users]}, 2.0]}
+          else: {divide: [{cast: {input: cost, target: double}}, users]}
+    - {name: gender_cpu_max, data_type: double, agg: max, expr: {multiply: [gender_cpu_avg, 2.0]}}
+    - name: campaign_label
+      data_type: string
+      expr:
+        case:
+          whens:
+            - when: {eq: [campaign, {lit: A}]}
+              then: {lit: A}
+          else: {lit: OTHER}
+    - name: region_cpc
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [{divide: [{cast: {input: cost, target: double}}, clicks]}, 1.2]}
+          else: {divide: [{cast: {input: cost, target: double}}, clicks]}
+  datasets:
+    - name: avg_daily
+      extras:
+        storage: {tables: [warehouse.avg_daily]}
+        semantic_mapping: {date: date, campaign: campaign, cost: cost, clicks: clicks}
+        temporal: {timeseries: {occurred_at: date}, granularity: day}
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: avg_cpc}, {ref: avg_cpc2}, {ref: avg_cpc2_a}, {ref: early_cpc_avg}]
+    - name: region_daily
+      extras:
+        storage: {tables: [warehouse.region_daily]}
+        semantic_mapping: {date: date, campaign: campaign, region: region, cost: cost, clicks: clicks}
+        temporal: {timeseries: {occurred_at: date}, granularity: day}
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+        - {ref: region, is_key: true}
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: cpc}, {ref: region_cpc_avg}, {ref: region_cpc_avg2}, {ref: region_cpc_max}, {ref: region_cpc_max_eu}, {ref: region_cpc}]
+  unionsets:
+    - name: all_spend3
+      mode: all
+      dimensions: [{ref: date}]
+      measures: [{ref: cost}, {ref: budget}]
+      grainsets:
+        - name: spend_g3
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: g3_daily
+              extras:
+                storage: {tables: [warehouse.g3_daily]}
+                semantic_mapping: {date: day, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: g3_monthly
+              extras:
+                storage: {tables: [warehouse.g3_monthly]}
+                semantic_mapping: {date: month_start, cost: cost, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      datasets:
+        - name: spend_c3
+          extras:
+            storage: {tables: [warehouse.spend_c3]}
+            semantic_mapping: {date: day, cost: cost, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: spend_by_channel
+      mode: all
+      dimensions: [{ref: date, is_key: true}, {ref: channel, is_key: true}]
+      measures: [{ref: clicks}, {ref: budget}, {ref: orders}]
+      grainsets:
+        - name: spend_web
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: web_daily
+              extras:
+                storage: {tables: [warehouse.web_daily]}
+                semantic_mapping: {date: day, channel: {lit: web}, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: web_monthly
+              extras:
+                storage: {tables: [warehouse.web_monthly]}
+                semantic_mapping: {date: month_start, channel: {lit: web}, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      datasets:
+        - name: spend_store
+          extras:
+            storage: {tables: [warehouse.spend_store]}
+            semantic_mapping:
+              {date: day, channel: {lit: store}, clicks: clicks, budget: budget, orders: order_id}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: all_spend
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign}, {ref: channel}]
+      measures: [{ref: clicks}, {ref: budget}]
+      grainsets:
+        - name: spend_g
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: g_daily
+              extras:
+                storage: {tables: [warehouse.g_daily]}
+                semantic_mapping: {campaign: campaign_id, date: day, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: g_monthly
+              extras:
+                storage: {tables: [warehouse.g_monthly]}
+                semantic_mapping: {campaign: campaign_id, date: month_start, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      datasets:
+        - name: spend_c
+          extras:
+            storage: {tables: [warehouse.spend_c]}
+            semantic_mapping:
+              {campaign: campaign_id, date: day, channel: channel, clicks: clicks, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: ads_by_channel
+      mode: all
+      dimensions: [{ref: campaign, is_key: true}, {ref: channel, is_key: true}, {ref: gender}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}, {ref: users}]
+      metrics: [{ref: cpc}, {ref: cpi}, {ref: cpi_of_a}, {ref: cpim}, {ref: avg_cpi}, {ref: campaign_cpi_avg}, {ref: campaign_cpi_avg2}, {ref: cost_over_cpi_avg}, {ref: gender_cpc_avg}, {ref: cost_per_user}, {ref: users_per_cost}, {ref: nest_cpi_max}, {ref: gender_cost_per_user}, {ref: gender_cost_per_user_or_click}, {ref: cpi_avg_per_cpc_avg}, {ref: cost_per_cpi_max}]
+      filters:
+        - {name: campaign_a, expr: {eq: [campaign, {lit: A}]}}
+        - {name: female, expr: {eq: [gender, {lit: f}]}}
+      grainsets:
+        - name: ads
+          dimensions: [{ref: campaign, is_key: true}, {ref: channel}, {ref: gender}]
+          datasets:
+            - name: by_gender
+              extras:
+                storage: {tables: [warehouse.ads_by_gender]}
+                semantic_mapping: {campaign: campaign, gender: gender, channel: {lit: web}, cost: cost, clicks: clicks}
+            - name: cost_by_campaign
+              extras:
+                storage: {tables: [warehouse.ads_cost]}
+                semantic_mapping: {campaign: campaign, channel: {lit: web}, cost: cost}
+            - name: clicks_by_campaign
+              extras:
+                storage: {tables: [warehouse.ads_clicks]}
+                semantic_mapping: {campaign: campaign, channel: {lit: web}, clicks: clicks, impressions: impressions}
+            - name: users_by_gender
+              extras:
+                storage: {tables: [warehouse.ads_users]}
+                semantic_mapping: {campaign: campaign, gender: gender, channel: {lit: web}, users: user_id}
+      datasets:
+        - name: ads_store
+          extras:
+            storage: {tables: [warehouse.ads_store]}
+            semantic_mapping: {campaign: campaign, channel: {lit: store}, region: {lit: us}, cost: cost, clicks: clicks}
+    - name: all_clicks
+      mode: all
+      dimensions: [{ref: campaign}, {ref: date}, {ref: channel}, {ref: click_id}]
+      measures: [{ref: click_count}]
+      metrics: [{ref: web_click_days}]
+      grainsets:
+        - name: spend_eu
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: spend_eu_clicks
+              extras:
+                storage: {tables: [warehouse.eu_clicks]}
+                semantic_mapping: {campaign: campaign, date: day, click_id: click_id}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: spend_eu_channels
+              extras:
+                storage: {tables: [warehouse.eu_channels]}
+                semantic_mapping: {channel: channel, date: month_start}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      datasets:
+        - name: us_clicks
+          extras:
+            storage: {tables: [warehouse.us_clicks]}
+            semantic_mapping: {campaign: campaign, date: day, channel: channel, click_id: click_id}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: all_avg_split
+      mode: all
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: avg_cpc}, {ref: early_cpc_avg}, {ref: early_max_cpc}]
+      grainsets:
+        - name: avg_split
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: avg_cost
+              extras:
+                storage: {tables: [warehouse.avg_cost]}
+                semantic_mapping: {date: date, campaign: campaign, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: avg_clicks
+              extras:
+                storage: {tables: [warehouse.avg_clicks]}
+                semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: all_region_budget_split
+      mode: all
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: budget}]
+      metrics: [{ref: region_cpc_avg}, {ref: region_cpc}]
+      grainsets:
+        - name: region_budget_split
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: region}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: region_cost
+              extras:
+                storage: {tables: [warehouse.region_cost]}
+                semantic_mapping: {date: date, campaign: campaign, region: region, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: region_clicks
+              extras:
+                storage: {tables: [warehouse.region_clicks]}
+                semantic_mapping: {date: date, campaign: campaign, region: region, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: region_budget
+              extras:
+                storage: {tables: [warehouse.g_monthly]}
+                semantic_mapping: {date: month_start, campaign: campaign_id, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+  joinsets:
+    - name: campaign_clicks
+      dimensions: [{ref: campaign}, {ref: region}, {ref: date}, {ref: channel}, {ref: click_id}]
+      measures: [{ref: click_count}]
+      metrics: [{ref: web_click_days}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      grainsets:
+        - name: spend_eu
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: spend_eu_clicks
+              extras:
+                storage: {tables: [warehouse.eu_clicks]}
+                semantic_mapping: {campaign: campaign, date: day, click_id: click_id}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: spend_eu_channels
+              extras:
+                storage: {tables: [warehouse.eu_channels]}
+                semantic_mapping: {channel: channel, date: month_start}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      relationships:
+        - {name: spend_to_campaigns, from: spend_eu, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: campaign_ads
+      dimensions: [{ref: campaign, is_key: true}, {ref: gender}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}, {ref: users}]
+      metrics: [{ref: cpc}, {ref: cpi}, {ref: cpi_of_a}, {ref: cpim}, {ref: avg_cpi}, {ref: campaign_cpi_avg}, {ref: cost_per_user}, {ref: users_per_cost}, {ref: nest_cpi_max}, {ref: gender_cost_per_user}, {ref: gender_cost_per_user_or_click}, {ref: gender_cpu_avg}, {ref: gender_cpu_max}, {ref: campaign_label}]
+      filters:
+        - {name: female, expr: {eq: [gender, {lit: f}]}}
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      grainsets:
+        - name: ads
+          dimensions: [{ref: campaign, is_key: true}, {ref: gender}]
+          datasets:
+            - name: by_gender
+              extras:
+                storage: {tables: [warehouse.ads_by_gender]}
+                semantic_mapping: {campaign: campaign, gender: gender, cost: cost, clicks: clicks}
+            - name: cost_by_campaign
+              extras:
+                storage: {tables: [warehouse.ads_cost]}
+                semantic_mapping: {campaign: campaign, cost: cost}
+            - name: clicks_by_campaign
+              extras:
+                storage: {tables: [warehouse.ads_clicks]}
+                semantic_mapping: {campaign: campaign, clicks: clicks, impressions: impressions}
+            - name: users_by_gender
+              extras:
+                storage: {tables: [warehouse.ads_users]}
+                semantic_mapping: {campaign: campaign, gender: gender, users: user_id}
+      relationships:
+        - {name: ads_to_campaigns, from: ads, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: channel_ads
+      dimensions: [{ref: campaign, is_key: true}, {ref: channel}, {ref: gender}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}, {ref: users}]
+      metrics: [{ref: campaign_cpi_avg}, {ref: cost_over_cpi_avg}, {ref: cost_per_user}, {ref: nest_cpi_max}, {ref: gender_cost_per_user_or_click}, {ref: campaign_cpi_avg2}, {ref: gender_cpc_avg}, {ref: cost_per_cpi_max}]
+      filters:
+        - {name: female, expr: {eq: [gender, {lit: f}]}}
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      unionsets:
+        - name: by_channel
+          mode: all
+          dimensions: [{ref: campaign, is_key: true}, {ref: channel, is_key: true}, {ref: gender}, {ref: region}]
+          grainsets:
+            - name: ads
+              dimensions: [{ref: campaign, is_key: true}, {ref: channel}, {ref: gender}]
+              datasets:
+                - name: by_gender
+                  extras:
+                    storage: {tables: [warehouse.ads_by_gender]}
+                    semantic_mapping: {campaign: campaign, gender: gender, channel: {lit: web}, cost: cost, clicks: clicks}
+                - name: cost_by_campaign
+                  extras:
+                    storage: {tables: [warehouse.ads_cost]}
+                    semantic_mapping: {campaign: campaign, channel: {lit: web}, cost: cost}
+                - name: clicks_by_campaign
+                  extras:
+                    storage: {tables: [warehouse.ads_clicks]}
+                    semantic_mapping: {campaign: campaign, channel: {lit: web}, clicks: clicks, impressions: impressions}
+                - name: users_by_gender
+                  extras:
+                    storage: {tables: [warehouse.ads_users]}
+                    semantic_mapping: {campaign: campaign, gender: gender, channel: {lit: web}, users: user_id}
+          datasets:
+            - name: ads_store
+              extras:
+                storage: {tables: [warehouse.ads_store]}
+                semantic_mapping: {campaign: campaign, channel: {lit: store}, region: {lit: us}, cost: cost, clicks: clicks}
+            - name: ads_app
+              extras:
+                storage: {tables: [warehouse.ads_app]}
+                semantic_mapping: {campaign: campaign, channel: {lit: app}, cost: cost, clicks: clicks}
+      relationships:
+        - {name: ads_to_campaigns, from: by_channel, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: campaign_avg_split
+      dimensions: [{ref: campaign, is_key: true}, {ref: region}, {ref: date}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: avg_cpc}, {ref: early_cpc_avg}, {ref: early_max_cpc}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      grainsets:
+        - name: avg_split
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: avg_cost
+              extras:
+                storage: {tables: [warehouse.avg_cost]}
+                semantic_mapping: {date: date, campaign: campaign, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: avg_clicks
+              extras:
+                storage: {tables: [warehouse.avg_clicks]}
+                semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+      relationships:
+        - {name: avg_split_to_campaigns, from: avg_split, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: campaign_region_budget_split
+      dimensions: [{ref: campaign, is_key: true}, {ref: date}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: budget}]
+      metrics: [{ref: region_cpc_avg}, {ref: region_cpc}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign}
+      grainsets:
+        - name: region_budget_split
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: region}]
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          datasets:
+            - name: region_cost
+              extras:
+                storage: {tables: [warehouse.region_cost]}
+                semantic_mapping: {date: date, campaign: campaign, region: region, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: region_clicks
+              extras:
+                storage: {tables: [warehouse.region_clicks]}
+                semantic_mapping: {date: date, campaign: campaign, region: region, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: region_budget
+              extras:
+                storage: {tables: [warehouse.g_monthly]}
+                semantic_mapping: {date: month_start, campaign: campaign_id, budget: budget}
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+      relationships:
+        - {name: region_budget_split_to_campaigns, from: region_budget_split, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: campaign_over_union
+      dimensions: [{ref: campaign, is_key: true}, {ref: channel}, {ref: gender}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}, {ref: users}]
+      metrics: [{ref: channel_cost_per_user}, {ref: campaign_cpi_avg}, {ref: campaign_cpi_avg_pct}, {ref: campaign_cpi_avg_pct_of_a}, {ref: cpi_pct_per_user_of_a}]
+      datasets:
+        - name: campaigns
+          extras:
+            storage: {tables: [warehouse.campaigns]}
+            semantic_mapping: {campaign: campaign, region: region}
+      grainsets:
+        - name: over_union
+          dimensions: [{ref: campaign, is_key: true}, {ref: channel}, {ref: gender}]
+          measures: [{ref: cost}, {ref: clicks}, {ref: impressions}, {ref: users}]
+          metrics: [{ref: campaign_cpi_avg}, {ref: campaign_cpi_avg_pct}, {ref: campaign_cpi_avg_pct_of_a}, {ref: cpi_pct_per_user_of_a}]
+          datasets:
+            - name: users_by_gender
+              extras:
+                storage: {tables: [warehouse.ads_users]}
+                semantic_mapping: {campaign: campaign, channel: channel, gender: gender, users: user_id}
+          unionsets:
+            - name: ads_union
+              mode: all
+              dimensions: [{ref: campaign, is_key: true}, {ref: channel}]
+              measures: [{ref: cost}, {ref: clicks}, {ref: impressions}]
+              metrics: [{ref: campaign_cpi_avg}, {ref: campaign_cpi_avg_pct}, {ref: campaign_cpi_avg_pct_of_a}]
+              grainsets:
+                - name: ads
+                  dimensions: [{ref: campaign, is_key: true}, {ref: channel}]
+                  datasets:
+                    - name: cost_by_campaign
+                      extras:
+                        storage: {tables: [warehouse.ads_cost]}
+                        semantic_mapping: {campaign: campaign, channel: channel, cost: cost}
+                    - name: clicks_by_campaign
+                      extras:
+                        storage: {tables: [warehouse.ads_clicks]}
+                        semantic_mapping: {campaign: campaign, clicks: clicks, impressions: impressions}
+      relationships:
+        - {name: over_union_to_campaigns, from: over_union, to: campaigns, on: [campaign], cardinality: many_to_one, optional: none, integrity: assumed}
+  grainsets:
+    - name: spend
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: budget}]
+      datasets:
+        - name: budget_monthly
+          extras:
+            storage: {tables: [warehouse.budget_monthly]}
+            semantic_mapping: {date: month_start, campaign: campaign, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+      joinsets:
+        - name: spend_daily
+          datasets:
+            - name: cost_daily
+              extras:
+                storage: {tables: [warehouse.cost_daily]}
+                semantic_mapping: {date: day, campaign: campaign, cost: cost}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: clicks_daily
+              extras:
+                storage: {tables: [warehouse.clicks_daily]}
+                semantic_mapping: {date: day, campaign: campaign, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+          relationships:
+            - {name: cost_to_clicks, from: cost_daily, to: clicks_daily, on: [date, campaign], cardinality: one_to_one, optional: both, integrity: none, cross_filter: both}
+    - name: ads
+      dimensions: [{ref: campaign, is_key: true}, {ref: gender}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}]
+      metrics: [{ref: cpc}, {ref: cpi}, {ref: cpi_of_a}, {ref: cpim}, {ref: avg_cpi}]
+      datasets:
+        - name: by_gender
+          extras:
+            storage: {tables: [warehouse.by_gender]}
+            semantic_mapping: {campaign: campaign, gender: gender, cost: cost, clicks: clicks}
+        - name: cost_by_campaign
+          extras:
+            storage: {tables: [warehouse.cost_by_campaign]}
+            semantic_mapping: {campaign: campaign, cost: cost}
+        - name: clicks_by_campaign
+          extras:
+            storage: {tables: [warehouse.clicks_by_campaign]}
+            semantic_mapping: {campaign: campaign, clicks: clicks, impressions: impressions}
+    - name: ads_no_keyset
+      dimensions: [{ref: campaign}, {ref: gender}]
+      measures: [{ref: cost}, {ref: clicks}]
+      datasets:
+        - name: by_gender
+          extras:
+            storage: {tables: [warehouse.by_gender]}
+            semantic_mapping: {campaign: campaign, gender: gender, cost: cost, clicks: clicks}
+        - name: cost_by_campaign
+          extras:
+            storage: {tables: [warehouse.cost_by_campaign]}
+            semantic_mapping: {campaign: campaign, cost: cost}
+        - name: clicks_by_campaign
+          extras:
+            storage: {tables: [warehouse.clicks_by_campaign]}
+            semantic_mapping: {campaign: campaign, clicks: clicks}
+    - name: ads_over_union
+      dimensions: [{ref: campaign, is_key: true}, {ref: channel}, {ref: gender}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: impressions}, {ref: users}]
+      metrics: [{ref: cpc}, {ref: channel_cost_per_user}, {ref: campaign_cpi_avg}, {ref: campaign_cpi_avg_pct}, {ref: cpi_pct_per_user_of_a}, {ref: campaign_cpi_avg_pct_of_a}, {ref: cpm}, {ref: cost_per_user}, {ref: cpu_k}, {ref: campaign_cpc_avg}, {ref: campaign_cpc_avg2}, {ref: campaign_cpu_avg}, {ref: nest_cpc_max}, {ref: campaign_cpc}, {ref: campaign_cpu}, {ref: cost_per_cpi_max}]
+      filters:
+        - {name: campaign_a, expr: {eq: [campaign, {lit: A}]}}
+      datasets:
+        - name: users_by_gender
+          extras:
+            storage: {tables: [warehouse.ads_users]}
+            semantic_mapping: {campaign: campaign, channel: channel, gender: gender, users: user_id}
+      unionsets:
+        - name: ads_union
+          mode: all
+          dimensions: [{ref: campaign, is_key: true}, {ref: channel}]
+          measures: [{ref: cost}, {ref: clicks}, {ref: impressions}]
+          metrics: [{ref: cpc}, {ref: campaign_cpi_avg}, {ref: campaign_cpi_avg_pct}, {ref: campaign_cpi_avg_pct_of_a}, {ref: cpm}, {ref: campaign_cpc_avg}, {ref: campaign_cpc_avg2}, {ref: nest_cpc_max}, {ref: campaign_cpc}, {ref: cost_per_cpi_max}]
+          grainsets:
+            - name: ads
+              dimensions: [{ref: campaign, is_key: true}, {ref: channel}]
+              datasets:
+                - name: cost_by_campaign
+                  extras:
+                    storage: {tables: [warehouse.ads_cost]}
+                    semantic_mapping: {campaign: campaign, channel: channel, cost: cost}
+                - name: clicks_by_campaign
+                  extras:
+                    storage: {tables: [warehouse.ads_clicks]}
+                    semantic_mapping: {campaign: campaign, clicks: clicks, impressions: impressions}
+    - name: cpc_by_date
+      dimensions: [{ref: date, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: cpc}, {ref: cpm}]
+      datasets:
+        - name: cost_d
+          extras:
+            storage: {tables: [warehouse.cost_d]}
+            semantic_mapping: {date: date, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: clicks_d
+          extras:
+            storage: {tables: [warehouse.clicks_d]}
+            semantic_mapping: {date: date, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: cpc_by_date_campaign
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: cpc}]
+      datasets:
+        - name: cost_m
+          extras:
+            storage: {tables: [warehouse.cost_m]}
+            semantic_mapping: {date: date, campaign: campaign, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: clicks_m
+          extras:
+            storage: {tables: [warehouse.clicks_m]}
+            semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: avg_split
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: avg_cpc}, {ref: avg_cpc2}, {ref: avg_cpc2_a}, {ref: early_cpc_avg}]
+      datasets:
+        - name: avg_cost
+          extras:
+            storage: {tables: [warehouse.avg_cost]}
+            semantic_mapping: {date: date, campaign: campaign, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: avg_clicks
+          extras:
+            storage: {tables: [warehouse.avg_clicks]}
+            semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: region_split
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: region, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: cpc}, {ref: region_cpc_avg}, {ref: region_cpc_avg2}, {ref: region_cpc_max}, {ref: region_cpc_max_eu}]
+      datasets:
+        - name: region_cost
+          extras:
+            storage: {tables: [warehouse.region_cost]}
+            semantic_mapping: {date: date, campaign: campaign, region: region, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: region_clicks
+          extras:
+            storage: {tables: [warehouse.region_clicks]}
+            semantic_mapping: {date: date, campaign: campaign, region: region, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: region_budget_split
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}, {ref: region}]
+      measures: [{ref: cost}, {ref: clicks}, {ref: budget}]
+      metrics: [{ref: region_cpc_avg}, {ref: region_cpc}]
+      datasets:
+        - name: region_cost
+          extras:
+            storage: {tables: [warehouse.region_cost]}
+            semantic_mapping: {date: date, campaign: campaign, region: region, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: region_clicks
+          extras:
+            storage: {tables: [warehouse.region_clicks]}
+            semantic_mapping: {date: date, campaign: campaign, region: region, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: region_budget
+          extras:
+            storage: {tables: [warehouse.g_monthly]}
+            semantic_mapping: {date: month_start, campaign: campaign_id, budget: budget}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+    - name: child_avg_split
+      dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+      measures: [{ref: cost}, {ref: clicks}]
+      metrics: [{ref: avg_cpc}, {ref: early_cpc_avg}, {ref: early_max_cpc}]
+      unionsets:
+        - name: avg_union
+          mode: all
+          dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+          grainsets:
+            - name: avg_split
+              dimensions: [{ref: date, is_key: true}, {ref: campaign, is_key: true}]
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+              datasets:
+                - name: avg_cost
+                  extras:
+                    storage: {tables: [warehouse.avg_cost]}
+                    semantic_mapping: {date: date, campaign: campaign, cost: cost}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}
+                - name: avg_clicks
+                  extras:
+                    storage: {tables: [warehouse.avg_clicks]}
+                    semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: day}

@@ -1,0 +1,84 @@
+# A model of a plain Dataset and a Joinset that tie on granularity fit.
+semantic_model:
+  name: spend_monthly_campaigns
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+    - name: campaign
+      data_type: string
+      type: categorical
+  measures:
+    - name: clicks
+      data_type: bigint
+      agg: sum
+    - name: budget
+      data_type: bigint
+      agg: sum
+  datasets:
+    - name: spend_daily
+      extras:
+        storage:
+          tables: [warehouse.spend_daily]
+        semantic_mapping:
+          date: date
+          campaign: campaign
+          clicks: clicks
+        temporal:
+          timeseries:
+            occurred_at: date
+          granularity: day
+      dimensions:
+        - ref: date
+          is_key: true
+        - ref: campaign
+          is_key: true
+      measures:
+        - ref: clicks
+  joinsets:
+    - name: spend_monthly_campaigns
+      dimensions:
+        - ref: date
+        - ref: campaign
+      measures:
+        - ref: clicks
+        - ref: budget
+      datasets:
+        - name: spend_monthly
+          extras:
+            storage:
+              tables: [warehouse.spend_monthly]
+            semantic_mapping:
+              date: date
+              campaign: campaign
+              clicks: clicks
+              budget: budget
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: month
+          dimensions:
+            - ref: date
+              is_key: true
+            - ref: campaign
+              is_key: true
+          measures:
+            - ref: clicks
+            - ref: budget
+        - name: campaigns
+          extras:
+            storage:
+              tables: [warehouse.campaigns]
+            semantic_mapping:
+              campaign: campaign
+          dimensions:
+            - ref: campaign
+              is_key: true
+      relationships:
+        - name: spend_monthly_to_campaigns
+          from: spend_monthly
+          to: campaigns
+          on: [campaign]
+          cardinality: many_to_one

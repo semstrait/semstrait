@@ -1,0 +1,50 @@
+tables:
+  - namespace: warehouse
+    name: first
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: bigint}
+      - {name: spend, type: bigint}
+    rows:
+      - [2024-01-01, 1, 50]
+      - [2024-01-02, 1, 60]
+      - [2024-01-01, 2, 30]
+      - [2024-01-01, null, 20]
+  - namespace: warehouse
+    name: second
+    columns:
+      - {name: date, type: date}
+      - {name: campaign, type: bigint}
+      - {name: views, type: bigint}
+    rows:
+      - [2024-01-01, 1, 7]
+      - [2024-01-02, 1, 8]
+      - [2024-01-01, 2, 9]
+      - [2024-01-01, null, 4]
+  - namespace: warehouse
+    name: revenue_m
+    columns:
+      - {name: date, type: date}
+      - {name: revenue, type: bigint}
+    rows:
+      - [2024-01-01, 1]
+      - [2024-01-02, 2]
+      - [null, 5]
+  - namespace: warehouse
+    name: cost_only
+    columns:
+      - {name: date, type: date}
+      - {name: cost, type: bigint}
+    rows:
+      - [2024-01-01, 30]
+      - [2024-01-03, 40]
+      - [null, 50]
+  - namespace: warehouse
+    name: clicks_only
+    columns:
+      - {name: date, type: date}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2024-01-03, 300]
+      - [2024-01-04, 400]
+      - [null, 500]

@@ -1,0 +1,13 @@
+# A compile-stage refusal: the root Dataset's mapping names a column its table lacks.
+
+column_not_in_source:
+  # The root Dataset's explicit mapping names a column that its table lacks, a compile-stage refusal.
+  model: refusal/missing_column
+  expect:
+    error:
+      stage: compile
+      variant: ColumnNotInSourceSchema
+      fields:
+        column: amount
+  message: |-
+    error: physical source bf575591-d8c6-59c7-b3aa-5fbdf5673b12: column `amount` is read by an expression but absent from the observed schema

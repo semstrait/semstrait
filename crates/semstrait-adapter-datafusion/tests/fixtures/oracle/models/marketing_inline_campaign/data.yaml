@@ -1,0 +1,10 @@
+tables:
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: dataset_name, type: string}
+      - {name: campaign, type: string}
+    rows:
+      - [adwords, DE_summer]
+      - [impact, Acme DE Spring]
+      - [adwords, summer_sale]

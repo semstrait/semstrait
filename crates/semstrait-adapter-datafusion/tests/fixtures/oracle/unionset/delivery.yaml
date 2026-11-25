@@ -1,0 +1,402 @@
+# A Unionset branch gives rows or partial aggregates, combined once above the union.
+
+bucket_then_marker:
+  # Each branch's partial sum groups by the day; above the union, the bucket then the marker keep the month's latest day.
+  model: models/finance_order_balances
+  request:
+    from: balances
+    select: [{dimension: date, granularity: month}, balance]
+  expect:
+    rows:
+      - [date, balance]
+      - [2026-10-01, 130]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+
+    === Plan
+    Root[date, balance]
+      Aggregate[$3 => $3, sum($0, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='balances', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, !{RexType}, $1, $2]
+          Project[$0, $1, (date_trunc('month', $1):date?)::!date?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='balances', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.day_30 => date:date?, balance:i64?]
+                        + Opt:Trace[semantic_source='balances.day_30', source_role=&Dataset, originators=('balances',), physical_source='day_30']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):i64?]
+                    Project[$1, $0, $2]
+                      Project[true, $1, $0]
+                        Read[warehouse.day_31 => date:date?, balance:i64?]
+                          + Opt:Trace[semantic_source='balances.day_31', source_role=&Dataset, originators=('balances',), physical_source='day_31']
+
+marker_below_formula:
+  # Each branch's partial sums group by the day; above the union, each re-aggregating sum reads its own marker before the formula combines them.
+  model: models/finance_day_shape
+  request:
+    from: daily
+    select: [{dimension: date, granularity: month}, m_lin]
+  expect:
+    rows:
+      - [date, m_lin]
+      - [2026-09-01, -2.0]
+      - [2026-10-01, -20.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:semstrait:datafusion
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: date_trunc
+      #  3 @  1: rank
+      #  4 @  3: equal
+      #  5 @  1: subtract
+
+    === Plan
+    Root[date, m_lin]
+      Project[$0, subtract($1, $2):fp64?]
+        + Opt:Trace[scope_root='daily', compositions=1, granularity_fit=&Requested, granularity=&Day]
+        Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):fp64?, sum($3, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1, $2, $3, !{RexType}, !{RexType}]
+            Project[$0, (date_trunc('month', $0):date?)::!date?, $1, $2]
+              Project[$0, $1, $2]
+                Set[&UnionAll => $0, $1, $2]
+                  + Opt:Trace[semantic_source='daily', source_role=&Unionset, delivery=&PartialAggregates]
+                  Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                    Project[$4, $1, $3, $0, $2]
+                      Project[true, $1, true, $2, $0]
+                        Read[warehouse.daily_eu => date:date?, a:fp64?, b:fp64?]
+                          + Opt:Trace[semantic_source='daily.eu', source_role=&Dataset, originators=('daily',), physical_source='daily_eu']
+                  Project[$0, $1, $2]
+                    Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?, sum($2, overflow⇒[ERROR]):fp64?]
+                      Project[$4, $1, $3, $0, $2]
+                        Project[true, $1, true, $2, $0]
+                          Read[warehouse.daily_rest => date:date?, a:fp64?, b:fp64?]
+                            + Opt:Trace[semantic_source='daily.rest', source_role=&Dataset, originators=('daily',), physical_source='daily_rest']
+
+nondisjoint_avg_above_union:
+  # Over non-disjoint branches that give rows, one average above the union averages every row.
+  model: models/commerce
+  request:
+    from: sales
+    select: [avg_amount]
+  expect:
+    rows:
+      - [avg_amount]
+      - [42.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: avg
+
+    === Plan
+    Root[avg_amount]
+      Aggregate[_ => avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $0]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+            Project[true, $0]
+              Read[warehouse.online => amount:fp64?]
+                + Opt:Trace[semantic_source='sales.online_sales', source_role=&Dataset, originators=('sales',), physical_source='online']
+            Project[true, $0]
+              Read[warehouse.stores => amount:fp64?]
+                + Opt:Trace[semantic_source='sales.store_sales', source_role=&Dataset, originators=('sales',), physical_source='stores']
+
+nondisjoint_count_distinct:
+  # Over non-disjoint branches that give rows, one count distinct above the union counts a shared value once.
+  model: models/commerce
+  request:
+    from: sales
+    select: [customers]
+  expect:
+    rows:
+      - [customers]
+      - [3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: count
+
+    === Plan
+    Root[customers]
+      Aggregate[_ => count($0, overflow⇒[ERROR]):i64]
+        + Opt:Trace[scope_root='sales', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, $0]
+          Set[&UnionAll => $0, $1]
+            + Opt:Trace[semantic_source='sales', source_role=&Unionset, delivery=&Rows]
+            Project[true, $0]
+              Read[warehouse.online => customer_id:string?]
+                + Opt:Trace[semantic_source='sales.online_sales', source_role=&Dataset, originators=('sales',), physical_source='online']
+            Project[true, $0]
+              Read[warehouse.stores => customer_id:string?]
+                + Opt:Trace[semantic_source='sales.store_sales', source_role=&Dataset, originators=('sales',), physical_source='stores']
+
+decimal_precision_kept:
+  # A decimal sum over two large branch values casts to its declared precision only above the re-aggregating sum, with no overflow.
+  model: models/commerce_decimal_revenue
+  request:
+    from: orders
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [7000000000000000]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic_decimal
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Project[($0)::!decimal?<18, 2>]
+        + Opt:Trace[scope_root='orders', compositions=1, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+          Project[$0]
+            Set[&UnionAll => $0]
+              + Opt:Trace[semantic_source='orders', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[_ => sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                Project[$1, $0]
+                  Project[true, $0]
+                    Read[warehouse.eu_orders => amount:decimal?<18, 2>]
+                      + Opt:Trace[semantic_source='orders.eu_orders', source_role=&Dataset, originators=('orders',), physical_source='eu_orders']
+              Project[$0]
+                Aggregate[_ => sum($0, overflow⇒[ERROR]):decimal?<38, 2>]
+                  Project[$1, $0]
+                    Project[true, $0]
+                      Read[warehouse.us_orders => amount:decimal?<18, 2>]
+                        + Opt:Trace[semantic_source='orders.us_orders', source_role=&Dataset, originators=('orders',), physical_source='us_orders']
+
+null_filled_coalesced_count:
+  # A branch's NULL-filled grouping column still reads its own partial count, so coalescing with zero changes nothing.
+  model: models/commerce
+  request:
+    from: orders_union
+    select: [region, order_count]
+  expect:
+    rows:
+      - [region, order_count]
+      - [de, 2]
+      - [fr, 1]
+      - [it, 0]
+      - [null, 2]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+      #  3 @  3: coalesce
+
+    === Plan
+    Root[region, order_count]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='orders_union', compositions=1, granularity_fit=&NotSelected]
+        Project[coalesce($1, 0):i64, $0]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):i64?]
+            Project[$1, $0]
+              Set[&UnionAll => $0, $1]
+                + Opt:Trace[semantic_source='orders_union', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$2 => $2, count($0, overflow⇒[ERROR]):i64]
+                  Project[$1, $0, $2]
+                    Project[true, $1, $0]
+                      Read[warehouse.eu_orders => region:string?, order_id:string?]
+                        + Opt:Trace[semantic_source='orders_union.eu_orders', source_role=&Dataset, originators=('orders_union',), physical_source='eu_orders']
+                Project[$0, $1]
+                  Aggregate[$2 => $2, count($0, overflow⇒[ERROR]):i64]
+                    Project[$1, $0, $2]
+                      Project[true, $0, null:string?]
+                        Read[warehouse.us_orders => order_id:string?]
+                          + Opt:Trace[semantic_source='orders_union.us_orders', source_role=&Dataset, originators=('orders_union',), physical_source='us_orders']
+
+ungrouped_count_coalesced:
+  # With no grouping, each branch's partial count is summed above the union and coalesced with zero.
+  model: models/commerce
+  request:
+    from: orders_union
+    select: [order_count]
+  expect:
+    rows:
+      - [order_count]
+      - [5]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: count
+      #  2 @  2: sum
+      #  3 @  3: coalesce
+
+    === Plan
+    Root[order_count]
+      Project[coalesce($0, 0):i64]
+        + Opt:Trace[scope_root='orders_union', compositions=1, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):i64?]
+          Project[$0]
+            Set[&UnionAll => $0]
+              + Opt:Trace[semantic_source='orders_union', source_role=&Unionset, delivery=&PartialAggregates]
+              Aggregate[_ => count($0, overflow⇒[ERROR]):i64]
+                Project[$1, $0]
+                  Project[true, $0]
+                    Read[warehouse.eu_orders => order_id:string?]
+                      + Opt:Trace[semantic_source='orders_union.eu_orders', source_role=&Dataset, originators=('orders_union',), physical_source='eu_orders']
+              Project[$0]
+                Aggregate[_ => count($0, overflow⇒[ERROR]):i64]
+                  Project[$1, $0]
+                    Project[true, $0]
+                      Read[warehouse.us_orders => order_id:string?]
+                        + Opt:Trace[semantic_source='orders_union.us_orders', source_role=&Dataset, originators=('orders_union',), physical_source='us_orders']
+
+mixed_type_count_cast:
+  # A count whose branches declare different argument types casts each branch's own argument to the wider type.
+  model: models/commerce
+  request:
+    from: shipments
+    select: [parcels, carriers]
+  expect:
+    rows:
+      - [parcels, carriers]
+      - [3, 2]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: count
+
+    === Plan
+    Root[parcels, carriers]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='shipments', compositions=1, granularity_fit=&NotSelected]
+        Project[$1, ($0)::!i32]
+          Aggregate[_ => count($2, overflow⇒[ERROR]):i64, count($0, overflow⇒[ERROR]):i64]
+            Project[$1, $0, $3, $2]
+              Set[&UnionAll => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='shipments', source_role=&Unionset, delivery=&Rows]
+                Project[true, $1, true, ($0)::!i64?]
+                  Read[warehouse.rail => parcel_id:i32?, carrier:string?]
+                    + Opt:Trace[semantic_source='shipments.rail', source_role=&Dataset, originators=('shipments',), physical_source='rail']
+                Project[true, $1, true, ($0)::!i64?]
+                  Read[warehouse.road => parcel_id:i64?, carrier:string?]
+                    + Opt:Trace[semantic_source='shipments.road', source_role=&Dataset, originators=('shipments',), physical_source='road']
+
+disjoint_branches_final_avg:
+  # A literal that differs on each branch keeps them disjoint, so each gives its own finished average.
+  model: models/marketing
+  request:
+    from: spend_all
+    select: [channel, avg_cost]
+  expect:
+    rows:
+      - [channel, avg_cost]
+      - [web, 30.0]
+      - [app, 40.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: avg
+
+    === Plan
+    Root[channel, avg_cost]
+      Set[&UnionAll => $0, $1]
+        + Opt:Trace[scope_root='spend_all', compositions=1, granularity_fit=&NotSelected, granularity=&Day]
+        + Opt:Trace[semantic_source='spend_all', source_role=&Unionset, delivery=&FinalAggregates]
+        Aggregate[$2 => $2, avg($0, overflow⇒[ERROR]):fp64?]
+          Project[$1, $0, $2]
+            Project[true, ($0)::!fp64?, 'app']
+              Read[warehouse.spend_app => cost:i64?]
+                + Opt:Trace[semantic_source='spend_all.app', source_role=&Dataset, originators=('spend_all',), physical_source='spend_app']
+        Project[$0, $1]
+          Aggregate[$2 => $2, avg($0, overflow⇒[ERROR]):fp64?]
+            Project[$1, $0, $2]
+              Project[true, ($0)::!fp64?, 'web']
+                Read[warehouse.spend_web => cost:i64?]
+                  + Opt:Trace[semantic_source='spend_all.web', source_role=&Dataset, originators=('spend_all',), physical_source='spend_web']
+
+ratio_over_filtered_branches:
+  # A non-additive count distinct keeps the branches giving rows, so a ratio's formula runs over one aggregate above the union.
+  model: models/events
+  request:
+    from: visits
+    select: [revenue_per_visitor, visitors]
+  expect:
+    rows:
+      - [revenue_per_visitor, visitors]
+      - [40.0, 3]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+      @  4: extension:io.substrait:functions_aggregate_generic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: sum
+      #  4 @  4: count
+      #  5 @  3: divide
+
+    === Plan
+    Root[revenue_per_visitor, visitors]
+      Project[divide($0, ($1)::!fp64, on_division_by_zero⇒[ERROR]):fp64?, $2]
+        + Opt:Trace[scope_root='visits', compositions=1, granularity_fit=&NotSelected]
+        Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?, count($1, overflow⇒[ERROR]):i64, count($4, overflow⇒[ERROR]):i64]
+          Project[$2, $4, and(equal($0, 'web'):boolean?, $1):boolean?, and(equal($0, 'web'):boolean?, $3):boolean?, $4, $3]
+            Set[&UnionAll => $0, $1, $2, $3, $4]
+              + Opt:Trace[semantic_source='visits', source_role=&Unionset, delivery=&Rows]
+              Project[$2, true, $0, true, $1]
+                Read[warehouse.shop => amount:fp64?, visitor_id:string?, channel:string?]
+                  + Opt:Trace[semantic_source='visits.shop_visits', source_role=&Dataset, originators=('visits',), physical_source='shop']
+              Project[$2, true, $0, true, $1]
+                Read[warehouse.web => amount:fp64?, visitor_id:string?, channel:string?]
+                  + Opt:Trace[semantic_source='visits.web_visits', source_role=&Dataset, originators=('visits',), physical_source='web']

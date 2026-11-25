@@ -1,0 +1,49 @@
+# A Unionset of a Grainset of four reports at Day and a Dataset that maps fewer names.
+semantic_model:
+  name: unionset_branch_not_servable
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: campaign, data_type: string, type: categorical}
+    - {name: gender, data_type: string, type: categorical}
+    - {name: age, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: spend, data_type: bigint, agg: sum}
+  unionsets:
+    - name: ads
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign}, {ref: gender}, {ref: age}]
+      measures: [{ref: clicks}, {ref: spend}]
+      grainsets:
+        - name: facebook
+          datasets:
+            - name: totals
+              extras:
+                storage: {tables: [warehouse.facebook_totals]}
+                semantic_mapping: {date: date, clicks: clicks, spend: spend}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: by_campaign
+              extras:
+                storage: {tables: [warehouse.facebook_by_campaign]}
+                semantic_mapping: {date: date, campaign: campaign, clicks: clicks, spend: spend}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: by_gender
+              extras:
+                storage: {tables: [warehouse.facebook_by_gender]}
+                semantic_mapping: {date: date, gender: gender, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: by_age
+              extras:
+                storage: {tables: [warehouse.facebook_by_age]}
+                semantic_mapping: {date: date, age: age, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+      datasets:
+        - name: google
+          extras:
+            storage: {tables: [warehouse.google_by_campaign]}
+            semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

@@ -1,0 +1,15 @@
+tables:
+  - namespace: warehouse
+    name: other
+    columns:
+      - {name: date, type: date}
+      - {name: region, type: string}
+      - {name: revenue, type: bigint}
+    rows: [[2024-01-05, eu, 10], [2024-01-20, eu, 20]]
+  - namespace: warehouse
+    name: monthly
+    columns:
+      - {name: date, type: date}
+      - {name: region, type: string}
+      - {name: revenue, type: bigint}
+    rows: [[2024-01-01, eu, 30]]

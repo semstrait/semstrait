@@ -1,0 +1,29 @@
+# The sales model: an Iceberg orders table with a row-level Metric that has no agg:.
+semantic_model:
+  name: sales
+  dimensions:
+    - name: channel
+      data_type: string
+      type: categorical
+    - name: region
+      data_type: string
+      type: categorical
+  metrics:
+    - name: region_label
+      data_type: string
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {lit: EU}
+          else: {lit: other}
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+      dimensions:
+        - ref: channel
+        - ref: region
+      metrics:
+        - ref: region_label

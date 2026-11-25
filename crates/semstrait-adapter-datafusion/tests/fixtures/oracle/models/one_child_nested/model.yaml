@@ -1,0 +1,65 @@
+# A Unionset of mode all over a Dataset and a Grainset with one child, and a Grainset over a Dataset and a one-branch Unionset that holds a Grainset.
+semantic_model:
+  name: one_child_nested
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: campaign, data_type: string, type: categorical}
+    - {name: platform, data_type: string, type: categorical}
+  measures:
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: spend, data_type: bigint, agg: sum}
+  unionsets:
+    - name: ads
+      mode: all
+      dimensions: [{ref: date}, {ref: campaign}]
+      measures: [{ref: clicks}]
+      datasets:
+        - name: other
+          extras:
+            storage: {tables: [warehouse.other]}
+            semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+      grainsets:
+        - name: google
+          dimensions: [{ref: date}, {ref: campaign}]
+          measures: [{ref: clicks}]
+          datasets:
+            - name: google_by_campaign
+              extras:
+                storage: {tables: [warehouse.google_by_campaign]}
+                semantic_mapping: {date: date, campaign: campaign, clicks: clicks}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+  grainsets:
+    - name: ads_routing
+      dimensions: [{ref: date}, {ref: campaign}, {ref: platform}]
+      measures: [{ref: spend}, {ref: clicks}]
+      datasets:
+        - name: ads_ds
+          extras:
+            storage: {tables: [warehouse.ads_ds]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+      unionsets:
+        - name: ads_by_platform
+          mode: all
+          extras:
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+          grainsets:
+            - name: facebook
+              extras:
+                temporal: {timeseries: {occurred_at: date}, granularity: month}
+              datasets:
+                - name: facebook_totals
+                  extras:
+                    storage: {tables: [warehouse.facebook_totals]}
+                    semantic_mapping: {date: date, platform: platform, spend: spend}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}
+                - name: facebook_by_campaign
+                  extras:
+                    storage: {tables: [warehouse.facebook_by_campaign]}
+                    semantic_mapping: {date: date, platform: platform, campaign: campaign, clicks: clicks}
+                    temporal: {timeseries: {occurred_at: date}, granularity: month}

@@ -1,0 +1,22 @@
+[package]
+name = "semstrait-sql"
+version.workspace = true
+edition = "2021"
+rust-version = "1.79"
+license = "Apache-2.0"
+description = "The typed SQL vocabulary of semstrait: data types, function declarations and the expression tree"
+
+[dependencies]
+# `serde`: a document names its dialect by `Dialect`'s name.
+semstrait-common = { workspace = true, features = ["serde"] }
+bon = { workspace = true }
+serde = { workspace = true }
+schemars = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+jsonschema = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+schemars = ["dep:schemars"]

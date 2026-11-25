@@ -1,0 +1,92 @@
+tables:
+  - namespace: warehouse
+    name: spend_daily
+    columns:
+      - {name: day, type: date}
+      - {name: campaign, type: string}
+      - {name: channel, type: string}
+      - {name: clicks, type: bigint}
+      - {name: user_id, type: string}
+    rows:
+      - [2026-03-01, A, web, 10, u1]
+      - [2026-03-02, A, app, 20, u2]
+      - [2026-03-03, B, web, 40, u1]
+  - namespace: warehouse
+    name: spend_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign, type: string}
+      - {name: channel, type: string}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-01, A, web, 100]
+      - [2026-03-01, A, app, 30]
+      - [2026-03-01, B, web, 50]
+  - namespace: warehouse
+    name: spend_flat
+    columns:
+      - {name: day, type: date}
+      - {name: campaign, type: string}
+      - {name: channel, type: string}
+      - {name: clicks, type: bigint}
+      - {name: budget, type: bigint}
+      - {name: user_id, type: string}
+    rows:
+      - [2026-03-01, A, web, 10, 100, u1]
+      - [2026-03-02, A, app, 20, 30, u2]
+      - [2026-03-03, B, web, 40, 50, u1]
+      - [2026-03-04, B, store, 5, 20, u3]
+  - namespace: warehouse
+    name: campaigns
+    columns:
+      - {name: campaign, type: string}
+      - {name: region, type: string}
+    rows:
+      - [A, eu]
+      - [B, us]
+  - namespace: warehouse
+    name: targets
+    columns:
+      - {name: campaign, type: string}
+      - {name: target, type: bigint}
+    rows:
+      - [A, 4]
+      - [B, 5]
+  - namespace: warehouse
+    name: spend_clicks
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign, type: string}
+      - {name: region, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [2026-03-01, A, eu, 30]
+      - [2026-03-01, A, us, 30]
+      - [2026-03-01, B, eu, 40]
+      - [2026-03-01, B, us, 5]
+  - namespace: warehouse
+    name: spend_regional
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign, type: string}
+      - {name: channel, type: string}
+      - {name: region, type: string}
+      - {name: budget, type: bigint}
+    rows:
+      - [2026-03-01, A, web, eu, 100]
+      - [2026-03-01, A, web, us, 60]
+      - [2026-03-01, A, app, eu, 40]
+      - [2026-03-01, B, web, eu, 50]
+      - [2026-03-01, B, app, us, 20]
+  - namespace: warehouse
+    name: regional_targets
+    columns:
+      - {name: month_start, type: date}
+      - {name: campaign, type: string}
+      - {name: region, type: string}
+      - {name: target, type: bigint}
+    rows:
+      - [2026-03-01, A, eu, 4]
+      - [2026-03-01, A, us, 6]
+      - [2026-03-01, B, eu, 5]
+      - [2026-03-01, B, us, 10]

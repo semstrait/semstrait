@@ -1,0 +1,1 @@
+error: at `all_spend / all_spend.spend_g`: the semantic source `all_spend.spend_g` at `month` cannot serve the requested granularity `month`; nearest: `all_spend.spend_g.g_daily` lacks `budget`; `all_spend.spend_g.g_monthly` lacks `clicks`

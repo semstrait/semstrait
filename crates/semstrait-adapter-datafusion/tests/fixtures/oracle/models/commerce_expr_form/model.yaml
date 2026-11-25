@@ -1,0 +1,196 @@
+# A commerce variant whose Measures write expr: explicitly, and whose partitions keep their own rows.
+semantic_model:
+  name: commerce_expr_form
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+    - name: channel
+      data_type: string
+      type: categorical
+    - name: ordered_at
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+      expr: {col: amount}
+    - name: order_count
+      data_type: bigint
+      agg: count
+      expr: {col: order_id}
+    - name: revenue_eu_adj
+      data_type: double
+      agg: sum
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [{col: amount}, {lit: 1.2}]}
+          else: {col: amount}
+    - name: buyers
+      data_type: bigint
+      agg: count_distinct
+      expr: {col: customer_id}
+    - name: total_amount
+      data_type: double
+      agg: sum
+  metrics:
+    - name: region_label
+      data_type: string
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {lit: EU}
+          else: {lit: other}
+    - name: tier
+      data_type: string
+      expr:
+        case:
+          whens:
+            - when: {and: [{eq: [region_label, {lit: EU}]}, {gt: [revenue, {lit: 100}]}]}
+              then: {lit: high}
+          else: {lit: low}
+    - name: revenue_early_adj
+      data_type: double
+      agg: sum
+      expr:
+        case:
+          whens:
+            - when: {lt: [ordered_at, {lit: {date: 2026-10-15}}]}
+              then: {multiply: [revenue, {lit: 0.9}]}
+          else: revenue
+    - name: avg_cust
+      data_type: double
+      agg: avg
+      expr:
+        case:
+          whens:
+            - when: {not: {is_null: {col: customer_id}}}
+              then: revenue
+    - name: regions_with_revenue
+      data_type: bigint
+      agg: count
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [revenue, {lit: 1.2}]}
+          else: revenue
+    - name: revenue_per_region
+      data_type: double
+      expr: {divide: [revenue, regions_with_revenue]}
+    - name: target
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when: {lit: false}
+              then: order_count
+          else: {lit: 1000}
+    - name: eu_regions
+      data_type: bigint
+      filter:
+        eq: [region, {lit: eu}]
+      expr: regions_with_revenue
+    - name: regions_gap
+      data_type: bigint
+      expr: {subtract: [regions_with_revenue, eu_regions]}
+    - name: buyers_weighted
+      data_type: bigint
+      expr:
+        multiply:
+          - case:
+              whens:
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: 2}
+                - when: {eq: [channel, {lit: web}]}
+                  then: {lit: 2}
+              else: {lit: 1}
+          - buyers
+    - name: buyers_weighted_no_else
+      data_type: bigint
+      expr:
+        multiply:
+          - case:
+              whens:
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: 2}
+                - when: {eq: [channel, {lit: web}]}
+                  then: {lit: 2}
+          - buyers
+    - name: n_other
+      data_type: bigint
+      agg: count
+      expr:
+        case:
+          whens:
+            - when: {eq: [region_label, {lit: other}]}
+              then: revenue
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+      dimensions:
+        - ref: region
+        - ref: channel
+        - ref: ordered_at
+      measures:
+        - ref: revenue
+      metrics:
+        - ref: region_label
+        - ref: tier
+        - ref: revenue_early_adj
+        - ref: avg_cust
+        - ref: regions_with_revenue
+        - ref: revenue_per_region
+    - name: orders_targets
+      extras:
+        storage:
+          tables: [warehouse.orders]
+      dimensions:
+        - ref: region
+        - ref: channel
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - ref: revenue_eu_adj
+      metrics:
+        - ref: target
+        - ref: regions_with_revenue
+        - ref: eu_regions
+        - ref: regions_gap
+    - name: orders_buyers
+      extras:
+        storage:
+          tables: [warehouse.orders]
+      dimensions:
+        - ref: region
+        - ref: channel
+      measures:
+        - ref: revenue
+        - ref: buyers
+      metrics:
+        - ref: region_label
+        - ref: n_other
+        - ref: buyers_weighted
+        - ref: buyers_weighted_no_else
+    - name: sales
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_year: year
+          total_amount: amount
+      dimensions:
+        - name: order_year
+          data_type: integer
+          type: categorical
+      measures:
+        - ref: total_amount

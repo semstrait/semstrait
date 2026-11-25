@@ -1,0 +1,76 @@
+# A commerce variant whose revenue_adj and eu_revenue are Measures, not Metrics.
+semantic_model:
+  name: commerce_revenue_measures
+  dimensions:
+    - name: region
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue_eu
+      data_type: double
+      agg: sum
+      expr: {col: amount}
+      filter:
+        eq: [region, {lit: eu}]
+    - name: revenue_rest
+      data_type: double
+      agg: sum
+      expr: {col: amount}
+      filter:
+        not: {eq: [region, {lit: eu}]}
+    - name: revenue_adj
+      data_type: double
+      agg: sum
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [{col: amount}, {lit: 1.2}]}
+          else: {col: amount}
+    - name: eu_revenue
+      data_type: double
+      agg: sum
+  metrics:
+    - name: revenue_adj_metric
+      data_type: double
+      expr:
+        add:
+          - multiply: [{coalesce: [revenue_eu, {lit: 0.0}]}, {lit: 1.2}]
+          - coalesce: [revenue_rest, {lit: 0.0}]
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue_eu
+        - ref: revenue_rest
+        - ref: revenue_adj
+      metrics:
+        - ref: revenue_adj_metric
+  unionsets:
+    - name: shops
+      mode: all
+      dimensions:
+        - ref: region
+      measures:
+        - ref: eu_revenue
+          filter:
+            eq: [region, {lit: eu}]
+      datasets:
+        - name: north_shops
+          extras:
+            storage:
+              tables: [warehouse.north]
+            semantic_mapping:
+              region: region
+              eu_revenue: amount
+        - name: south_shops
+          extras:
+            storage:
+              tables: [warehouse.south]
+            semantic_mapping:
+              region: region
+              eu_revenue: amount

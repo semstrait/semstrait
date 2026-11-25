@@ -1,0 +1,24 @@
+[package]
+name = "semstrait-planner"
+version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+description = "The semstrait planner: a Request planned against a SemanticManifest into a SemanticPlan"
+
+# No engine and no adapter, in the library or its tests (ADR 0068, *The seam*).
+[dependencies]
+semstrait-common = { workspace = true, features = ["serde"] }
+semstrait-sql = { workspace = true }
+semstrait-ir = { workspace = true }
+semstrait-manifest = { workspace = true }
+chrono-tz = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Compile, the tests' setup, is async (ADR 0003).
+tokio = { workspace = true }
+# The tests' catalog double, which compile reads as setup.
+semstrait-catalog = { workspace = true }
+async-trait = { workspace = true }
+# Tests build a model to plan against.
+semstrait-model = { workspace = true }

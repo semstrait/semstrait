@@ -1,0 +1,48 @@
+tables:
+  - namespace: warehouse
+    name: adwords_rt1_source_a
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: bigint}
+      - {name: cost, type: bigint}
+      - {name: clicks, type: bigint}
+    rows: [["1", 1, 100, 1500]]
+  - namespace: warehouse
+    name: facebookads_rt_ad_source_a
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: bigint}
+      - {name: impressions, type: bigint}
+    rows: [["1", 1, 1000]]
+  - namespace: warehouse
+    name: rt1
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: bigint}
+      - {name: cost, type: bigint}
+      - {name: clicks, type: bigint}
+    rows: [["1", 1, 100, 1500], ["1", 2, 150, 2700], ["2", 3, 270, 0]]
+  - namespace: warehouse
+    name: rt2
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: bigint}
+      - {name: gender, type: string}
+      - {name: clicks, type: bigint}
+      - {name: impressions, type: bigint}
+    rows: [["1", 1, M, 1500, 15000]]
+  - namespace: warehouse
+    name: rt3
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: bigint}
+      - {name: clicks, type: bigint}
+    rows: [["3", 4, 2300]]
+  - namespace: warehouse
+    name: rt4
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: bigint}
+      - {name: clicks, type: bigint}
+      - {name: impressions, type: bigint}
+    rows: [["3", 5, 4000, 15000]]

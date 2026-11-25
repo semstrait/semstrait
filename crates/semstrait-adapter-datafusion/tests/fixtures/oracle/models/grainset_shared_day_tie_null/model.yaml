@@ -1,0 +1,89 @@
+# As grainset_shared_day_tie, with one NULL-campaign row in each table, so the NULL group shows that the drill-across joins it once with each child's value; by_date holds a NULL date group and dates that only some children hold, and by_date_reversed joins the same tables in the reverse order.
+semantic_model:
+  name: grainset_shared_day_tie_null
+  dimensions:
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - {name: campaign, data_type: bigint, type: categorical}
+  measures:
+    - {name: spend, data_type: bigint, agg: sum}
+    - {name: views, data_type: bigint, agg: sum}
+    - {name: revenue, data_type: bigint, agg: sum}
+    - {name: cost, data_type: bigint, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+  grainsets:
+    - name: ads
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: spend}, {ref: views}]
+      datasets:
+        - name: first
+          extras:
+            storage: {tables: [warehouse.first]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: second
+          extras:
+            storage: {tables: [warehouse.second]}
+            semantic_mapping: {date: date, campaign: campaign, views: views}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: ads_swapped
+      dimensions:
+        - {ref: date, is_key: true}
+        - {ref: campaign, is_key: true}
+      measures: [{ref: spend}, {ref: views}]
+      datasets:
+        - name: first
+          extras:
+            storage: {tables: [warehouse.second]}
+            semantic_mapping: {date: date, campaign: campaign, views: views}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: second
+          extras:
+            storage: {tables: [warehouse.first]}
+            semantic_mapping: {date: date, campaign: campaign, spend: spend}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: by_date
+      dimensions:
+        - {ref: date, is_key: true}
+      measures: [{ref: revenue}, {ref: cost}, {ref: clicks}]
+      datasets:
+        - name: revenue_m
+          extras:
+            storage: {tables: [warehouse.revenue_m]}
+            semantic_mapping: {date: date, revenue: revenue}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: cost_only
+          extras:
+            storage: {tables: [warehouse.cost_only]}
+            semantic_mapping: {date: date, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: clicks_only
+          extras:
+            storage: {tables: [warehouse.clicks_only]}
+            semantic_mapping: {date: date, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+    - name: by_date_reversed
+      dimensions:
+        - {ref: date, is_key: true}
+      measures: [{ref: revenue}, {ref: cost}, {ref: clicks}]
+      datasets:
+        - name: a_revenue
+          extras:
+            storage: {tables: [warehouse.revenue_m]}
+            semantic_mapping: {date: date, revenue: revenue}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: b_cost
+          extras:
+            storage: {tables: [warehouse.cost_only]}
+            semantic_mapping: {date: date, cost: cost}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}
+        - name: c_clicks
+          extras:
+            storage: {tables: [warehouse.clicks_only]}
+            semantic_mapping: {date: date, clicks: clicks}
+            temporal: {timeseries: {occurred_at: date}, granularity: day}

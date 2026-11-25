@@ -1,0 +1,107 @@
+# A finance variant whose date keeps a Day-only temporal shape.
+semantic_model:
+  name: finance_order_balances
+  dimensions:
+    - name: account
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day]
+    - name: order_date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+  measures:
+    - name: balance
+      data_type: bigint
+      agg: sum
+      additivity:
+        semi:
+          axes: []
+          by: date
+          strategy: latest
+    - name: avg_balance
+      data_type: double
+      agg: avg
+  joinsets:
+    - name: order_balances
+      dimensions:
+        - ref: account
+        - ref: order_date
+        - ref: date
+      measures:
+        - ref: avg_balance
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              account: account
+              order_date: order_date
+              date: booked_on
+            temporal:
+              events:
+                event_time: order_date
+              granularity: day
+          dimensions:
+            - ref: account
+            - ref: order_date
+            - ref: date
+        - name: balances
+          extras:
+            storage:
+              tables: [warehouse.balances]
+            semantic_mapping:
+              account: account
+              date: snap_date
+              avg_balance: balance
+            temporal:
+              snapshot:
+                snapshotted_at: date
+              granularity: day
+          dimensions:
+            - ref: account
+            - ref: date
+          measures:
+            - ref: avg_balance
+      relationships:
+        - name: held
+          from: orders
+          to: balances
+          on: [account, date]
+          cardinality: many_to_one
+          optional: left
+  unionsets:
+    - name: balances
+      mode: all
+      dimensions:
+        - ref: account
+        - ref: date
+      measures:
+        - ref: balance
+      datasets:
+        - name: day_30
+          extras:
+            storage:
+              tables: [warehouse.day_30]
+            temporal:
+              timeseries:
+                occurred_at: date
+              granularity: day
+            semantic_mapping:
+              account: account
+              date: date
+              balance: balance
+        - name: day_31
+          extras:
+            storage:
+              tables: [warehouse.day_31]
+            semantic_mapping:
+              account: account
+              date: date
+              balance: balance

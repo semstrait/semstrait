@@ -1,0 +1,1 @@
+error: at `ad_orders / ad_orders.lines`: the fan-out marker of `total` has no place above the join that repeats its rows

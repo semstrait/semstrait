@@ -1,0 +1,1 @@
+error: relationship `spend_to_campaigns`: its join basis names `channel`, which semantic source `campaign_clicks.spend_eu` does not map

@@ -1,0 +1,17 @@
+tables:
+  - namespace: warehouse
+    name: rt_advertiser
+    columns:
+      - {name: remote_key, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - ['3', 6300]
+  - namespace: warehouse
+    name: rt3
+    columns:
+      - {name: remote_key, type: string}
+      - {name: campaign, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - ['3', '4', 2300]
+      - ['3', '5', 4000]

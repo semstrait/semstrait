@@ -1,0 +1,32 @@
+# A non-additive Measure re-aggregates its already-aggregated rows at a coarser grain.
+
+reaggregated_average:
+  # Re-aggregating an already-aggregated average at a coarser grain still proceeds.
+  model: models/marketing
+  request:
+    from: cpc_daily
+    select: [{dimension: date, granularity: month}, avg_cpc]
+  expect:
+    rows:
+      - [date, avg_cpc]
+      - [2026-09-01, 1.0]
+      - [2026-10-01, 4.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:semstrait:datafusion
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: date_trunc
+      #  2 @  2: avg
+
+    === Plan
+    Root[date, avg_cpc]
+      Aggregate[$1 => $1, avg($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='cpc_daily', compositions=0, granularity_fit=&Requested, granularity=&Day]
+        Project[$0, (date_trunc('month', $1):date?)::!date?]
+          Project[$1, $0]
+            Read[warehouse.cpc_daily => date:date?, cpc:fp64?]
+              + Opt:Trace[semantic_source='cpc_daily', source_role=&Dataset, physical_source='cpc_daily']

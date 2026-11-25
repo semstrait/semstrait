@@ -1,0 +1,2 @@
+error: dataset `orders`: two `partition_def` entries name the Dimension `order_year`
+  note: `orders` reads `s3://lake/orders/` as parquet

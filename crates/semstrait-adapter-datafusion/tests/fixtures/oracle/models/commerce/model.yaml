@@ -1,0 +1,1408 @@
+# The commerce domain's main model: orders, customers, shops and their joins and unions.
+semantic_model:
+  name: commerce
+  dimensions:
+    - name: order_id
+      data_type: string
+      type: categorical
+    - name: region
+      data_type: string
+      type: categorical
+    - name: channel
+      data_type: string
+      type: categorical
+    - name: customer_id
+      data_type: string
+      type: categorical
+    - name: ordered_at
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, week, month, quarter, year]
+    - name: segment
+      data_type: string
+      type: categorical
+    - name: kind
+      data_type: string
+      type: categorical
+    - name: date
+      data_type: date
+      type:
+        temporal:
+          granularities: [day, month]
+    - {name: region_name, data_type: string, type: categorical}
+    - {name: k, data_type: string, type: categorical}
+    - {name: x, data_type: string, type: categorical}
+    - {name: y, data_type: string, type: categorical}
+    - {name: source, data_type: string, type: categorical}
+    - {name: platform, data_type: string, type: categorical}
+    - name: region_label
+      data_type: string
+      type: categorical
+    - name: a
+      data_type: string
+      type: categorical
+    - name: b
+      data_type: string
+      type: categorical
+    - name: ordered_on
+      data_type: date
+      type: categorical
+    - {name: region_id, data_type: string, type: categorical}
+    - name: sale_id
+      data_type: string
+      type: categorical
+    - name: tier
+      data_type: string
+      type: categorical
+    - {name: d, data_type: bigint, type: categorical}
+    - name: carrier
+      data_type: string
+      type: categorical
+    - name: line_id
+      data_type: string
+      type: categorical
+  measures:
+    - name: revenue
+      data_type: double
+      agg: sum
+    - name: order_count
+      data_type: bigint
+      agg: count
+    - name: web_revenue
+      data_type: double
+      agg: sum
+      filter:
+        eq: [channel, {lit: web}]
+    - name: buyers
+      data_type: bigint
+      agg: count_distinct
+    - name: vip_orders
+      data_type: bigint
+      agg: count
+      expr:
+        case:
+          whens:
+            - when: {eq: [segment, {lit: vip}]}
+              then: order_id
+    - name: gift_amount
+      data_type: double
+      agg: sum
+      filter:
+        eq: [kind, {lit: gift}]
+    - name: line_count
+      data_type: bigint
+      agg: count
+    - name: paid_revenue
+      data_type: double
+      agg: sum
+      filter: {eq: [{col: status}, {lit: paid}]}
+    - name: paid_avg
+      data_type: double
+      agg: avg
+      filter: {eq: [{col: status}, {lit: paid}]}
+    - {name: cost, data_type: double, agg: sum}
+    - {name: clicks, data_type: bigint, agg: sum}
+    - {name: customer_rows, data_type: bigint, agg: count}
+    - name: top_code
+      data_type: integer
+      agg: max
+    - name: top_file_code
+      data_type: integer
+      agg: max
+    - name: avg_amount
+      data_type: double
+      agg: avg
+    - name: customers
+      data_type: bigint
+      agg: count_distinct
+    - name: n
+      data_type: bigint
+      agg: count
+    - name: total_amount
+      data_type: double
+      agg: sum
+    - name: n_years
+      data_type: bigint
+      agg: count_distinct
+    - name: avg_credit
+      data_type: double
+      agg: avg
+    - name: parcels
+      data_type: integer
+      agg: count
+    - name: carriers
+      data_type: bigint
+      agg: count_distinct
+    - name: avg_shipping
+      data_type: double
+      agg: avg
+    - name: avg_price
+      data_type: double
+      agg: avg
+  metrics:
+    - name: aov
+      data_type: double
+      expr:
+        divide: [revenue, order_count]
+    - name: non_web
+      data_type: double
+      expr:
+        subtract: [revenue, web_revenue]
+    - name: revenue_adj
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [revenue, 1.2]}
+          else: revenue
+    - name: revenue_eu_only
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [revenue, 1.2]}
+    - name: revenue_eu_or_zero
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [revenue, 1.2]}
+          else: 0.0
+    - name: revenue_eu_bonus
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {add: [revenue, 100.0]}
+          else: revenue
+    - name: avg_order_value_adj
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [{divide: [revenue, order_count]}, 1.2]}
+          else: {divide: [revenue, order_count]}
+    - name: revenue_early_adj
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {lt: [ordered_at, {lit: {date: 2026-10-15}}]}
+              then: {multiply: [revenue, 0.9]}
+          else: revenue
+    - name: buyers_eu_weighted
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [buyers, 2]}
+          else: buyers
+    - name: regions_with_revenue
+      data_type: bigint
+      agg: count
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: {multiply: [revenue, 1.2]}
+          else: revenue
+    - name: avg_customer_revenue
+      data_type: double
+      agg: avg
+      expr: revenue
+    - name: refund_total
+      data_type: double
+      agg: sum
+      expr: {col: amount}
+    - name: vip_weighted_revenue
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [segment, {lit: vip}]}
+              then: {multiply: [revenue, 2.0]}
+          else: revenue
+    - name: gift_revenue
+      data_type: double
+      expr:
+        case:
+          whens:
+            - when: {eq: [kind, {lit: gift}]}
+              then: revenue
+    - name: buyers_weighted
+      data_type: bigint
+      expr:
+        multiply:
+          - case:
+              whens:
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: 2}
+                - when: {eq: [channel, {lit: web}]}
+                  then: {lit: 2}
+              else: {lit: 1}
+          - buyers
+    - name: buyers_weighted_cast
+      data_type: double
+      expr:
+        multiply:
+          - cast:
+              input:
+                case:
+                  whens:
+                    - when: {eq: [region, {lit: eu}]}
+                      then: {lit: 2}
+                    - when: {eq: [channel, {lit: web}]}
+                      then: {lit: 2}
+                  else: {lit: 1}
+              target: double
+          - buyers
+    - name: buyers_weighted_nested
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then:
+                multiply:
+                  - buyers
+                  - case:
+                      whens:
+                        - when: {eq: [channel, {lit: web}]}
+                          then: {lit: 2}
+                        - when: {eq: [channel, {lit: app}]}
+                          then: {lit: 2}
+                      else: {lit: 1}
+          else: buyers
+    - name: buyers_inner_doubled
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when:
+                eq:
+                  - case:
+                      whens:
+                        - when: {eq: [region, {lit: eu}]}
+                          then: {lit: 1}
+                        - when: {eq: [channel, {lit: web}]}
+                          then: {lit: 1}
+                      else: {lit: 0}
+                  - {lit: 1}
+              then: {multiply: [{lit: 2}, buyers]}
+          else: buyers
+    - name: buyers_weighted_flagged
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when:
+                and:
+                  - {gt_eq: [buyers, {lit: 1}]}
+                  - eq:
+                      - case:
+                          whens:
+                            - when: {eq: [region, {lit: eu}]}
+                              then: {lit: 1}
+                            - when: {eq: [channel, {lit: web}]}
+                              then: {lit: 1}
+                          else: {lit: 0}
+                      - {lit: 1}
+              then: {multiply: [{lit: 2}, buyers]}
+          else: buyers
+    - name: buyers_later_condition
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when: {eq: [region, {lit: eu}]}
+              then: buyers
+            - when:
+                eq:
+                  - case:
+                      whens:
+                        - when: {eq: [channel, {lit: web}]}
+                          then: {lit: 1}
+                        - when: {eq: [channel, {lit: app}]}
+                          then: {lit: 1}
+                      else: {lit: 0}
+                  - {lit: 1}
+              then: {multiply: [{lit: 2}, buyers]}
+          else: buyers
+    - name: buyers_web_or_else
+      data_type: bigint
+      expr:
+        case:
+          whens:
+            - when: {eq: [channel, {lit: web}]}
+              then: buyers
+          else: buyers
+    - name: bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: 100.0}
+                - when: {eq: [customer_id, {lit: c2}]}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - revenue
+    - name: gift_or_eu_bonus
+      data_type: double
+      expr:
+        add:
+          - case:
+              whens:
+                - when: {eq: [kind, {lit: gift}]}
+                  then: {lit: 100.0}
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: 100.0}
+              else: {lit: 0.0}
+          - revenue
+  datasets:
+    - name: orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          channel: channel
+          customer_id: customer_id
+          ordered_at: ordered_at
+          revenue: amount
+          order_count: order_id
+          web_revenue: amount
+          buyers: customer_id
+      dimensions:
+        - ref: region
+        - ref: channel
+        - ref: customer_id
+        - ref: ordered_at
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - ref: web_revenue
+        - ref: buyers
+      metrics:
+        - ref: aov
+        - ref: non_web
+        - ref: revenue_adj
+        - ref: revenue_eu_only
+        - ref: revenue_eu_or_zero
+        - ref: revenue_eu_bonus
+        - ref: avg_order_value_adj
+        - ref: revenue_early_adj
+        - ref: buyers_eu_weighted
+        - ref: regions_with_revenue
+        - ref: avg_customer_revenue
+        - ref: buyers_weighted
+        - ref: buyers_weighted_cast
+        - ref: buyers_weighted_nested
+        - ref: buyers_inner_doubled
+        - ref: buyers_weighted_flagged
+        - ref: buyers_later_condition
+        - ref: buyers_web_or_else
+      filters:
+        - name: is_eu
+          expr:
+            eq: [region, {lit: eu}]
+        - name: eu_web
+          expr:
+            and: [is_eu, {eq: [channel, {lit: web}]}]
+    - name: refunds
+      extras:
+        storage:
+          tables: [warehouse.refunds]
+      metrics:
+        - ref: refund_total
+    - name: orders_skeleton
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          channel: channel
+          customer_id: customer_id
+          ordered_at: ordered_at
+          revenue: amount
+          order_count: order_id
+          web_revenue: amount
+      dimensions:
+        - ref: region
+        - ref: channel
+        - ref: customer_id
+        - ref: ordered_at
+      measures:
+        - ref: revenue
+        - ref: order_count
+        - ref: web_revenue
+      metrics:
+        - ref: aov
+        - ref: non_web
+      filters:
+        - name: is_eu
+          expr:
+            eq: [region, {lit: eu}]
+        - name: eu_web
+          expr:
+            and: [is_eu, {eq: [channel, {lit: web}]}]
+    - name: codes
+      extras:
+        storage:
+          tables: [warehouse.codes]
+        semantic_mapping:
+          top_code: code
+      measures:
+        - ref: top_code
+    - name: code_files
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/code_files/]
+        semantic_mapping:
+          top_file_code: code
+      measures:
+        - ref: top_file_code
+    - name: upper_orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+        - ref: region_label
+          expr: {upper: region}
+      measures:
+        - ref: revenue
+    - name: lower_orders
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+        - ref: region_label
+          expr: {lower: region}
+      measures:
+        - ref: revenue
+    - name: orders_daily
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders_daily/]
+        semantic_mapping:
+          region: region
+          revenue: amount
+          order_count: order_id
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue
+        - ref: order_count
+    - name: pairs
+      extras:
+        storage:
+          tables: [warehouse.pairs]
+        semantic_mapping:
+          a: a
+          b: b
+          n: {lit: 1}
+      dimensions:
+        - ref: a
+        - ref: b
+      measures:
+        - ref: n
+    - name: sales_folder_wins
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/orders/]
+        semantic_mapping:
+          order_year: year
+          total_amount: amount
+          n_years: year
+      dimensions:
+        - name: order_year
+          data_type: integer
+          type: categorical
+      measures:
+        - ref: total_amount
+        - ref: n_years
+    - name: sales_two_paths
+      extras:
+        storage:
+          format: parquet
+          paths: [s3://semstrait-e2e/eu/orders/, s3://semstrait-e2e/us/orders/]
+        semantic_mapping:
+          order_year: year
+          total_amount: amount
+      dimensions:
+        - name: order_year
+          data_type: integer
+          type: categorical
+      measures:
+        - ref: total_amount
+    - name: typed_orders
+      extras:
+        storage:
+          tables: [warehouse.typed_orders]
+      dimensions:
+        - ref: ordered_on
+        - ref: region
+    - name: orders_typed
+      extras:
+        storage:
+          tables: [warehouse.orders]
+      dimensions:
+        - ref: ordered_on
+        - ref: region
+    - name: rows
+      extras:
+        storage:
+          tables: [warehouse.rows]
+      dimensions:
+        - name: c
+          data_type: string
+          type: categorical
+          expr:
+            concat: [{col: a}, {lit: '-'}, {col: b}]
+    - name: orders_two_tables
+      extras:
+        storage:
+          tables: [warehouse.eu_orders, warehouse.us_orders]
+        semantic_mapping:
+          revenue: amount
+      measures:
+        - ref: revenue
+    - name: orders_label_dimension
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region
+          revenue: amount
+      dimensions:
+        - ref: region
+        - ref: region_label
+          expr:
+            case:
+              whens:
+                - when: {eq: [region, {lit: eu}]}
+                  then: {lit: EU}
+              else: {lit: other}
+      measures:
+        - ref: revenue
+      metrics:
+        - name: eu_revenue
+          data_type: double
+          expr:
+            case:
+              whens:
+                - when: {eq: [region_label, {lit: EU}]}
+                  then: revenue
+    - name: orders_region_code
+      extras:
+        storage:
+          tables: [warehouse.orders]
+        semantic_mapping:
+          region: region_code
+          revenue: amount
+      dimensions:
+        - ref: region
+      measures:
+        - ref: revenue
+      metrics:
+        - ref: revenue_adj
+  joinsets:
+    - name: orders_customers
+      extras: {}
+      dimensions:
+        - ref: order_id
+        - ref: region
+        - ref: customer_id
+        - ref: segment
+      measures:
+        - ref: revenue
+        - ref: vip_orders
+      metrics:
+        - ref: revenue_adj
+        - ref: vip_weighted_revenue
+      datasets:
+        - name: orders_j
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              order_id: order_id
+              region: region
+              customer_id: customer_id
+              revenue: amount
+          dimensions:
+            - ref: order_id
+              is_key: true
+            - ref: region
+            - ref: customer_id
+          measures:
+            - ref: revenue
+        - name: customers_j
+          extras:
+            storage:
+              tables: [warehouse.customers]
+            semantic_mapping:
+              customer_id: customer_id
+              segment: segment
+          dimensions:
+            - ref: customer_id
+              is_key: true
+            - ref: segment
+      relationships:
+        - name: orders_j_to_customers_j
+          from: orders_j
+          to: customers_j
+          on: [customer_id]
+          cardinality: many_to_one
+    - name: orders_order_lines
+      extras: {}
+      dimensions:
+        - ref: order_id
+        - ref: region
+        - ref: kind
+      measures:
+        - ref: revenue
+        - ref: gift_amount
+        - ref: line_count
+      metrics:
+        - ref: gift_revenue
+      datasets:
+        - name: orders_l
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              order_id: order_id
+              region: region
+              revenue: amount
+              gift_amount: amount
+          dimensions:
+            - ref: order_id
+              is_key: true
+            - ref: region
+          measures:
+            - ref: revenue
+            - ref: gift_amount
+        - name: order_lines
+          extras:
+            storage:
+              tables: [warehouse.order_lines]
+            semantic_mapping:
+              order_id: order_id
+              kind: kind
+              line_count: line_id
+          dimensions:
+            - ref: order_id
+            - ref: kind
+          measures:
+            - ref: line_count
+      relationships:
+        - name: orders_l_to_order_lines
+          from: orders_l
+          to: order_lines
+          on: [order_id]
+          cardinality: one_to_many
+    - name: customer_orders
+      dimensions:
+        - ref: customer_id
+          is_key: true
+          keysets: [natural]
+        - ref: segment
+        - ref: tier
+        - ref: order_id
+      measures:
+        - ref: avg_credit
+        - ref: avg_amount
+      datasets:
+        - name: customers
+          extras:
+            storage:
+              tables: [warehouse.customers]
+            semantic_mapping:
+              customer_id: customer_id
+              segment: segment
+              tier: tier
+              avg_credit: credit
+          dimensions:
+            - ref: customer_id
+              is_key: true
+            - ref: segment
+            - ref: tier
+          measures:
+            - ref: avg_credit
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              order_id: order_id
+              customer_id: customer_id
+              avg_amount: amount
+          dimensions:
+            - ref: order_id
+              is_key: true
+            - ref: customer_id
+          measures:
+            - ref: avg_amount
+      relationships:
+        - name: placed
+          from: customers
+          to: orders
+          on: [customer_id]
+          cardinality: one_to_many
+          optional: left
+    - name: customer_orders_no_keyset
+      dimensions:
+        - ref: customer_id
+        - ref: segment
+        - ref: tier
+        - ref: order_id
+      measures:
+        - ref: avg_credit
+        - ref: avg_amount
+      datasets:
+        - name: customers
+          extras:
+            storage:
+              tables: [warehouse.customers]
+            semantic_mapping:
+              customer_id: customer_id
+              segment: segment
+              tier: tier
+              avg_credit: credit
+          dimensions:
+            - ref: customer_id
+              is_key: true
+            - ref: segment
+            - ref: tier
+          measures:
+            - ref: avg_credit
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              order_id: order_id
+              customer_id: customer_id
+              avg_amount: amount
+          dimensions:
+            - ref: order_id
+              is_key: true
+            - ref: customer_id
+          measures:
+            - ref: avg_amount
+      relationships:
+        - name: placed
+          from: customers
+          to: orders
+          on: [customer_id]
+          cardinality: one_to_many
+          optional: left
+    - name: sales_customers
+      dimensions: [{ref: sale_id}, {ref: customer_id}, {ref: region}, {ref: channel}, {ref: d}]
+      measures: [{ref: revenue}]
+      unionsets:
+        - name: all_sales
+          mode: unique
+          datasets:
+            - name: web_sales
+              extras:
+                storage: {tables: [warehouse.web_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: web}, d: d, revenue: amount}
+            - name: store_sales
+              extras:
+                storage: {tables: [warehouse.store_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: store}, d: d, revenue: amount}
+      datasets:
+        - name: customers
+          extras:
+            storage: {tables: [warehouse.customers]}
+      relationships:
+        - name: sales_to_customers
+          from: all_sales
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: none
+          integrity: none
+    - name: sales_customers_assumed
+      dimensions: [{ref: sale_id}, {ref: customer_id}, {ref: region}, {ref: channel}, {ref: d}]
+      measures: [{ref: revenue}]
+      unionsets:
+        - name: all_sales
+          mode: unique
+          datasets:
+            - name: web_sales
+              extras:
+                storage: {tables: [warehouse.web_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: web}, d: d, revenue: amount}
+            - name: store_sales
+              extras:
+                storage: {tables: [warehouse.store_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: store}, d: d, revenue: amount}
+      datasets:
+        - name: customers
+          extras:
+            storage: {tables: [warehouse.customers]}
+      relationships:
+        - name: sales_to_customers
+          from: all_sales
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: none
+          integrity: assumed
+    - name: sales_customers_filtered
+      dimensions: [{ref: sale_id}, {ref: customer_id}, {ref: region}, {ref: channel}, {ref: d}]
+      measures: [{ref: revenue}]
+      unionsets:
+        - name: all_sales
+          mode: unique
+          datasets:
+            - name: web_sales
+              extras:
+                storage: {tables: [warehouse.web_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: web}, d: d, revenue: amount}
+            - name: store_sales
+              extras:
+                storage: {tables: [warehouse.store_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: store}, d: d, revenue: amount}
+      datasets:
+        - name: customers
+          extras:
+            storage: {tables: [warehouse.customers]}
+      relationships:
+        - name: sales_to_customers
+          from: all_sales
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: none
+          integrity: none
+          filter: {gt: [d, {lit: 10}]}
+    - name: sales_customers_keyed
+      dimensions:
+        [{ref: sale_id, is_key: true, keysets: [sale]},
+         {ref: customer_id, is_key: true, keysets: [customer]},
+         {ref: region, is_key: true, keysets: [customer]}, {ref: channel}, {ref: d}]
+      measures: [{ref: revenue}]
+      unionsets:
+        - name: all_sales
+          mode: unique
+          datasets:
+            - name: web_sales
+              extras:
+                storage: {tables: [warehouse.web_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: web}, d: d, revenue: amount}
+            - name: store_sales
+              extras:
+                storage: {tables: [warehouse.store_sales]}
+                semantic_mapping:
+                  {sale_id: sale_id, customer_id: customer_id, channel: {lit: store}, d: d, revenue: amount}
+      datasets:
+        - name: customers
+          extras:
+            storage: {tables: [warehouse.customers]}
+      relationships:
+        - name: sales_to_customers
+          from: all_sales
+          to: customers
+          on: [customer_id]
+          cardinality: many_to_one
+          optional: none
+          integrity: assumed
+    - name: shipping
+      dimensions:
+        - ref: order_id
+          is_key: true
+          keysets: [natural]
+        - ref: region
+        - ref: line_id
+      measures:
+        - ref: avg_shipping
+        - ref: avg_price
+      datasets:
+        - name: orders
+          extras:
+            storage:
+              tables: [warehouse.orders]
+            semantic_mapping:
+              order_id: order_id
+              region: region
+              avg_shipping: shipping_cost
+          dimensions:
+            - ref: order_id
+              is_key: true
+            - ref: region
+          measures:
+            - ref: avg_shipping
+        - name: order_lines
+          extras:
+            storage:
+              tables: [warehouse.order_lines]
+            semantic_mapping:
+              line_id: line_id
+              order_id: order_id
+              avg_price: price
+          dimensions:
+            - ref: line_id
+              is_key: true
+            - ref: order_id
+          measures:
+            - ref: avg_price
+      relationships:
+        - name: lines
+          from: orders
+          to: order_lines
+          on: [order_id]
+          cardinality: one_to_many
+    - name: orders_order_lines_bonus
+      dimensions: [{ref: order_id}, {ref: region}, {ref: kind}]
+      measures: [{ref: revenue}]
+      metrics: [{ref: gift_or_eu_bonus}]
+      datasets:
+        - name: orders_l
+          extras:
+            storage: {tables: [warehouse.orders]}
+            semantic_mapping: {order_id: order_id, region: region, revenue: amount}
+          dimensions: [{ref: order_id, is_key: true}, {ref: region}]
+          measures: [{ref: revenue}]
+        - name: order_lines
+          extras:
+            storage: {tables: [warehouse.order_lines]}
+            semantic_mapping: {order_id: order_id, kind: kind}
+          dimensions: [{ref: order_id}, {ref: kind}]
+      relationships:
+        - {name: orders_l_to_order_lines, from: orders_l, to: order_lines, on: [order_id], cardinality: one_to_many}
+  unionsets:
+    - name: shops
+      mode: all
+      dimensions: [{ref: region}]
+      measures: [{ref: paid_revenue}, {ref: paid_avg}]
+      datasets:
+        - name: north
+          extras:
+            storage: {tables: [warehouse.north]}
+        - name: south
+          extras:
+            storage: {tables: [warehouse.south]}
+    - name: shops_j
+      mode: all
+      dimensions: [{ref: region}, {ref: region_name}]
+      measures: [{ref: paid_revenue}]
+      datasets:
+        - name: south
+          extras:
+            storage: {tables: [warehouse.south]}
+      joinsets:
+        - name: north_regions
+          datasets:
+            - name: north
+              extras:
+                storage: {tables: [warehouse.north]}
+            - name: regions
+              extras:
+                storage: {tables: [warehouse.regions]}
+          relationships:
+            - name: north_to_regions
+              from: north
+              to: regions
+              on: [region]
+              cardinality: many_to_one
+              optional: left
+    - name: u1
+      mode: all
+      dimensions: [{ref: k}, {ref: x}, {ref: y}]
+      measures: [{ref: cost}, {ref: revenue}]
+      datasets:
+        - name: d1
+          extras:
+            storage: {tables: [warehouse.d1]}
+            semantic_mapping: {k: k, x: x, y: y, cost: cost, revenue: revenue}
+      joinsets:
+        - name: j1
+          datasets:
+            - name: a1
+              extras:
+                storage: {tables: [warehouse.a1]}
+                semantic_mapping: {k: k, x: {lit: a}, y: {lit: {null: string}}, cost: cost}
+            - name: b1
+              extras:
+                storage: {tables: [warehouse.b1]}
+                semantic_mapping: {k: k, x: {lit: {null: string}}, y: {lit: b}, revenue: revenue}
+          relationships:
+            - {name: a1_to_b1, from: a1, to: b1, on: [k], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: u3
+      mode: all
+      dimensions: [{ref: k}, {ref: source}]
+      measures: [{ref: cost}, {ref: revenue}]
+      datasets:
+        - name: d3
+          extras:
+            storage: {tables: [warehouse.d3]}
+            semantic_mapping: {k: k, source: {lit: shop}, cost: cost, revenue: revenue}
+      joinsets:
+        - name: j3
+          datasets:
+            - name: a3
+              extras:
+                storage: {tables: [warehouse.a3]}
+                semantic_mapping: {k: k, source: {lit: erp}, cost: cost}
+            - name: b3
+              extras:
+                storage: {tables: [warehouse.b3]}
+                semantic_mapping: {k: k, source: {lit: stripe}, revenue: revenue}
+          relationships:
+            - {name: a3_to_b3, from: a3, to: b3, on: [k], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: u10
+      mode: all
+      dimensions: [{ref: k}, {ref: platform}]
+      measures: [{ref: clicks}]
+      joinsets:
+        - name: jf
+          datasets:
+            - name: fs
+              extras:
+                storage: {tables: [warehouse.fs]}
+                semantic_mapping: {k: k, platform: {lit: facebook}, clicks: clicks}
+            - name: fc
+              extras:
+                storage: {tables: [warehouse.fc]}
+                semantic_mapping: {k: k, platform: {lit: facebook}}
+          relationships:
+            - {name: fs_to_fc, from: fs, to: fc, on: [k], cardinality: many_to_one, optional: none, integrity: assumed}
+        - name: jg
+          datasets:
+            - name: gs
+              extras:
+                storage: {tables: [warehouse.gs]}
+                semantic_mapping: {k: k, platform: {lit: google}, clicks: clicks}
+            - name: gc
+              extras:
+                storage: {tables: [warehouse.gc]}
+                semantic_mapping: {k: k, platform: {lit: google}}
+          relationships:
+            - {name: gs_to_gc, from: gs, to: gc, on: [k], cardinality: many_to_one, optional: none, integrity: assumed}
+    - name: all_orders
+      mode: all
+      dimensions: [{ref: channel}, {ref: customer_id}]
+      measures: [{ref: customer_rows}]
+      datasets:
+        - name: orders_store
+          extras:
+            storage: {tables: [warehouse.orders_store]}
+            semantic_mapping: {channel: {lit: store}, customer_id: customer_id, customer_rows: order_id}
+      joinsets:
+        - name: jw
+          datasets:
+            - name: orders_web
+              extras:
+                storage: {tables: [warehouse.orders_web]}
+                semantic_mapping: {channel: {lit: web}, customer_id: customer_id}
+            - name: customers
+              extras:
+                storage: {tables: [warehouse.customers]}
+                semantic_mapping: {customer_id: customer_id, customer_rows: customer_id}
+          relationships:
+            - {name: web_to_customers, from: orders_web, to: customers, on: [customer_id], cardinality: many_to_one, optional: right, integrity: none}
+    - name: all_sales
+      mode: all
+      dimensions:
+        - ref: region
+      measures:
+        - ref: order_count
+        - ref: revenue
+      datasets:
+        - name: store_sales
+          extras:
+            storage:
+              tables: [warehouse.store_sales]
+            semantic_mapping:
+              region: {lit: {string: emea}}
+              order_count: sale_id
+              revenue: amount
+        - name: web_sales
+          extras:
+            storage:
+              tables: [warehouse.web_sales]
+            semantic_mapping:
+              region: {lit: {string: amer}}
+              order_count: sale_id
+              revenue: amount
+    - name: sales
+      mode: all
+      dimensions:
+        - ref: region
+      measures:
+        - ref: avg_amount
+        - ref: customers
+      datasets:
+        - name: online_sales
+          extras:
+            storage:
+              tables: [warehouse.online]
+            semantic_mapping:
+              region: region
+              avg_amount: amount
+              customers: customer_id
+        - name: store_sales
+          extras:
+            storage:
+              tables: [warehouse.stores]
+            semantic_mapping:
+              region: region
+              avg_amount: amount
+              customers: customer_id
+    - name: orders_union
+      mode: all
+      dimensions:
+        - ref: region
+      measures:
+        - ref: order_count
+      datasets:
+        - name: eu_orders
+          extras:
+            storage:
+              tables: [warehouse.eu_orders]
+            semantic_mapping:
+              region: region
+              order_count: order_id
+        - name: us_orders
+          extras:
+            storage:
+              tables: [warehouse.us_orders]
+            semantic_mapping:
+              order_count: order_id
+    - name: u0
+      mode: all
+      dimensions: [{ref: channel}, {ref: region_id}, {ref: region_name}]
+      measures: [{ref: revenue}]
+      datasets:
+        - name: d10
+          extras:
+            storage: {tables: [warehouse.d10]}
+            semantic_mapping: {channel: {lit: b}, region_id: region_id, revenue: amount}
+      joinsets:
+        - name: j
+          unionsets:
+            - name: u3
+              mode: all
+              datasets:
+                - name: e7
+                  extras:
+                    storage: {tables: [warehouse.e7]}
+                    semantic_mapping: {channel: {lit: a}, region_id: region_id, revenue: amount}
+                - name: e8
+                  extras:
+                    storage: {tables: [warehouse.e8]}
+                    semantic_mapping: {channel: {lit: b}, region_id: region_id, revenue: amount}
+          datasets:
+            - name: regions
+              extras:
+                storage: {tables: [warehouse.regions]}
+                semantic_mapping: {region_id: region_id, region_name: region_name}
+          relationships:
+            - name: u3_to_regions
+              from: u3
+              to: regions
+              on: [region_id]
+              cardinality: many_to_one
+              optional: none
+              integrity: assumed
+    - name: all_sales_unique
+      mode: unique
+      dimensions:
+        - ref: sale_id
+          is_key: true
+      measures:
+        - ref: revenue
+      datasets:
+        - name: store_sales
+          extras:
+            storage:
+              tables: [warehouse.store_sales]
+            semantic_mapping:
+              sale_id: sale_id
+              revenue: amount
+          dimensions:
+            - ref: sale_id
+              is_key: true
+          measures:
+            - ref: revenue
+        - name: web_sales
+          extras:
+            storage:
+              tables: [warehouse.web_sales]
+            semantic_mapping:
+              sale_id: sale_id
+              revenue: amount
+          dimensions:
+            - ref: sale_id
+              is_key: true
+          measures:
+            - ref: revenue
+    - name: all_sales_no_keyset
+      mode: unique
+      dimensions:
+        - ref: sale_id
+      measures:
+        - ref: revenue
+      datasets:
+        - name: store_sales
+          extras:
+            storage:
+              tables: [warehouse.store_sales]
+            semantic_mapping:
+              sale_id: sale_id
+              revenue: amount
+          dimensions:
+            - ref: sale_id
+          measures:
+            - ref: revenue
+        - name: web_sales
+          extras:
+            storage:
+              tables: [warehouse.web_sales]
+            semantic_mapping:
+              sale_id: sale_id
+              revenue: amount
+          dimensions:
+            - ref: sale_id
+          measures:
+            - ref: revenue
+    - name: shipments
+      mode: all
+      dimensions:
+        - ref: carrier
+      measures:
+        - ref: parcels
+        - ref: carriers
+      datasets:
+        - name: rail
+          extras:
+            storage:
+              tables: [warehouse.rail]
+            semantic_mapping:
+              carrier: carrier
+              parcels: parcel_id
+              carriers: carrier
+        - name: road
+          extras:
+            storage:
+              tables: [warehouse.road]
+            semantic_mapping:
+              carrier: carrier
+              parcels: parcel_id
+              carriers: carrier
+    - name: empty_first_union
+      mode: all
+      dimensions: [{ref: channel}, {ref: region_id}, {ref: region_name}]
+      measures: [{ref: revenue}]
+      datasets:
+        - name: z10
+          extras:
+            storage: {tables: [warehouse.z10]}
+            semantic_mapping: {channel: {lit: c}, region_id: region_id, revenue: amount}
+      joinsets:
+        - name: j
+          unionsets:
+            - name: u3
+              mode: all
+              datasets:
+                - name: e7
+                  extras:
+                    storage: {tables: [warehouse.e7]}
+                    semantic_mapping: {channel: {lit: a}, region_id: region_id, revenue: amount}
+                - name: e8
+                  extras:
+                    storage: {tables: [warehouse.e8]}
+                    semantic_mapping: {channel: {lit: b}, region_id: region_id, revenue: amount}
+          datasets:
+            - name: regions
+              extras:
+                storage: {tables: [warehouse.regions]}
+                semantic_mapping: {region_id: region_id, region_name: region_name}
+          relationships:
+            - name: u3_to_regions
+              from: u3
+              to: regions
+              on: [region_id]
+              cardinality: many_to_one
+              optional: none
+              integrity: assumed
+    - name: web_sales
+      mode: all
+      dimensions:
+        - ref: channel
+      measures:
+        - ref: revenue
+      filters:
+        - name: web_only
+          expr:
+            eq: [channel, {lit: web}]
+      datasets:
+        - name: east
+          extras:
+            storage:
+              tables: [warehouse.east]
+            semantic_mapping:
+              channel: channel
+              revenue: amount
+        - name: west
+          extras:
+            storage:
+              tables: [warehouse.west]
+            semantic_mapping:
+              channel: channel
+              revenue: amount
+  grainsets:
+    - name: orders_gs
+      dimensions: [{ref: date}, {ref: customer_id}, {ref: region}]
+      measures: [{ref: revenue}]
+      metrics: [{ref: bonus}]
+      datasets:
+        - name: region_sales_monthly
+          extras:
+            storage: {tables: [warehouse.region_sales_monthly]}
+            semantic_mapping: {date: month_start, region: region, revenue: revenue}
+            temporal: {timeseries: {occurred_at: date}, granularity: month}
+      joinsets:
+        - name: orders_daily
+          datasets:
+            - name: web_orders_dated
+              extras:
+                storage: {tables: [warehouse.web_orders_dated]}
+                semantic_mapping: {date: order_date, customer_id: customer_id, revenue: amount}
+                temporal: {timeseries: {occurred_at: date}, granularity: day}
+            - name: customers_s4
+              extras:
+                storage: {tables: [warehouse.customers_s4]}
+                semantic_mapping: {customer_id: customer_id, region: region}
+          relationships:
+            - {name: orders_to_customers, from: web_orders_dated, to: customers_s4, on: [customer_id], cardinality: many_to_one, optional: none, integrity: assumed}

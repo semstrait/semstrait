@@ -1,0 +1,1 @@
+error: the request predicate reads the column `amount`: it reads semantics only

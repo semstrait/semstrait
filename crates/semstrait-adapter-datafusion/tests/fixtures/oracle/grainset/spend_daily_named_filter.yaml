@@ -1,0 +1,49 @@
+# A named filter on a Grainset goes to a Joinset child that answers alone, which reads one copy per operand.
+
+x_only_at_day:
+  # The Day Joinset child answers alone; X has no clicks row, so its clicks are NULL.
+  model: models/spend_daily_named_filter
+  request:
+    from: spend
+    select: [{dimension: date, granularity: day}, campaign, cost, clicks]
+    filters: [x_only]
+  expect:
+    rows:
+      - [date, campaign, cost, clicks]
+      - [2026-03-01, X, 10, null]
+      - [2026-03-02, X, 4, null]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+      @  3: extension:io.substrait:functions_boolean
+      @  4: extension:semstrait:datafusion
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+      #  3 @  3: and
+      #  4 @  1: coalesce
+      #  5 @  4: date_trunc
+
+    === Plan
+    Root[date, campaign, cost, clicks]
+      Aggregate[$3, $0 => $3, $0, sum($2, overflow⇒[ERROR]):i64?, sum($1, overflow⇒[ERROR]):i64?]
+        + Opt:Trace[scope_root='spend', compositions=2, granularity_fit=&Requested, granularity=&Day]
+        + Opt:Trace[semantic_source='spend', source_role=&Grainset, answered_by='spend.spend_daily']
+        Project[$0, $1, $2, (date_trunc('day', $3):date?)::!date?]
+          Project[coalesce($1, $4):string?, $5, $2, coalesce($0, $3):date?]
+            Join[&Outer, and(equal($0, $3):boolean?, equal($1, $4):boolean?):boolean? => $0, $1, $2, $3, $4, $5]
+              + Opt:Trace[semantic_source='spend.spend_daily', source_role=&Joinset, originators=('spend',), cardinality=&OneToOne]
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Filter[equal($0, 'X'):boolean? => $0, $1, $2]
+                  Project[$1, $2, $0]
+                    Read[warehouse.cost_daily => day:date?, campaign:string?, cost:i64?]
+                      + Opt:Trace[semantic_source='spend.spend_daily.cost_daily', source_role=&Dataset, originators=('spend.spend_daily',), physical_source='cost_daily']
+              Aggregate[$2, $0 => $2, $0, sum($1, overflow⇒[ERROR]):i64?]
+                Filter[equal($0, 'X'):boolean? => $0, $1, $2]
+                  Project[$1, $2, $0]
+                    Read[warehouse.clicks_daily => day:date?, campaign:string?, clicks:i64?]
+                      + Opt:Trace[semantic_source='spend.spend_daily.clicks_daily', source_role=&Dataset, originators=('spend.spend_daily',), physical_source='clicks_daily']

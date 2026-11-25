@@ -1,0 +1,416 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: region, type: string}
+      - {name: channel, type: string}
+      - {name: amount, type: double}
+      - {name: ordered_at, type: date}
+      - {name: ordered_on, type: date}
+      - {name: shipping_cost, type: double}
+      - {name: region_code, type: string}
+    rows:
+      - [o1, c1, eu, web, 100.0, 2026-10-05, null, null, null]
+      - [o2, c1, eu, app, 50.0, 2026-10-20, null, null, null]
+      - [o3, c1, us, web, 200.0, 2026-10-10, null, null, null]
+      - [o4, c2, us, null, 10.0, 2026-10-25, null, null, null]
+  - namespace: warehouse
+    name: refunds
+    columns:
+      - {name: refund_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [r1, 30.0]
+      - [r2, 30.0]
+  - namespace: warehouse
+    name: customers
+    columns:
+      - {name: customer_id, type: string}
+      - {name: segment, type: string}
+      - {name: tier, type: string}
+      - {name: credit, type: double}
+      - {name: region, type: string}
+    rows:
+      - [c1, vip, null, null, null]
+      - [c2, basic, null, null, null]
+  - namespace: warehouse
+    name: order_lines
+    columns:
+      - {name: line_id, type: string}
+      - {name: order_id, type: string}
+      - {name: kind, type: string}
+      - {name: price, type: double}
+    rows:
+      - [l1, o1, gift, null]
+      - [l2, o1, gift, null]
+      - [l3, o2, std, null]
+      - [l4, o3, gift, null]
+      - [l5, o4, std, null]
+  - namespace: warehouse
+    name: web_orders_dated
+    columns:
+      - {name: order_date, type: date}
+      - {name: customer_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [2026-03-01, c1, 10.0]
+      - [2026-03-02, c2, 20.0]
+      - [2026-04-01, c1, 5.0]
+  - namespace: warehouse
+    name: customers_s4
+    columns:
+      - {name: customer_id, type: string}
+      - {name: region, type: string}
+    rows:
+      - [c1, eu]
+      - [c2, us]
+  - namespace: warehouse
+    name: region_sales_monthly
+    columns:
+      - {name: month_start, type: date}
+      - {name: region, type: string}
+      - {name: revenue, type: double}
+    rows:
+      - [2026-03-01, eu, 10.0]
+      - [2026-04-01, eu, 5.0]
+      - [2026-03-01, us, 20.0]
+  - namespace: warehouse
+    name: north
+    columns:
+      - {name: region, type: string}
+      - {name: status, type: string}
+      - {name: paid_revenue, type: double}
+      - {name: paid_avg, type: double}
+    rows:
+      - [eu, paid, 10.0, 10.0]
+      - [eu, open, 20.0, 20.0]
+      - [us, paid, 40.0, 40.0]
+      - [null, paid, 3.0, 3.0]
+      - [eu, null, 100.0, 100.0]
+  - namespace: warehouse
+    name: south
+    columns:
+      - {name: region, type: string}
+      - {name: status, type: string}
+      - {name: paid_revenue, type: double}
+      - {name: paid_avg, type: double}
+    rows:
+      - [eu, paid, 5.0, 5.0]
+      - [us, open, 7.0, 7.0]
+  - namespace: warehouse
+    name: regions
+    columns:
+      - {name: region, type: string}
+      - {name: region_name, type: string}
+      - {name: region_id, type: string}
+    rows:
+      - [eu, Europe, null]
+      - [us, America, null]
+  - namespace: warehouse
+    name: a1
+    columns:
+      - {name: k, type: string}
+      - {name: cost, type: double}
+    rows:
+      - [k1, 10.0]
+      - [k2, 20.0]
+  - namespace: warehouse
+    name: b1
+    columns:
+      - {name: k, type: string}
+      - {name: revenue, type: double}
+    rows:
+      - [k1, 1.0]
+      - [k2, 2.0]
+  - namespace: warehouse
+    name: d1
+    columns:
+      - {name: k, type: string}
+      - {name: x, type: string}
+      - {name: y, type: string}
+      - {name: cost, type: double}
+      - {name: revenue, type: double}
+    rows:
+      - [null, c, null, 7.0, 70.0]
+      - [null, c, e, 8.0, 80.0]
+  - namespace: warehouse
+    name: a3
+    columns:
+      - {name: k, type: string}
+      - {name: cost, type: double}
+    rows:
+      - [k1, 10.0]
+      - [k2, 20.0]
+  - namespace: warehouse
+    name: b3
+    columns:
+      - {name: k, type: string}
+      - {name: revenue, type: double}
+    rows:
+      - [k1, 1.0]
+      - [k2, 2.0]
+  - namespace: warehouse
+    name: d3
+    columns:
+      - {name: k, type: string}
+      - {name: cost, type: double}
+      - {name: revenue, type: double}
+    rows:
+      - [null, null, 9.0]
+  - namespace: warehouse
+    name: fs
+    columns:
+      - {name: k, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [k1, 3]
+      - [k2, 4]
+  - namespace: warehouse
+    name: fc
+    columns:
+      - {name: k, type: string}
+      - {name: conv, type: bigint}
+    rows:
+      - [k1, 1]
+      - [k2, 0]
+  - namespace: warehouse
+    name: gs
+    columns:
+      - {name: k, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [k1, 6]
+  - namespace: warehouse
+    name: gc
+    columns:
+      - {name: k, type: string}
+      - {name: conv, type: bigint}
+    rows:
+      - [k1, 2]
+  - namespace: warehouse
+    name: orders_web
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [w1, c1, 10]
+      - [w2, c2, 20]
+  - namespace: warehouse
+    name: orders_store
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [st1, c3, 7]
+  - namespace: warehouse
+    name: store_sales
+    columns:
+      - {name: sale_id, type: string}
+      - {name: amount, type: double}
+      - {name: customer_id, type: string}
+      - {name: d, type: bigint}
+    rows:
+      - [s2, 10.0, null, null]
+      - [s1, 10.0, null, null]
+  - namespace: warehouse
+    name: web_sales
+    columns:
+      - {name: sale_id, type: string}
+      - {name: amount, type: double}
+      - {name: customer_id, type: string}
+      - {name: d, type: bigint}
+    rows:
+      - [s1, 10.0, null, null]
+  - namespace: warehouse
+    name: codes
+    columns:
+      - {name: code, type: string}
+    rows:
+      - ['9']
+      - ['10']
+  - namespace: warehouse
+    name: online
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: double}
+      - {name: customer_id, type: string}
+    rows:
+      - [eu, 10.0, c1]
+      - [us, 20.0, c2]
+  - namespace: warehouse
+    name: stores
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: double}
+      - {name: customer_id, type: string}
+    rows:
+      - [eu, 30.0, c1]
+      - [eu, 60.0, c3]
+      - [us, 90.0, c3]
+  - namespace: warehouse
+    name: eu_orders
+    columns:
+      - {name: region, type: string}
+      - {name: order_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [de, o1, null]
+      - [de, o2, null]
+      - [fr, o3, null]
+      - [it, null, null]
+  - namespace: warehouse
+    name: us_orders
+    columns:
+      - {name: order_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [o4, null]
+      - [o5, null]
+  - namespace: warehouse
+    name: pairs
+    columns:
+      - {name: a, type: string}
+      - {name: b, type: string}
+    rows:
+      - [x, x]
+      - [null, null]
+      - [x, null]
+  - namespace: warehouse
+    name: typed_orders
+    columns:
+      - {name: ordered_on, type: timestamp}
+      - {name: region, type: string}
+    rows:
+      - ["2026-03-10 09:00:00", eu]
+      - ["2026-03-10 17:30:00", eu]
+      - ["2026-03-11 08:00:00", us]
+  - namespace: warehouse
+    name: d10
+    columns:
+      - {name: id, type: string}
+      - {name: region_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [z1, null, 70.0]
+  - namespace: warehouse
+    name: e7
+    columns:
+      - {name: id, type: string}
+      - {name: region_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [x1, r1, 10.0]
+      - [x2, r2, 30.0]
+  - namespace: warehouse
+    name: e8
+    columns:
+      - {name: id, type: string}
+      - {name: region_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [y1, r1, 50.0]
+  - namespace: warehouse
+    name: rows
+    columns:
+      - {name: a, type: string}
+      - {name: b, type: string}
+    rows:
+      - [US, purchase]
+      - [x, null]
+  - namespace: warehouse
+    name: rail
+    columns:
+      - {name: carrier, type: string}
+      - {name: parcel_id, type: integer}
+    rows:
+      - [dhl, 1]
+      - [ups, 2]
+  - namespace: warehouse
+    name: road
+    columns:
+      - {name: carrier, type: string}
+      - {name: parcel_id, type: bigint}
+    rows:
+      - [dhl, 3]
+  - namespace: warehouse
+    name: z10
+    columns:
+      - {name: id, type: string}
+      - {name: region_id, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [z1, null, 70.0]
+  - namespace: warehouse
+    name: east
+    columns:
+      - {name: channel, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [web, 10.0]
+      - [app, 20.0]
+  - namespace: warehouse
+    name: west
+    columns:
+      - {name: channel, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [web, 30.0]
+      - [app, 40.0]
+objects:
+  - uri: s3://semstrait-e2e/code_files/part-0.parquet
+    columns:
+      - {name: code, type: string, read: integer}
+    rows:
+      - ['9']
+      - ['10']
+  - uri: s3://semstrait-e2e/orders_daily/part-0.parquet
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: bigint, read: double}
+      - {name: order_id, type: bigint}
+    rows:
+      - [eu, 10, 1]
+      - [us, 20, 2]
+      - [eu, 5, 3]
+  - uri: s3://semstrait-e2e/orders_daily/part-1.parquet
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: bigint, read: double}
+      - {name: order_id, type: bigint}
+    rows:
+      - [us, 7, 4]
+      - [eu, 1, 5]
+  - uri: s3://semstrait-e2e/orders/year=2025/part-0.parquet
+    columns:
+      - {name: year, type: integer}
+      - {name: amount, type: double}
+    rows:
+      - [1999, 10.0]
+      - [1999, 2.5]
+  - uri: s3://semstrait-e2e/orders/year=2026/part-0.parquet
+    columns:
+      - {name: year, type: integer}
+      - {name: amount, type: double}
+    rows:
+      - [1999, 20.0]
+      - [1999, 4.5]
+  - uri: s3://semstrait-e2e/eu/orders/year=2025/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [10.0]
+  - uri: s3://semstrait-e2e/eu/orders/year=2026/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [20.0]
+  - uri: s3://semstrait-e2e/us/orders/year=2026/part-0.parquet
+    columns:
+      - {name: amount, type: double}
+    rows:
+      - [5.0]
+      - [1.5]

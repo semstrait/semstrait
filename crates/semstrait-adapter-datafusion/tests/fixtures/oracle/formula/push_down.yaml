@@ -1,0 +1,317 @@
+# A formula pushes its sum down past a Unionset's branches, a Joinset's non-repeating side, or a Grainset operand.
+
+case_over_grainset_operand:
+  # A CASE's parts are summed separately where the formula's value comes from a Grainset operand.
+  model: models/marketing_eu_budget
+  request:
+    from: g_campaigns
+    select: [bonus]
+  expect:
+    rows:
+      - [bonus]
+      - [420.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: add
+
+    === Plan
+    Root[bonus]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='g_campaigns', compositions=2, granularity_fit=&NotSelected, granularity=&Month]
+        Project[add(if_then(equal($0, 1):boolean -> 100, equal($0, 2):boolean -> 100, _ -> 0), ($1)::!fp64?):fp64?]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$2, if_then(equal($0, 'SE'):boolean? -> 1, equal($3, 'us'):boolean? -> 2, _ -> 3)]
+              Join[&Inner, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                + Opt:Trace[semantic_source='g_campaigns', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$2, $1 => $2, $1, sum($0, overflow⇒[ERROR]):fp64?]
+                  + Opt:Trace[semantic_source='g_campaigns.g', source_role=&Grainset, originators=('g_campaigns',), answered_by='g_campaigns.g.g_month']
+                  Project[$1, $2, $0]
+                    Read[warehouse.g_month => country:string?, budget:fp64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='g_campaigns.g.g_month', source_role=&Dataset, originators=('g_campaigns.g',), physical_source='g_month']
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.campaigns => region:string?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='g_campaigns.campaigns', source_role=&Dataset, originators=('g_campaigns',), physical_source='campaigns']
+
+pushdown_meets_grainset:
+  # A pushed-down formula meets a Grainset, which gives aggregates, so it takes the parts instead.
+  model: models/marketing_eu_budget
+  request:
+    from: g_campaigns
+    select: [budget_eu]
+  expect:
+    rows:
+      - [budget_eu]
+      - [250.0]
+  sql: >-
+    SELECT sum(CASE WHEN part = 1 THEN budget * 1.2 ELSE budget END) AS budget_eu
+    FROM (SELECT CASE WHEN c.region = 'eu' THEN 1 ELSE 2 END AS part, sum(g.budget) AS budget
+    FROM (SELECT campaign_id, sum(budget) AS budget FROM warehouse.g_month GROUP BY campaign_id) g
+    JOIN warehouse.campaigns c ON g.campaign_id = c.campaign_id
+    GROUP BY part)
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: multiply
+
+    === Plan
+    Root[budget_eu]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='g_campaigns', compositions=2, granularity_fit=&NotSelected, granularity=&Month]
+        Project[if_then(equal($0, 1):boolean -> multiply(($1)::!fp64?, 1.2):fp64?, _ -> ($2)::!fp64?)]
+          Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$1, $1, if_then(equal($2, 'eu'):boolean? -> 1, _ -> 2)]
+              Join[&Inner, equal($0, $3):boolean? => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='g_campaigns', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+                  + Opt:Trace[semantic_source='g_campaigns.g', source_role=&Grainset, originators=('g_campaigns',), answered_by='g_campaigns.g.g_month']
+                  Project[$0, $1]
+                    Read[warehouse.g_month => budget:fp64?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='g_campaigns.g.g_month', source_role=&Dataset, originators=('g_campaigns.g',), physical_source='g_month']
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.campaigns => region:string?, campaign_id:string?]
+                      + Opt:Trace[semantic_source='g_campaigns.campaigns', source_role=&Dataset, originators=('g_campaigns',), physical_source='campaigns']
+
+case_by_union_branch:
+  # A CASE groups each Unionset branch by the columns its own key reads.
+  model: models/commerce_own_formula
+  request:
+    from: split_orders
+    select: [bonus]
+  expect:
+    rows:
+      - [bonus]
+      - [560.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: add
+
+    === Plan
+    Root[bonus]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='split_orders', compositions=1, granularity_fit=&NotSelected]
+        Project[add(if_then(equal($0, 1):boolean -> 100, equal($0, 2):boolean -> 100, _ -> 0), $1):fp64?]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$2, if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> 3)]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='split_orders', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):fp64?]
+                  Project[$3, $2, $0, $1]
+                    Project[$1, $0, true, $2]
+                      Read[warehouse.eu_orders => region:string?, channel:string?, amount:fp64?]
+                        + Opt:Trace[semantic_source='split_orders.eu_orders', source_role=&Dataset, originators=('split_orders',), physical_source='eu_orders']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):fp64?]
+                    Project[$3, $2, $0, $1]
+                      Project[$1, $0, true, $2]
+                        Read[warehouse.us_orders => region:string?, channel:string?, amount:fp64?]
+                          + Opt:Trace[semantic_source='split_orders.us_orders', source_role=&Dataset, originators=('split_orders',), physical_source='us_orders']
+
+case_inside_condition_branch:
+  # A CASE nested inside another CASE's condition still groups each Unionset branch by its own parts.
+  model: models/commerce_own_formula
+  request:
+    from: split_orders
+    select: [inner_bonus]
+  expect:
+    rows:
+      - [inner_bonus]
+      - [560.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: add
+
+    === Plan
+    Root[inner_bonus]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='split_orders', compositions=1, granularity_fit=&NotSelected]
+        Project[add(if_then(equal($0, 1):boolean -> 100, _ -> 0), $2):fp64?]
+          Aggregate[$1, $2 => $1, $2, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$2, if_then(equal(if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 1, _ -> 0), 1):boolean -> 1, _ -> 2), if_then(equal($0, 'eu'):boolean? -> 1, equal($1, 'web'):boolean? -> 2, _ -> 3)]
+              Set[&UnionAll => $0, $1, $2]
+                + Opt:Trace[semantic_source='split_orders', source_role=&Unionset, delivery=&PartialAggregates]
+                Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):fp64?]
+                  Project[$3, $2, $0, $1]
+                    Project[$1, $0, true, $2]
+                      Read[warehouse.eu_orders => region:string?, channel:string?, amount:fp64?]
+                        + Opt:Trace[semantic_source='split_orders.eu_orders', source_role=&Dataset, originators=('split_orders',), physical_source='eu_orders']
+                Project[$0, $1, $2]
+                  Aggregate[$3, $2 => $3, $2, sum($0, overflow⇒[ERROR]):fp64?]
+                    Project[$3, $2, $0, $1]
+                      Project[$1, $0, true, $2]
+                        Read[warehouse.us_orders => region:string?, channel:string?, amount:fp64?]
+                          + Opt:Trace[semantic_source='split_orders.us_orders', source_role=&Dataset, originators=('split_orders',), physical_source='us_orders']
+
+pushdown_to_union_root:
+  # A formula pushed down to a Unionset's non-disjoint branches sums each branch's own row argument.
+  model: models/commerce_own_formula
+  request:
+    from: split_orders
+    select: [channel, revenue_adj]
+  expect:
+    rows:
+      - [channel, revenue_adj]
+      - [web, 320.0]
+      - [app, 60.0]
+      - [null, 10.0]
+  sql: >-
+    SELECT channel, sum(CASE WHEN region = 'eu' THEN amount * 1.2 ELSE amount END) AS revenue_adj
+    FROM (SELECT * FROM warehouse.eu_orders UNION ALL SELECT * FROM warehouse.us_orders)
+    GROUP BY channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[channel, revenue_adj]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='split_orders', compositions=1, granularity_fit=&NotSelected]
+        Project[$0, if_then(equal($1, 'eu'):boolean? -> multiply($3, 1.2):fp64?, _ -> $3), $2]
+          Set[&UnionAll => $0, $1, $2, $3]
+            + Opt:Trace[semantic_source='split_orders', source_role=&Unionset, delivery=&Rows]
+            Project[$0, $1, true, $2]
+              Read[warehouse.eu_orders => channel:string?, region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='split_orders.eu_orders', source_role=&Dataset, originators=('split_orders',), physical_source='eu_orders']
+            Project[$0, $1, true, $2]
+              Read[warehouse.us_orders => channel:string?, region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='split_orders.us_orders', source_role=&Dataset, originators=('split_orders',), physical_source='us_orders']
+
+case_over_union_in_joinset:
+  # A CASE's parts are summed separately where the formula reads a Unionset nested under a Joinset.
+  model: models/commerce_own_union
+  request:
+    from: union_customers
+    select: [bonus]
+  expect:
+    rows:
+      - [bonus]
+      - [560.0]
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: equal
+      #  3 @  1: add
+
+    === Plan
+    Root[bonus]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='union_customers', compositions=2, granularity_fit=&NotSelected]
+        Project[add(if_then(equal($0, 1):boolean -> 100, equal($0, 2):boolean -> 100, _ -> 0), $1):fp64?]
+          Aggregate[$1 => $1, sum($0, overflow⇒[ERROR]):fp64?]
+            Project[$2, if_then(equal($3, 'vip'):boolean? -> 1, equal($0, 'us'):boolean? -> 2, _ -> 3)]
+              Join[&Left, equal($1, $4):boolean? => $0, $1, $2, $3, $4]
+                + Opt:Trace[semantic_source='union_customers', source_role=&Joinset, cardinality=&ManyToOne]
+                Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):fp64?]
+                  Project[$1, $0, $2]
+                    Set[&UnionAll => $0, $1, $2]
+                      + Opt:Trace[semantic_source='union_customers.orders_u', source_role=&Unionset, originators=('union_customers',), delivery=&PartialAggregates]
+                      Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):fp64?]
+                        Project[$0, $1, $3, $2]
+                          Project[$2, $0, true, $1]
+                            Read[warehouse.orders_eu => region_code:string?, amount:fp64?, cust_key:i64?]
+                              + Opt:Trace[semantic_source='union_customers.orders_u.orders_eu', source_role=&Dataset, originators=('union_customers.orders_u',), physical_source='orders_eu']
+                      Project[$0, $1, $2]
+                        Aggregate[$1, $0 => $1, $0, sum($2, overflow⇒[ERROR]):fp64?]
+                          Project[$0, $1, $3, $2]
+                            Project[$2, $0, true, $1]
+                              Read[warehouse.orders_us => region_code:string?, amount:fp64?, cust_key:i64?]
+                                + Opt:Trace[semantic_source='union_customers.orders_u.orders_us', source_role=&Dataset, originators=('union_customers.orders_u',), physical_source='orders_us']
+                Aggregate[$1, $0 => $1, $0]
+                  Project[$1, $0]
+                    Read[warehouse.customers => segment:string?, customer_id:i64?]
+                      + Opt:Trace[semantic_source='union_customers.customers', source_role=&Dataset, originators=('union_customers',), physical_source='customers']
+
+pushdown_through_union_branches:
+  # A formula pushed down through a Unionset finds no join that repeats its value, so each branch gives rows.
+  model: models/commerce_own_union
+  request:
+    from: union_customers
+    select: [region, vip_weighted_revenue]
+  expect:
+    rows:
+      - [region, vip_weighted_revenue]
+      - [eu, 300.0]
+      - [us, 410.0]
+  sql: >-
+    SELECT o.region_code AS region,
+    sum(CASE WHEN c.segment = 'vip' THEN o.amount * 2.0 ELSE o.amount END) AS vip_weighted_revenue
+    FROM (SELECT * FROM warehouse.orders_eu UNION ALL SELECT * FROM warehouse.orders_us) o
+    LEFT JOIN warehouse.customers c ON o.cust_key = c.customer_id
+    GROUP BY o.region_code
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: multiply
+      #  3 @  2: sum
+
+    === Plan
+    Root[region, vip_weighted_revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='union_customers', compositions=2, granularity_fit=&NotSelected]
+        Project[$1, if_then(equal($5, 'vip'):boolean? -> multiply($3, 2):fp64?, _ -> $3), $2]
+          Join[&Left, equal($0, $4):boolean? => $0, $1, $2, $3, $4, $5]
+            + Opt:Trace[semantic_source='union_customers', source_role=&Joinset, cardinality=&ManyToOne]
+            Project[$0, $1, $2, $3]
+              Set[&UnionAll => $0, $1, $2, $3]
+                + Opt:Trace[semantic_source='union_customers.orders_u', source_role=&Unionset, originators=('union_customers',), delivery=&Rows]
+                Project[$2, $0, true, $1]
+                  Read[warehouse.orders_eu => region_code:string?, amount:fp64?, cust_key:i64?]
+                    + Opt:Trace[semantic_source='union_customers.orders_u.orders_eu', source_role=&Dataset, originators=('union_customers.orders_u',), physical_source='orders_eu']
+                Project[$2, $0, true, $1]
+                  Read[warehouse.orders_us => region_code:string?, amount:fp64?, cust_key:i64?]
+                    + Opt:Trace[semantic_source='union_customers.orders_u.orders_us', source_role=&Dataset, originators=('union_customers.orders_u',), physical_source='orders_us']
+            Project[$1, $0]
+              Read[warehouse.customers => segment:string?, customer_id:i64?]
+                + Opt:Trace[semantic_source='union_customers.customers', source_role=&Dataset, originators=('union_customers',), physical_source='customers']

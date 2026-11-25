@@ -1,0 +1,31 @@
+tables:
+  - namespace: warehouse
+    name: orders_web
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: qty, type: integer}
+      - {name: cost, type: 'decimal(18,2)'}
+    rows:
+      - [w1, c1, 2000000000, 6000000000000000.00]
+      - [w2, c1, 2000000001, 6000000000000000.00]
+      - [w3, c2, 1000, 10.00]
+  - namespace: warehouse
+    name: orders_store
+    columns:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: qty, type: integer}
+      - {name: cost, type: 'decimal(18,2)'}
+    rows:
+      - [st1, c1, -2000000000, -5000000000000000.00]
+      - [st2, c1, -2000000000, 0.00]
+      - [st3, c3, 5, 1.00]
+  - namespace: warehouse
+    name: customers
+    columns:
+      - {name: customer_id, type: string}
+    rows:
+      - [c1]
+      - [c2]
+      - [c9]

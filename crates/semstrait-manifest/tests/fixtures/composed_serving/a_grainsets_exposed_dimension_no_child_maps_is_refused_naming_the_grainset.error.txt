@@ -1,0 +1,1 @@
+error: semantic source `txn_by_grain` exposes `channel`, but no operand or child maps it

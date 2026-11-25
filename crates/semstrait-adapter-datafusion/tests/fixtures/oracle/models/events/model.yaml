@@ -1,0 +1,127 @@
+# The events domain's main model: sensor readings, request-granularity events and visits.
+semantic_model:
+  name: events
+  dimensions:
+    - name: ts
+      data_type: timestamp
+      type:
+        temporal:
+          granularities: [hour, month]
+    - name: d
+      data_type: date
+      type:
+        temporal:
+          granularities: [week]
+    - name: channel
+      data_type: string
+      type: categorical
+  measures:
+    - name: event_count
+      data_type: bigint
+      agg: count
+    - name: revenue
+      data_type: double
+      agg: sum
+    - name: visitors
+      data_type: bigint
+      agg: count_distinct
+  metrics:
+    - name: revenue_per_visitor
+      data_type: double
+      expr:
+        divide: [revenue, visitors]
+  datasets:
+    - name: sensor_readings
+      extras:
+        storage:
+          tables: [warehouse.sensor_readings]
+      dimensions:
+        - {name: event_timestamp, data_type: timestamp, type: categorical}
+        - {name: reading_hour, data_type: timestamp, type: categorical, expr: {date_trunc: [hour, {col: event_timestamp}]}}
+        - {name: reading_year_part, data_type: bigint, type: categorical, expr: {extract: [year, {col: event_timestamp}]}}
+        - {name: reading_quarter_part, data_type: bigint, type: categorical, expr: {extract: [quarter, {col: event_timestamp}]}}
+        - {name: reading_month_part, data_type: bigint, type: categorical, expr: {extract: [month, {col: event_timestamp}]}}
+        - {name: reading_week_part, data_type: bigint, type: categorical, expr: {extract: [week, {col: event_timestamp}]}}
+        - {name: reading_day_part, data_type: bigint, type: categorical, expr: {extract: [day, {col: event_timestamp}]}}
+        - {name: reading_day_of_week_part, data_type: bigint, type: categorical, expr: {extract: [day_of_week, {col: event_timestamp}]}}
+        - {name: reading_day_of_year_part, data_type: bigint, type: categorical, expr: {extract: [day_of_year, {col: event_timestamp}]}}
+        - {name: reading_hour_part, data_type: bigint, type: categorical, expr: {extract: [hour, {col: event_timestamp}]}}
+        - {name: reading_minute_part, data_type: bigint, type: categorical, expr: {extract: [minute, {col: event_timestamp}]}}
+        - {name: reading_second_part, data_type: bigint, type: categorical, expr: {extract: [second, {col: event_timestamp}]}}
+    - name: events
+      extras:
+        storage:
+          tables: [warehouse.events]
+      dimensions:
+        - {name: event_date, data_type: date, type: categorical, expr: {col: created_at}}
+        - {name: event_month, data_type: date, type: categorical, expr: {date_trunc: [month, {col: created_at}]}}
+        - {name: event_week, data_type: date, type: categorical, expr: {date_trunc: [week, {col: created_at}]}}
+        - {name: event_year_part, data_type: bigint, type: categorical, expr: {extract: [year, {col: created_at}]}}
+        - {name: event_quarter_part, data_type: bigint, type: categorical, expr: {extract: [quarter, {col: created_at}]}}
+        - {name: event_month_part, data_type: bigint, type: categorical, expr: {extract: [month, {col: created_at}]}}
+        - {name: event_week_part, data_type: bigint, type: categorical, expr: {extract: [week, {col: created_at}]}}
+        - {name: event_day_part, data_type: bigint, type: categorical, expr: {extract: [day, {col: created_at}]}}
+        - {name: event_day_of_week_part, data_type: bigint, type: categorical, expr: {extract: [day_of_week, {col: created_at}]}}
+        - {name: event_day_of_year_part, data_type: bigint, type: categorical, expr: {extract: [day_of_year, {col: created_at}]}}
+    - name: stockholm_events
+      extras:
+        storage:
+          tables: [warehouse.stockholm_events]
+        semantic_mapping:
+          ts: ts
+          event_count: {lit: 1}
+      dimensions:
+        - ref: ts
+      measures:
+        - ref: event_count
+    - name: new_york_events
+      extras:
+        storage:
+          tables: [warehouse.new_york_events]
+        semantic_mapping:
+          ts: ts
+          event_count: {lit: 1}
+      dimensions:
+        - ref: ts
+      measures:
+        - ref: event_count
+    - name: days
+      extras:
+        storage:
+          tables: [warehouse.days]
+        semantic_mapping:
+          d: d
+          event_count: {lit: 1}
+      dimensions:
+        - ref: d
+      measures:
+        - ref: event_count
+  unionsets:
+    - name: visits
+      mode: all
+      dimensions:
+        - ref: channel
+      measures:
+        - ref: revenue
+        - ref: visitors
+      metrics:
+        - ref: revenue_per_visitor
+          filter:
+            eq: [channel, {lit: web}]
+      datasets:
+        - name: shop_visits
+          extras:
+            storage:
+              tables: [warehouse.shop]
+            semantic_mapping:
+              channel: channel
+              revenue: amount
+              visitors: visitor_id
+        - name: web_visits
+          extras:
+            storage:
+              tables: [warehouse.web]
+            semantic_mapping:
+              channel: channel
+              revenue: amount
+              visitors: visitor_id

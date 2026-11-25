@@ -1,0 +1,1 @@
+error: dataset `stacked.west`: `auto` on a constituent needs an observed schema, and none was observed

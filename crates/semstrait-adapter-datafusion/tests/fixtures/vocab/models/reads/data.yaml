@@ -1,0 +1,59 @@
+tables:
+  - namespace: sales
+    name: customers
+    columns:
+      - {name: id, type: bigint}
+      - {name: segment, type: string}
+    rows:
+      - [1, SMB]
+      - [2, ENT]
+      - [3, SMB]
+  - catalog: lake
+    namespace: sales
+    name: customers
+    columns:
+      - {name: id, type: bigint}
+      - {name: segment, type: string}
+    rows:
+      - [1, SMB]
+      - [2, ENT]
+      - [3, SMB]
+objects:
+  - uri: s3://semstrait-e2e/orders/part-0.parquet
+    columns:
+      - {name: id, type: bigint}
+      - {name: region, type: string}
+      - {name: status, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [1, eu, paid, 10]
+      - [2, eu, open, 20]
+      - [3, us, paid, 5]
+      - [4, latam, paid, 8]
+  - uri: s3://semstrait-e2e/orders/part-1.parquet
+    columns:
+      - {name: id, type: bigint}
+      - {name: region, type: string}
+      - {name: status, type: string}
+      - {name: amount, type: bigint}
+    rows:
+      - [5, us, paid, 25]
+      - [6, apac, open, 40]
+      - [7, eu, paid, 30]
+      - [8, us, cancelled, 100]
+  - uri: s3://semstrait-e2e/events/year=2026/Region=eu/part-0.parquet
+    columns:
+      - {name: amount, type: bigint}
+    rows:
+      - [1]
+      - [2]
+  - uri: s3://semstrait-e2e/events/year=2026/Region=us/part-0.parquet
+    columns:
+      - {name: amount, type: bigint}
+    rows:
+      - [3]
+  - uri: s3://semstrait-e2e/events/year=2026/Region=__HIVE_DEFAULT_PARTITION__/part-0.parquet
+    columns:
+      - {name: amount, type: bigint}
+    rows:
+      - [4]

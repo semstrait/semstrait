@@ -1,0 +1,19 @@
+tables:
+  - namespace: warehouse
+    name: orders
+    columns:
+      - {name: region, type: string}
+      - {name: amount, type: double}
+    rows:
+      - [eu, 10.0]
+      - [us, 20.0]
+      - [eu, 5.0]
+objects:
+  - uri: s3://semstrait-e2e/events/part-0.parquet
+    columns:
+      - {name: channel, type: string}
+      - {name: clicks, type: bigint}
+    rows:
+      - [web, 3]
+      - [app, 4]
+      - [web, 5]

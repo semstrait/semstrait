@@ -1,0 +1,441 @@
+# The request's own mechanics over one Dataset: selection, filters, where, order, limit and offset.
+
+aggregate_filter_mirror:
+  # A Metric's own filter clause keeps its own rows beside the plain aggregate it sits next to.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, web_revenue, revenue]
+  expect:
+    rows:
+      - [region, web_revenue, revenue]
+      - [eu, 100.0, 150.0]
+      - [us, 200.0, 210.0]
+  sql: >-
+    SELECT region, sum(amount) FILTER (WHERE channel = 'web') AS web_revenue,
+    sum(amount) AS revenue FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region, web_revenue, revenue]
+      Aggregate[$0 => $0, sum($2, overflow⇒[ERROR]):fp64?, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1, $1, equal($2, 'web'):boolean?]
+          Read[warehouse.orders => region:string?, amount:fp64?, channel:string?]
+            + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+named_filter:
+  # A named filter, followed through its link, keeps only the rows its linked condition allows.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, channel, revenue]
+    filters: [eu_web]
+  expect:
+    rows:
+      - [region, channel, revenue]
+      - [eu, web, 100.0]
+  sql: SELECT region, channel, sum(amount) AS revenue FROM warehouse.orders WHERE region = 'eu' AND channel = 'web' GROUP BY region, channel
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_boolean
+      @  3: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: and
+      #  3 @  3: sum
+
+    === Plan
+    Root[region, channel, revenue]
+      Aggregate[$2, $0 => $2, $0, sum($3, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Filter[$1 => $0, $1, $2, $3]
+          Project[$1, and(equal($0, 'eu'):boolean?, equal($1, 'web'):boolean?):boolean?, $0, $2]
+            Read[warehouse.orders => region:string?, channel:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+distinct_dimensions:
+  # Selecting only Dimensions yields distinct rows at that grain.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region]
+  expect:
+    rows:
+      - [region]
+      - [eu]
+      - [us]
+  sql: SELECT DISTINCT region FROM warehouse.orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Plan
+    Root[region]
+      Aggregate[$0 => $0]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[$0]
+          Read[warehouse.orders => region:string?]
+            + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+narrow_projection:
+  # Each region's revenue comes from a row-level projection that outputs only the column the aggregate needs.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+      - [us, 210.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+no_catalog_name:
+  # A table entry with no catalog name reads with an empty catalog dropped from the plan.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+      - [us, 210.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[$0, $1]
+          Read[warehouse.orders => region:string?, amount:fp64?]
+            + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+measures_only_one_row:
+  # Selecting only Measures yields one row, with no grouping.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [revenue]
+  expect:
+    rows:
+      - [revenue]
+      - [360.0]
+  sql: SELECT sum(amount) AS revenue FROM warehouse.orders
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[revenue]
+      Aggregate[_ => sum($0, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Project[$0]
+          Read[warehouse.orders => amount:fp64?]
+            + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+limit_and_offset:
+  # A row window with an order, a limit and an offset skips rows before the limit.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+    order_by: [{name: revenue, direction: desc}]
+    limit: 1
+    offset: 1
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region ORDER BY revenue DESC LIMIT 1 OFFSET 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Fetch[limit=1, offset=1 => $0, $1]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Sort[($1, &DescNullsFirst) => $0, $1]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1]
+              Read[warehouse.orders => region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+offset_no_limit:
+  # With no limit, the row window skips rows before the offset and keeps every row after it.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+    order_by: [{name: revenue, direction: desc}]
+    offset: 1
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region ORDER BY revenue DESC OFFSET 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Fetch[offset=1 => $0, $1]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Sort[($1, &DescNullsFirst) => $0, $1]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1]
+              Read[warehouse.orders => region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+limit_past_max:
+  # A limit past i64::MAX is written as i64::MAX, with no refusal.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+    order_by: [{name: revenue, direction: desc}]
+    limit: 18446744073709551615
+    offset: 1
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 150.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region ORDER BY revenue DESC LIMIT 9223372036854775807 OFFSET 1
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[region, revenue]
+      Fetch[limit=9223372036854775807, offset=1 => $0, $1]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Sort[($1, &DescNullsFirst) => $0, $1]
+          Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+            Project[$0, $1]
+              Read[warehouse.orders => region:string?, amount:fp64?]
+                + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+nulls_sort_high_asc:
+  # Sorting a nullable column ascending puts its NULL last.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [channel, revenue]
+    order_by: [{name: channel, direction: asc}]
+  expect:
+    rows:
+      - [channel, revenue]
+      - [app, 50.0]
+      - [web, 300.0]
+      - [null, 10.0]
+  sql: SELECT channel, sum(amount) AS revenue FROM warehouse.orders GROUP BY channel ORDER BY channel ASC NULLS LAST
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[channel, revenue]
+      Sort[($0, &AscNullsLast) => $0, $1]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1]
+            Read[warehouse.orders => channel:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+nulls_sort_high_desc:
+  # Sorting a nullable column descending puts its NULL first.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [channel, revenue]
+    order_by: [{name: channel, direction: desc}]
+  expect:
+    rows:
+      - [channel, revenue]
+      - [null, 10.0]
+      - [web, 300.0]
+      - [app, 50.0]
+  sql: SELECT channel, sum(amount) AS revenue FROM warehouse.orders GROUP BY channel ORDER BY channel DESC NULLS FIRST
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: sum
+
+    === Plan
+    Root[channel, revenue]
+      Sort[($0, &DescNullsFirst) => $0, $1]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1]
+            Read[warehouse.orders => channel:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+where_on_dimension:
+  # A predicate on a Dimension the request does not select applies before aggregation.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+    where: {eq: [channel, {lit: web}]}
+  expect:
+    rows:
+      - [region, revenue]
+      - [eu, 100.0]
+      - [us, 200.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders WHERE channel = 'web' GROUP BY region
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_comparison
+      @  2: extension:io.substrait:functions_arithmetic
+    Functions:
+      #  1 @  1: equal
+      #  2 @  2: sum
+
+    === Plan
+    Root[region, revenue]
+      Aggregate[$1 => $1, sum($2, overflow⇒[ERROR]):fp64?]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Filter[equal($0, 'web'):boolean? => $0, $1, $2]
+          Project[$2, $0, $1]
+            Read[warehouse.orders => region:string?, amount:fp64?, channel:string?]
+              + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+where_on_measure:
+  # A predicate on a Measure applies directly above the aggregate step, not per row.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, revenue]
+    where: {gt: [revenue, 160]}
+  expect:
+    rows:
+      - [region, revenue]
+      - [us, 210.0]
+  sql: SELECT region, sum(amount) AS revenue FROM warehouse.orders GROUP BY region HAVING sum(amount) > 160
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: gt
+
+    === Plan
+    Root[region, revenue]
+      Filter[gt($1, 160):boolean? => $0, $1]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Aggregate[$0 => $0, sum($1, overflow⇒[ERROR]):fp64?]
+          Project[$0, $1]
+            Read[warehouse.orders => region:string?, amount:fp64?]
+              + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
+
+where_on_metric:
+  # A predicate on a Metric applies above the projection that computes its finished value.
+  model: models/commerce
+  request:
+    from: orders_skeleton
+    select: [region, aov]
+    where: {gt: [aov, 80]}
+  expect:
+    rows:
+      - [region, aov]
+      - [us, 105.0]
+  sql: SELECT region, sum(amount) / count(order_id) AS aov FROM warehouse.orders GROUP BY region HAVING sum(amount) / count(order_id) > 80
+  plan: |
+    === Version 0.85.0
+      producer: semstrait
+    === Extensions
+    URNs:
+      @  1: extension:io.substrait:functions_arithmetic
+      @  2: extension:io.substrait:functions_aggregate_generic
+      @  3: extension:io.substrait:functions_comparison
+    Functions:
+      #  1 @  1: sum
+      #  2 @  2: count
+      #  3 @  1: divide
+      #  4 @  3: gt
+
+    === Plan
+    Root[region, aov]
+      Project[$1, $0]
+        + Opt:Trace[scope_root='orders_skeleton', compositions=0, granularity_fit=&NotSelected]
+        Filter[gt($0, 80):boolean? => $0, $1]
+          Project[divide($1, ($2)::!fp64, on_division_by_zero⇒[ERROR]):fp64?, $0]
+            Aggregate[$2 => $2, sum($0, overflow⇒[ERROR]):fp64?, count($1, overflow⇒[ERROR]):i64]
+              Project[$1, $2, $0]
+                Read[warehouse.orders => region:string?, amount:fp64?, order_id:string?]
+                  + Opt:Trace[semantic_source='orders_skeleton', source_role=&Dataset, physical_source='orders']
