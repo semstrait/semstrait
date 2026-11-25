@@ -33,7 +33,7 @@ prost = "0.14"
 
 # The format artifact: crate 0.63 writes Substrait spec v0.85.0 (ADR 0068, *The
 # release gap is the producer's*).
-substrait = "0.63"
+substrait = "0.65"
 # `serde`: the `Any` carrier of `substrait`'s own `serde` feature, which
 # `datafusion-substrait` turns on (ADR 0068, *The node-common block on the wire,
 # and trace*).
@@ -73,9 +73,9 @@ tracing = "0.1"
 chrono-tz = "0.10"
 sha2 = "0.11"
 bon = "3"
-jsonschema = { version = "0.46", default-features = false }
+jsonschema = { version = "0.49", default-features = false }
 bytes = "1"
-object_store = { version = "0.13", default-features = false }
+object_store = { version = "0.14", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 schemars = { version = "1.2", features = ["indexmap2"] }
 tempfile = "3"
